@@ -28,11 +28,6 @@ ifeq ($(CONFIG_ARCH_RV64I),y)
 	KBUILD_CFLAGS += -mabi=lp64
 	KBUILD_AFLAGS += -mabi=lp64
 
-# workaround for C906 ldd performance issue
-ifeq ($(CONFIG_ARCH_CVITEK),y)
-	KBUILD_CFLAGS += -mno-ldd
-endif
-
 	KBUILD_LDFLAGS += -melf64lriscv
 else
 	BITS := 32
@@ -66,6 +61,9 @@ riscv-march-aflags-$(CONFIG_RISCV_ISA_C)	:= $(riscv-march-aflags-y)c
 riscv-march-aflags-$(CONFIG_VECTOR_1_0)		:= $(riscv-march-aflags-y)v
 riscv-march-aflags-$(CONFIG_VECTOR_0_7)		:= $(riscv-march-aflags-y)v0p7
 riscv-march-aflags-$(CONFIG_RISCV_ISA_THEAD)	:= $(riscv-march-aflags-y)xthead
+
+riscv-march-cflags-$(CONFIG_TOOLCHAIN_NEEDS_EXPLICIT_ZICSR_ZIFENCEI)	:= $(riscv-march-cflags-y)_zicsr_zifencei
+riscv-march-aflags-$(CONFIG_TOOLCHAIN_NEEDS_EXPLICIT_ZICSR_ZIFENCEI)	:= $(riscv-march-aflags-y)_zicsr_zifencei
 
 KBUILD_CFLAGS += -march=$(riscv-march-cflags-y) -Wa,-march=$(riscv-march-aflags-y)
 KBUILD_AFLAGS += -march=$(riscv-march-aflags-y)
