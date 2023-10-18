@@ -295,6 +295,14 @@ static int apply_r_riscv_sub64_rela(struct module *me, u32 *location,
 	return 0;
 }
 
+static int apply_r_riscv_pcrel_32_rela(struct module *me, u32 *location,
+				    Elf_Addr v)
+{
+	ptrdiff_t offset = (void *)v - (void *)location;
+	*location = (*location & 0xffff0000) | (offset & 0x0000ffff);
+	return 0;
+}
+
 static int (*reloc_handlers_rela[]) (struct module *me, u32 *location,
 				Elf_Addr v) = {
 	[R_RISCV_32]			= apply_r_riscv_32_rela,
@@ -318,6 +326,7 @@ static int (*reloc_handlers_rela[]) (struct module *me, u32 *location,
 	[R_RISCV_ADD64]			= apply_r_riscv_add64_rela,
 	[R_RISCV_SUB32]			= apply_r_riscv_sub32_rela,
 	[R_RISCV_SUB64]			= apply_r_riscv_sub64_rela,
+	[R_RISCV_32_PCREL]		= apply_r_riscv_pcrel_32_rela,	
 };
 
 static inline int apply_calc_pcrel_lo12(Elf_Shdr *sechdrs, Elf_Rela *rel,
