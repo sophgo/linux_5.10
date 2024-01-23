@@ -1958,6 +1958,23 @@ static void dwc2_hc_chhltd_intr_dma(struct dwc2_hsotg *hsotg,
 				dwc2_halt_channel(hsotg, chan, qtd,
 					DWC2_HC_XFER_PERIODIC_INCOMPLETE);
 			} else {
+#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+				dev_info(hsotg->dev,
+					"%s: Channel %d - ChHltd set, but reason is unknown, ignore it\n",
+					__func__, chnum);
+				dev_info(hsotg->dev,
+					"hcint 0x%08x, intsts 0x%08x\n",
+					chan->hcint,
+					dwc2_readl(hsotg, GINTSTS));
+				/* Unknown halt reason.
+				 * From the catc, the device returns an incomplete transaction
+				 * but recovers by the USB bus level error handling (resend).
+				 * Make it a successful transaction anyway and let the function
+				 * driver check the content.
+				 */
+				dwc2_hc_xfercomp_intr(hsotg, chan, chnum, qtd);
+			}
+#else
 				dev_err(hsotg->dev,
 					"%s: Channel %d - ChHltd set, but reason is unknown\n",
 					__func__, chnum);
@@ -1966,13 +1983,15 @@ static void dwc2_hc_chhltd_intr_dma(struct dwc2_hsotg *hsotg,
 					chan->hcint,
 					dwc2_readl(hsotg, GINTSTS));
 				goto error;
-			}
+#endif
 		}
 	} else {
 		dev_info(hsotg->dev,
 			 "NYET/NAK/ACK/other in non-error case, 0x%08x\n",
 			 chan->hcint);
+#if !IS_ENABLED(CONFIG_ARCH_CVITEK)
 error:
+#endif
 		/* Failthrough: use 3-strikes rule */
 		qtd->error_count++;
 		dwc2_update_urb_state_abn(hsotg, chan, chnum, qtd->urb,

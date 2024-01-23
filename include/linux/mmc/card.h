@@ -271,6 +271,7 @@ struct mmc_card {
 #define MMC_QUIRK_TRIM_BROKEN	(1<<12)		/* Skip trim */
 #define MMC_QUIRK_BROKEN_HPI	(1<<13)		/* Disable broken HPI support */
 #define MMC_QUIRK_BROKEN_SD_DISCARD	(1<<14)	/* Disable broken SD discard support */
+#define MMC_QUIRK_EXTRA_LONG_READ_TIME (1<<15)	/* For Micron eMMC need very long read time after power loss boot */
 
 	bool			reenable_cmdq;	/* Re-enable Command Queue */
 
