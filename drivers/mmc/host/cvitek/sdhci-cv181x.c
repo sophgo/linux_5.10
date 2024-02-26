@@ -1124,7 +1124,8 @@ static const struct sdhci_ops sdhci_cv181x_fpga_sd_ops = {
 
 static const struct sdhci_pltfm_data sdhci_cv181x_emmc_pdata = {
 	.ops = &sdhci_cv181x_emmc_ops,
-	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN
+			| SDHCI_QUIRK_BROKEN_TIMEOUT_VAL,
 	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
 };
 

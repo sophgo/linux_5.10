@@ -156,3 +156,6 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+build/
+scripts/dtc/include-prefixes/cvi_board_memmap.h
