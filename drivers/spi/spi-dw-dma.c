@@ -456,11 +456,6 @@ static int dw_spi_dma_transfer_all(struct dw_spi *dws,
 {
 	int ret;
 
-	/* Submit the DMA Tx transfer */
-	ret = dw_spi_dma_submit_tx(dws, xfer->tx_sg.sgl, xfer->tx_sg.nents);
-	if (ret)
-		goto err_clear_dmac;
-
 	/* Submit the DMA Rx transfer if required */
 	if (xfer->rx_buf) {
 		ret = dw_spi_dma_submit_rx(dws, xfer->rx_sg.sgl,
@@ -471,6 +466,10 @@ static int dw_spi_dma_transfer_all(struct dw_spi *dws,
 		/* rx must be started before tx due to spi instinct */
 		dma_async_issue_pending(dws->rxchan);
 	}
+	/* Submit the DMA Tx transfer */
+	ret = dw_spi_dma_submit_tx(dws, xfer->tx_sg.sgl, xfer->tx_sg.nents);
+	if (ret)
+		goto err_clear_dmac;
 
 	dma_async_issue_pending(dws->txchan);
 

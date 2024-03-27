@@ -1586,6 +1586,59 @@ erase_err:
 	return ret;
 }
 
+static int spi_nor_get_otp_info(struct mtd_info *mtd, struct otp_message *otp_info)
+{
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	const struct flash_info	*info = nor->info;
+
+	if (nor->flags & SNOR_F_SUPPORT_OTP) {
+		otp_info->count	= info->otp_num;
+		otp_info->length = info->otp_size;
+	}
+	/* we do not lock otp area */
+	otp_info->locked	= 0;
+	return 0;
+}
+
+static int spi_nor_erase_otp(struct mtd_info *mtd, struct erase_info *instr)
+{
+	int ret = 0;
+	u32 addr = instr->addr;
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	u8 addr_width = nor->addr_width;
+	u8 opcode = nor->erase_opcode;
+
+	if (!(nor->flags & SNOR_F_SUPPORT_OTP))
+		return 0;
+
+	mutex_lock(&nor->lock);
+	ret = spi_nor_write_enable(nor);
+	if (ret)
+		goto erase_err;
+
+	nor->erase_opcode = SPINOR_OP_ER_OTP;
+	nor->addr_width = 3;
+	if (!((addr >> 12) & 0x3)) {
+		pr_info("otp area address is not correct!\n");
+		ret = -1;
+		goto erase_err;
+	}
+
+	ret = spi_nor_erase_sector(nor, addr);
+	if (ret)
+		goto erase_err;
+
+	ret = spi_nor_wait_till_ready(nor);
+	if (ret)
+		goto erase_err;
+
+erase_err:
+	nor->erase_opcode = opcode;
+	nor->addr_width = addr_width;
+	mutex_unlock(&nor->lock);
+	return ret;
+}
+
 static u8 spi_nor_get_sr_bp_mask(struct spi_nor *nor)
 {
 	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
@@ -2092,6 +2145,7 @@ int spi_nor_sr2_bit7_quad_enable(struct spi_nor *nor)
 
 static const struct spi_nor_manufacturer *manufacturers[] = {
 	&spi_nor_cvitek,
+/*
 	&spi_nor_atmel,
 	&spi_nor_catalyst,
 	&spi_nor_eon,
@@ -2109,6 +2163,7 @@ static const struct spi_nor_manufacturer *manufacturers[] = {
 	&spi_nor_winbond,
 	&spi_nor_xilinx,
 	&spi_nor_xmc,
+*/
 };
 
 static const struct flash_info *
@@ -2204,6 +2259,23 @@ read_err:
 	return ret;
 }
 
+static int spi_nor_read_otp(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf)
+{
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	ssize_t ret = 0;
+
+	if (!(nor->flags & SNOR_F_SUPPORT_OTP))
+		return 0;
+
+	mutex_lock(&nor->lock);
+	ret = nor->controller_ops->read_otp(nor, from, len, buf);
+	if (ret != len)
+		ret = -1;
+
+	mutex_unlock(&nor->lock);
+	return ret;
+}
+
 /*
  * Write an address range to the nor chip.  Data must be written in
  * FLASH_PAGESIZE chunks.  The address range may be any size provided
@@ -2265,6 +2337,62 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 
 write_err:
 	spi_nor_unlock_and_unprep(nor);
+	return ret;
+}
+
+static int spi_nor_write_otp(struct mtd_info *mtd, loff_t to, size_t len, const u_char *buf)
+{
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	size_t page_offset, page_remain, i;
+	ssize_t ret;
+
+	dev_dbg(nor->dev, "to 0x%08x, len %zd\n", (u32)to, len);
+	if (!(nor->flags & SNOR_F_SUPPORT_OTP))
+		return 0;
+
+	mutex_lock(&nor->lock);
+
+	for (i = 0; i < len; ) {
+		ssize_t written;
+		loff_t addr = to + i;
+
+		/*
+		 * If page_size is a power of two, the offset can be quickly
+		 * calculated with an AND operation. On the other cases we
+		 * need to do a modulus operation (more expensive).
+		 * Power of two numbers have only one bit set and we can use
+		 * the instruction hweight32 to detect if we need to do a
+		 * modulus (do_div()) or not.
+		 */
+
+		if (hweight32(nor->page_size) == 1) {
+			page_offset = addr & (nor->page_size - 1);
+		} else {
+			u64 aux = addr;
+
+			page_offset = do_div(aux, nor->page_size);
+		}
+		/* the size of data remaining on the first page */
+		page_remain = min_t(size_t,
+				    nor->page_size - page_offset, len - i);
+
+		ret = spi_nor_write_enable(nor);
+		if (ret)
+			goto write_err;
+
+		ret = nor->controller_ops->write_otp(nor, addr, page_remain, buf + i);
+		if (ret < 0)
+			goto write_err;
+		written = ret;
+
+		ret = spi_nor_wait_till_ready(nor);
+		if (ret)
+			goto write_err;
+		i += written;
+	}
+
+write_err:
+	mutex_unlock(&nor->lock);
 	return ret;
 }
 
@@ -3282,6 +3410,9 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	if (info->flags & SPI_NOR_HAS_LOCK)
 		nor->flags |= SNOR_F_HAS_LOCK;
 
+	if (info->flags & SPI_NOR_SUPPORT_OTP)
+		nor->flags |= SNOR_F_SUPPORT_OTP;
+
 	mtd->_write = spi_nor_write;
 
 	/* Init flash parameters based on flash_info struct and SFDP */
@@ -3301,6 +3432,10 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	mtd->_resume = spi_nor_resume;
 	mtd->_get_device = spi_nor_get_device;
 	mtd->_put_device = spi_nor_put_device;
+	mtd->_erase_otp = spi_nor_erase_otp;
+	mtd->_read_otp = spi_nor_read_otp;
+	mtd->_write_otp = spi_nor_write_otp;
+	mtd->_get_otp_info = spi_nor_get_otp_info;
 
 	if (nor->params->locking_ops) {
 		mtd->_lock = spi_nor_lock;

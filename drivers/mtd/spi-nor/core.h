@@ -26,6 +26,7 @@ enum spi_nor_option_flags {
 	SNOR_F_HAS_SR_TB_BIT6	= BIT(11),
 	SNOR_F_HAS_4BIT_BP      = BIT(12),
 	SNOR_F_HAS_SR_BP3_BIT6  = BIT(13),
+	SNOR_F_SUPPORT_OTP  = BIT(14),
 };
 
 struct spi_nor_read_command {
@@ -270,7 +271,8 @@ struct flash_info {
 
 	u16		page_size;
 	u16		addr_width;
-
+	u32		otp_num;
+	u32		otp_size;
 	u32		flags;
 #define SECT_4K			BIT(0)	/* SPINOR_OP_BE_4K works uniformly */
 #define SPI_NOR_NO_ERASE	BIT(1)	/* No erase command needed */
@@ -315,6 +317,7 @@ struct flash_info {
 #define SPI_NOR_QUAD_OP         (SPI_NOR_QUAD_READ | SPI_NOR_QUAD_WRITE)
 
 #define SPI_NOR_HAS_FIX_DUMMY  BIT(20)
+#define SPI_NOR_SUPPORT_OTP	BIT(21)
 	/* Part specific fixup hooks. */
 	const struct spi_nor_fixups *fixups;
 };
@@ -333,6 +336,22 @@ struct flash_info {
 		.n_sectors = (_n_sectors),				\
 		.page_size = 256,					\
 		.flags = (_flags),
+
+#define CVI_INFO(_jedec_id, _ext_id, _sector_size, _n_sectors, _otp_num, _otp_size, _flags)	\
+	.id = {							\
+		((_jedec_id) >> 16) & 0xff,			\
+		((_jedec_id) >> 8) & 0xff,			\
+		(_jedec_id) & 0xff,				\
+		((_ext_id) >> 8) & 0xff,			\
+		(_ext_id) & 0xff,				\
+	},						\
+	.id_len = (!(_jedec_id) ? 0 : (3 + ((_ext_id) ? 2 : 0))),	\
+	.sector_size = (_sector_size),				\
+	.n_sectors = (_n_sectors),				\
+	.otp_num = _otp_num,					\
+	.otp_size = _otp_size,					\
+	.page_size = 256,					\
+	.flags = (_flags),
 
 #define INFO6(_jedec_id, _ext_id, _sector_size, _n_sectors, _flags)	\
 		.id = {							\

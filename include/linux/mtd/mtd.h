@@ -316,8 +316,13 @@ struct mtd_info {
 	int (*_unpoint) (struct mtd_info *mtd, loff_t from, size_t len);
 	int (*_read) (struct mtd_info *mtd, loff_t from, size_t len,
 		      size_t *retlen, u_char *buf);
+	int (*_erase_otp)(struct mtd_info *mtd, struct erase_info *instr);
+	int (*_read_otp)(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf);
+	int (*_get_otp_info)(struct mtd_info *mtd, struct otp_message *otp_info);
 	int (*_write) (struct mtd_info *mtd, loff_t to, size_t len,
 		       size_t *retlen, const u_char *buf);
+	int (*_write_otp)(struct mtd_info *mtd, loff_t to, size_t len,
+			  const u_char *buf);
 	int (*_panic_write) (struct mtd_info *mtd, loff_t to, size_t len,
 			     size_t *retlen, const u_char *buf);
 	int (*_read_oob) (struct mtd_info *mtd, loff_t from,

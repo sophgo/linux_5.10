@@ -662,6 +662,8 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	case MTDFILEMODE:
 	case BLKPG:
 	case BLKRRPART:
+	case OTPREAD:
+	case OTPINFO:
 		break;
 
 	/* "dangerous" commands */
@@ -674,6 +676,8 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	case MEMWRITEOOB64:
 	case MEMWRITE:
 	case OTPLOCK:
+	case OTPERASE:
+	case OTPWRITE:
 		if (!(file->f_mode & FMODE_WRITE))
 			return -EPERM;
 		break;
@@ -757,6 +761,114 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 
 			ret = mtd_erase(mtd, erase);
 			kfree(erase);
+		}
+		break;
+	}
+
+	case OTPERASE:
+	{
+		struct erase_info *erase;
+		struct mtd_info *master = mtd_get_master(mtd);
+
+		erase = kzalloc(sizeof(*erase), GFP_KERNEL);
+		if (!erase) {
+			ret = -ENOMEM;
+		} else {
+			struct erase_info_user einfo32;
+
+			if (copy_from_user(&einfo32, argp, sizeof(struct erase_info_user))) {
+				kfree(erase);
+				return -EFAULT;
+			}
+			erase->addr = einfo32.start;
+			erase->len = einfo32.length;
+		}
+
+		if (!master->_erase_otp)
+			return -EOPNOTSUPP;
+
+		if (!(mtd->flags & MTD_WRITEABLE))
+			return -EROFS;
+
+		ret = master->_erase_otp(master, erase);
+		kfree(erase);
+		break;
+	}
+
+	case OTPINFO:
+	{
+		struct mtd_info *master = mtd_get_master(mtd);
+		struct otp_message otp_info;
+
+		memset(&otp_info, 0, sizeof(struct otp_message));
+		if (!master->_get_otp_info)
+			return -EOPNOTSUPP;
+
+		ret = master->_get_otp_info(master, &otp_info);
+		if (copy_to_user(argp, &otp_info, sizeof(struct otp_message)))
+			return -EFAULT;
+		break;
+	}
+
+	case OTPWRITE:
+	{
+		struct mtd_info *master = mtd_get_master(mtd);
+		struct mtd_otp_buf buf;
+		struct mtd_otp_buf __user *buf_user = argp;
+		void *ptr = NULL;
+
+		if (!master->_write_otp)
+			return -EOPNOTSUPP;
+
+		if (!(mtd->flags & MTD_WRITEABLE))
+			return -EROFS;
+
+		/* NOTE: writes return length to buf_user->length */
+		if (copy_from_user(&buf, argp, sizeof(buf))) {
+			ret = -EFAULT;
+		} else {
+			ptr = memdup_user(buf.ptr, buf.length);
+			if (IS_ERR(ptr))
+				return PTR_ERR(ptr);
+
+			ret = master->_write_otp(master, (loff_t)buf.start, (size_t)buf.length, (const u_char *)ptr);
+			if (ret)
+				pr_info("write failed\n");
+			kfree(ptr);
+		}
+		break;
+	}
+
+	case OTPREAD:
+	{
+		struct mtd_info *master = mtd_get_master(mtd);
+		struct mtd_otp_buf buf;
+		struct mtd_otp_buf __user *buf_user = argp;
+		void *ptr = NULL;
+
+		if (!master->_read_otp)
+			return -EOPNOTSUPP;
+
+		if (copy_from_user(&buf, argp, sizeof(buf))) {
+			ret = -EFAULT;
+		} else {
+			ptr = kmalloc(buf.length, GFP_KERNEL);
+			if (IS_ERR(ptr))
+				return PTR_ERR(ptr);
+
+			ret = master->_read_otp(master, (loff_t)buf.start, (size_t)buf.length, (u_char *)ptr);
+
+			if (!access_ok((void __user *)buf.ptr, buf.length))
+				ret = -EFAULT;
+
+			if (ret == buf.length) {
+				ret = copy_to_user((void __user *)buf.ptr, ptr, buf.length);
+				if (ret) {
+					pr_info("copy buffer data to userspace failed!\n");
+					ret = -1;
+				}
+			}
+			kfree(ptr);
 		}
 		break;
 	}

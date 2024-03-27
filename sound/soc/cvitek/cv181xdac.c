@@ -319,6 +319,7 @@ static long dac_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	struct cvi_vol_ctrl vol;
 	u32 val;
 	u32 temp;
+	u32 ramp;
 
 	if (argp != NULL) {
 		if (!copy_from_user(&val, argp, sizeof(val))) {
@@ -369,6 +370,11 @@ static long dac_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 			return -EFAULT;
 		}
+		pr_debug("dacl_ramp: 0x%x 0x%x\n", ramp, dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE1));
+		ramp = dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE1) | AUDIO_PHY_REG_TXDAC_RAMP_BP_MASK;
+		dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE1, ramp);
+		pr_debug("dacl_ramp: 0x%x 0x%x\n", ramp, dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE1));
+
 		if (vol.vol_ctrl_mute == 1) {
 			temp = dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_ANA2);
 			temp |= AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_ON;
