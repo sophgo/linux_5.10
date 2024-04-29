@@ -20,7 +20,7 @@
 #include <asm/csr.h>
 #include <asm/asm-offsets.h>
 
-#if (defined(CONFIG_VECTOR_1_0) && defined(__THEAD_VERSION__))
+#if defined(CONFIG_VECTOR_1_0)
 #define V_ST	vse8.v
 #define V_LD	vle8.v
 #else
