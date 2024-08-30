@@ -61,16 +61,12 @@ static int ion_carveout_heap_allocate(struct ion_heap *heap,
 
 	ret = sg_alloc_table(table, 1, GFP_KERNEL);
 	if (ret) {
-		pr_err("%s sg_alloc_table failed!\n", __func__);
+		//pr_debug("%s sg_alloc_table failed!\n", __func__);
 		goto err_free;
 	}
 
 	paddr = ion_carveout_allocate(heap, size);
 	if (paddr == ION_CARVEOUT_ALLOCATE_FAIL) {
-		pr_err("%s ion_carveout_allocate size(%ld) failed!\n", __func__, size);
-		pr_err("%s: total_size = 0x%lx, avail_size = 0x%lx\n"
-				, __func__, heap->total_size, heap->total_size - heap->num_of_alloc_bytes);
-		cvi_ion_dump_heap_info(heap);
 		ret = -ENOMEM;
 		goto err_free_table;
 	}
@@ -180,20 +176,20 @@ int cvi_ion_dump_heap_info(struct ion_heap *heap)
 	if (rem)
 		usage_rate += 1;
 
-	pr_err("[%d] %s heap size:%zu bytes, used:%zu bytes\n"
+	pr_debug("[%d] %s heap size:%zu bytes, used:%zu bytes\n"
 			, heap->id, heap->name, total_size, alloc_size);
 
-	pr_err("usage rate:%d%%, memory usage peak %llu bytes\n"
+	pr_debug("usage rate:%d%%, memory usage peak %llu bytes\n"
 			, usage_rate, alloc_bytes_wm);
 
-	pr_err("\nDetails:\n%16s %16s %16s %16s %16s\n", "heap_id"
+	pr_debug("\nDetails:\n%16s %16s %16s %16s %16s\n", "heap_id"
 			, "alloc_buf_size", "phy_addr", "kmap_cnt", "buffer name");
 	mutex_lock(&dev->buffer_lock);
 	spin_lock(&heap->stat_lock);
 	rbtree_postorder_for_each_entry_safe(pos, n, &dev->buffers, node) {
 		/* only heap id matches will show buffer info */
 		if (heap->id == pos->heap->id)
-			pr_err("%16d %16zu %16llx %16d %16s\n"
+			pr_debug("%16d %16zu %16llx %16d %16s\n"
 					, pos->heap->id, pos->size, pos->paddr,
 					pos->kmap_cnt, pos->name);
 	}
