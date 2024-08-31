@@ -427,7 +427,6 @@ int ion_alloc(size_t len, unsigned int heap_id_mask, unsigned int flags)
 	len = PAGE_ALIGN(len);
 
 	if (!len) {
-		pr_err("PAGE_ALIGN(%zu) failed!\n", len);
 		return -EINVAL;
 	}
 
@@ -439,21 +438,14 @@ int ion_alloc(size_t len, unsigned int heap_id_mask, unsigned int flags)
 		buffer = ion_buffer_create(heap, dev, len, flags);
 		if (!IS_ERR(buffer))
 			break;
-		else
-			pr_err("%s total_size = 0x%lx, avail_size = 0x%lx\n", __func__
-					, heap->total_size, heap->total_size - heap->num_of_alloc_bytes);
 	}
 	up_read(&dev->lock);
 
 	if (!buffer) {
-		pr_err("1-ion_buffer_create(%d, %zu, %d) failed! buffer = NULL!\n"
-				, heap_id_mask, len, flags);
 		return -ENODEV;
 	}
 
 	if (IS_ERR(buffer)) {
-		pr_err("2-ion_buffer_create(%d, %zu, %d) failed! ret = %d\n"
-				, heap_id_mask, len, flags, PTR_ERR(buffer));
 		return PTR_ERR(buffer);
 	}
 
