@@ -82,7 +82,6 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 	ret = heap->ops->allocate(heap, buffer, len, flags);
 
 	if (ret) {
-		pr_err("%s allocate len(%ld) flags(%ld) failed! retry.\n", __func__, len, flags);
 		if (!(heap->flags & ION_HEAP_FLAG_DEFER_FREE))
 			goto err2;
 
