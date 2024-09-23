@@ -169,4 +169,5 @@
 #define CLK_RST_AXI5		52
 #define CLK_RST_AXI6		53
 
+#define RTC_RST_I2C			208
 #endif /* _DT_BINDINGS_RST_CV1835_H_ */

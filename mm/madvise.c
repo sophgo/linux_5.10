@@ -923,6 +923,9 @@ static int madvise_inject_error(int behavior,
 }
 #endif
 
+#include <asm/cacheflush.h>
+#include <linux/dma-map-ops.h>
+
 static long
 madvise_vma(struct vm_area_struct *vma, struct vm_area_struct **prev,
 		unsigned long start, unsigned long end, int behavior)
@@ -1069,6 +1072,16 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 	int write;
 	size_t len;
 	struct blk_plug plug;
+
+#if defined(CONFIG_ARCH_CVITEK)
+	if ((behavior == MADV_DONTNEED)
+		&& (len_in == 0x20000)
+		&& ((start & 0xF0000000) == 0x80000000)) {
+		pr_info("untagged start : 0x%lx, len_in : 0x%x\n", start, len_in);
+		arch_sync_dma_for_device(start, len_in, DMA_FROM_DEVICE);
+		return 0;
+	}
+#endif
 
 	start = untagged_addr(start);
 

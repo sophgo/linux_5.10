@@ -5728,7 +5728,11 @@ static int __init slab_sysfs_init(void)
 	return 0;
 }
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 __initcall(slab_sysfs_init);
+#else
+deferred_initcall(slab_sysfs_init);
+#endif
 #endif /* CONFIG_SYSFS */
 
 /*

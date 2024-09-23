@@ -442,4 +442,8 @@ static int __init ipv6_offload_init(void)
 	return 0;
 }
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 fs_initcall(ipv6_offload_init);
+#else
+deferred_initcall(ipv6_offload_init);
+#endif

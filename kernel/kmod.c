@@ -167,7 +167,9 @@ int __request_module(bool wait, const char *fmt, ...)
 
 	trace_module_request(module_name, wait, _RET_IP_);
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 	ret = call_modprobe(module_name, wait ? UMH_WAIT_PROC : UMH_WAIT_EXEC);
+#endif
 
 	atomic_inc(&kmod_concurrent_max);
 	wake_up(&kmod_wq);

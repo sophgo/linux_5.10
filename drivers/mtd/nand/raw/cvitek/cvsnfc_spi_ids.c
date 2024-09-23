@@ -97,6 +97,19 @@ short ECC_1bits_remap[4] = {0, 1, -1, -1};
 short ECC_GD_4bit_remap[16] = {0, 0, 0, 0, 1, 2, 3, 4, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff};
 short ECC_GD_8bit_remap[16] = {0, 0, 0, 0, 4, 5, 6, 7, 0, 0, 0, 0, 8, 8, 8, 8};
 short ECC_HYF2G_remap[4] = {0, 1, -1, 14};
+short ECC_HYF1G_remap[4] = {0, 1, -1, 4};
+
+/*
+ *      ECCS3   ECCS2   ECCS1   ECCS0   Description
+ *      x       x       0       0       No bit errors were detected during the previous read algorithm
+ *      0       0       0       1       Bit errors(<=4) were detected and corrected
+ *      0       1       0       1       Bit errors (=5) were detected and corrected
+ *      1       0       0       1       Bit errors (=6) were detected and corrected
+ *      1       1       0       1       Bit errors (=7) were detected and corrected
+ *      x       x       1       0       Bit errors greater than ECC capability (8 bits) and not corrected
+ *      x       x       1       1       Bit errors reach ECC capability (8 bits) and corrected
+ */
+short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, -1, -1};
 
 struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	{
@@ -122,6 +135,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap,
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -148,6 +166,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap,
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -174,6 +197,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -200,6 +228,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -226,6 +259,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -252,6 +290,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -278,6 +321,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = FLAGS_SET_PLANE_BIT
 	},
 
@@ -304,6 +352,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -330,6 +383,73 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_XT26G11C
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XT26G11D",
+			.id = {0x0b, 0x34},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XTX_4bit_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XT26G12D",
+			.id = {0x0b, 0x35},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XTX_4bit_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -356,6 +476,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -382,6 +507,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -408,6 +538,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -434,6 +569,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -460,6 +600,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -486,6 +631,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -512,6 +662,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -538,6 +693,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -564,6 +724,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -590,6 +755,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_4bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -616,6 +786,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -643,6 +818,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 	/* GD GD5F2GM7 2Gbit */
@@ -669,6 +849,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GD_8bit_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -695,6 +880,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -721,6 +911,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -747,6 +942,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -773,6 +973,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -799,6 +1004,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -825,6 +1035,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -851,6 +1066,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -877,6 +1097,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -903,6 +1128,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -929,6 +1159,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -955,6 +1190,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -981,6 +1221,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1007,6 +1252,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1033,6 +1283,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_winbond_multi,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = FLAGS_NAND_HAS_TWO_DIE
 	},
 
@@ -1060,6 +1315,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1086,6 +1346,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1112,6 +1377,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1138,6 +1408,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_2bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1165,6 +1440,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1191,6 +1471,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1217,6 +1502,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1243,6 +1533,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = NULL
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1267,6 +1562,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.ecc_bit_shift = 4,
 			.uncorr_val = 0x2,
 			.remap = ECC_HYF2G_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "HYF1GQ4UDACAE",
+			.id = {0xC9, 0x21},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{	.strength_ds = 4,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0x0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_HYF1G_remap
 		},
 		.driver = &spi_nand_driver_gd,
 		.flags = 0
@@ -1295,6 +1621,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_1bits_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1321,6 +1652,11 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_1bits_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 
@@ -1347,6 +1683,71 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XCSP2AAPK",
+			.id = {0x8C, 0xA1},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XT26G11C
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XCSP1AAPK",
+			.id = {0x8C, 0x1},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XT26G11C
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 

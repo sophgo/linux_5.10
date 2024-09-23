@@ -1034,10 +1034,13 @@ EXPORT_SYMBOL_GPL(usb_gadget_set_state);
 
 static void usb_udc_connect_control(struct usb_udc *udc)
 {
-	if (udc->vbus)
-		usb_gadget_connect(udc->gadget);
-	else
-		usb_gadget_disconnect(udc->gadget);
+	if (udc->driver)
+	{
+		if (udc->vbus)
+			usb_gadget_connect(udc->gadget);
+		else
+			usb_gadget_disconnect(udc->gadget);
+	}
 }
 
 /**

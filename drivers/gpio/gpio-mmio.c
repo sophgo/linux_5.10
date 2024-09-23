@@ -250,6 +250,8 @@ static void bgpio_set_set(struct gpio_chip *gc, unsigned int gpio, int val)
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 
+	gc->bgpio_data = gc->read_reg(gc->reg_set);
+
 	if (val)
 		gc->bgpio_data |= mask;
 	else
@@ -289,6 +291,7 @@ static void bgpio_set_multiple_single_reg(struct gpio_chip *gc,
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 
 	bgpio_multiple_get_masks(gc, mask, bits, &set_mask, &clear_mask);
+	gc->bgpio_data = gc->read_reg(reg);
 
 	gc->bgpio_data |= set_mask;
 	gc->bgpio_data &= ~clear_mask;
@@ -349,6 +352,11 @@ static int bgpio_dir_in(struct gpio_chip *gc, unsigned int gpio)
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 
+	if (gc->reg_dir_in)
+		gc->bgpio_dir = gc->read_reg(gc->reg_dir_in);
+	if (gc->reg_dir_out)
+		gc->bgpio_dir = gc->read_reg(gc->reg_dir_out);
+
 	gc->bgpio_dir &= ~bgpio_line2mask(gc, gpio);
 
 	if (gc->reg_dir_in)
@@ -388,6 +396,11 @@ static void bgpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 	unsigned long flags;
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
+
+	if (gc->reg_dir_in)
+		gc->bgpio_dir = gc->read_reg(gc->reg_dir_in);
+	if (gc->reg_dir_out)
+		gc->bgpio_dir = gc->read_reg(gc->reg_dir_out);
 
 	gc->bgpio_dir |= bgpio_line2mask(gc, gpio);
 

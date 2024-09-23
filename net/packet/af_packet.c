@@ -4671,6 +4671,9 @@ out:
 	return rc;
 }
 
+#ifdef CONFIG_CVITEK_FASTBOOT
+#define module_init(x) deferred_initcall(x)
+#endif
 module_init(packet_init);
 module_exit(packet_exit);
 MODULE_LICENSE("GPL");

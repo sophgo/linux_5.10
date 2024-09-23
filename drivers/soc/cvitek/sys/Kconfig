@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CV181X_SYS
+	tristate "cv181x sys dirver"
+	depends on ION_CVITEK
+	help
+		"abc"

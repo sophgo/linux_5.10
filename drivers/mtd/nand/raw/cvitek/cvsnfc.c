@@ -12,8 +12,11 @@
 #include <linux/mtd/partitions.h>
 #include <linux/reset.h>
 #include <linux/jiffies.h>
+#include "linux/proc_fs.h"
 #include "cvsnfc_common.h"
 #include "cvsnfc_spi_ids.h"
+#include <linux/mutex.h>
+
 #include "cvsnfc.h"
 extern struct nand_flash_dev nand_flash_cvitek_supported_ids[];
 #define NAND_NAME    "cvsnfc"
@@ -463,10 +466,8 @@ static void cvsnfc_cmd_ctrl(struct nand_chip *chip, int dat, unsigned int ctrl)
 static int cvsnfc_waitfunc(struct nand_chip *chip)
 {
 	unsigned int regval;
+	unsigned int deadline = 0;
 	struct cvsnfc_host *host = nand_get_controller_data(chip);
-	unsigned long start_time = jiffies;
-	/* 4ms */
-	unsigned long max_erase_time = 4 * 3;
 
 	pr_debug("=>%s\n", __func__);
 
@@ -476,7 +477,9 @@ static int cvsnfc_waitfunc(struct nand_chip *chip)
 		if (!(regval & STATUS_OIP_MASK))
 			return NAND_STATUS_READY;
 
-	} while (jiffies_to_msecs(jiffies - start_time) < max_erase_time);
+		udelay(1);
+		/* maybe need to sure */
+	} while (deadline++ < (40 << 5));
 
 	pr_err("%s timeout.\n", __func__);
 
@@ -502,6 +505,15 @@ static int cvsnfc_dev_ready(struct nand_chip *chip)
 	pr_err("{%s: %d] warning: wait OIP timeout. regval=0x%x\n", __func__, __LINE__, regval);
 	dump_stack();
 
+	return 0;
+}
+
+static int cvsnfc_get_otp_num(struct nand_chip *chip, struct otp_info *otp_info)
+{
+	struct cvsnfc_host *host = chip->priv;
+	struct cvsnfc_chip_info *spi_dev = &host->spi_nand;
+
+	memcpy(otp_info, &spi_dev->otp_info, sizeof(struct otp_info));
 	return 0;
 }
 
@@ -587,10 +599,10 @@ static void cvsnfc_ctrl_ecc(struct mtd_info *mtd, bool enable)
 	spi_feature_op(host, GET_OP, FEATURE_ADDR, &status);
 
 	if (enable == ENABLE_ECC) {
-		status = status | (SPI_NAND_FEATURE0_ECC_EN);
+		status |= (SPI_NAND_FEATURE0_ECC_EN);
 		spi_feature_op(host, SET_OP, FEATURE_ADDR, &status);
 	} else {
-		status = status & ~(SPI_NAND_FEATURE0_ECC_EN);
+		status &= ~(SPI_NAND_FEATURE0_ECC_EN);
 		spi_feature_op(host, SET_OP, FEATURE_ADDR, &status);
 	}
 }
@@ -794,8 +806,10 @@ static int parse_status_info(struct cvsnfc_host *host)
 	if (status == 0)
 		return 0;
 
-	if (status == ecc_info->uncorr_val)
+	if (status == ecc_info->uncorr_val) {
+		pr_info("Multiple bit flips were detected and not corrected\n");
 		return -EBADMSG;
+	}
 
 	if (ecc_info->ecc_sr_addr && !ecc_info->read_ecc_opcode && !ecc_info->ecc_mbf_addr) {
 		if (ecc_info->remap) {
@@ -826,6 +840,7 @@ static int parse_status_info(struct cvsnfc_host *host)
 	return corr_bit;
 }
 
+extern bool otp_en;
 static int spi_nand_read_from_cache(struct cvsnfc_host *host, struct mtd_info *mtd,
 		int col_addr, int len, void *buf)
 {
@@ -833,14 +848,17 @@ static int spi_nand_read_from_cache(struct cvsnfc_host *host, struct mtd_info *m
 	int ret = 0;
 	unsigned int max_bitflips = 0;
 	int retry = 3;
+	u32 mode = SPI_NAND_READ_FROM_CACHE_MODE_X2;
 
 RETRY_READ_CMD:
 
 	pr_debug("%s caddr 0x%x, r_raddr 0x%x, len %d\n", __func__, col_addr, r_col_addr, len);
 
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2, len << TRX_DATA_SIZE_SHIFT | 3 << TRX_CMD_CONT_SIZE_SHIFT);
+	if (otp_en)
+		mode = SPI_NAND_READ_FROM_CACHE_MODE_X1;
 
-	spi_nand_set_read_from_cache_mode(host, SPI_NAND_READ_FROM_CACHE_MODE_X2, r_col_addr);
+	spi_nand_set_read_from_cache_mode(host, mode, r_col_addr);
 
 	cvsnfc_setup_intr(host);
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL0,
@@ -865,7 +883,7 @@ RETRY_READ_CMD:
 	} else if (ret == -ETIMEDOUT) {
 		if (--retry) {
 			pr_err("retry read cmd\n");
-			goto RETRY_READ_CMD;
+			//goto RETRY_READ_CMD;
 		} else {
 			pr_err("retry read failed\n");
 		}
@@ -910,6 +928,7 @@ static int cvsnfc_read_page(struct nand_chip *chip,
 	unsigned int die_id;
 
 	pr_debug("=>%s, row_addr 0x%x blk_idx %d\n", __func__, row_addr, blk_idx);
+	mutex_lock(&host->lock);
 	host->last_row_addr = row_addr;
 
 	if (spi_driver->select_die) {
@@ -932,6 +951,7 @@ static int cvsnfc_read_page(struct nand_chip *chip,
 		pr_debug("%s row_addr 0x%x ret %d\n", __func__, row_addr, ret);
 	}
 
+	mutex_unlock(&host->lock);
 	return ret;
 }
 
@@ -1058,6 +1078,10 @@ RETRY_WRITE_CMD:
 		(BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN | SPI_NAND_CTRL3_IO_TYPE_X4_MODE) :
 		(BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN);
 
+	if (otp_en) {
+		cmd = SPI_NAND_CMD_PROGRAM_LOAD;
+		ctrl3 = (BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN);
+	}
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL3, ctrl3);
 
 	cvsfc_write(host, REG_SPI_NAND_TRX_CMD0, cmd | (r_col_addr << TRX_CMD_CONT0_SHIFT));
@@ -1188,20 +1212,21 @@ static int cvsnfc_write_page(struct nand_chip *chip,
 			    const uint8_t *buf, int oob_required, int row_addr)
 {
 	int status = 0;
-    struct mtd_info *mtd = nand_to_mtd(chip);
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct cvsnfc_host *host = chip->priv;
 
 	/*
 	 * for regular page writes, we let HW handle all the ECC
 	 * data written to the device.
 	 */
-
+	mutex_lock(&host->lock);
 	status = write_page_helper(mtd, chip, buf, row_addr);
 
 	if (status) {
 		pr_err("write error\n");
 		return status;
 	}
-
+	mutex_unlock(&host->lock);
 	return status;
 }
 
@@ -1238,6 +1263,7 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 	chip->legacy.dev_ready   = cvsnfc_dev_ready;
 
 	chip->legacy.chip_delay  = CVSNFC_CHIP_DELAY;
+	chip->legacy.otp_info  = cvsnfc_get_otp_num;
 
 	chip->options     = NAND_BROKEN_XD;
 
@@ -1409,6 +1435,7 @@ static void cvsnfc_irq_cleanup(int irqnum, struct cvsnfc_host *host)
 /* driver exit point */
 void cvsnfc_remove(struct cvsnfc_host *host)
 {
+	mutex_destroy(&host->lock);
 	cvsnfc_irq_cleanup(host->irq, host);
 }
 EXPORT_SYMBOL(cvsnfc_remove);

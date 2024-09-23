@@ -24,8 +24,11 @@ void __init driver_init(void)
 	devices_init();
 	buses_init();
 	classes_init();
+
+#ifndef CONFIG_CVITEK_FASTBOOT
 	firmware_init();
 	hypervisor_init();
+#endif
 
 	/* These are also core pieces, but must come after the
 	 * core core pieces.

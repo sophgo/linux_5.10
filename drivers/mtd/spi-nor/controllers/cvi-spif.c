@@ -30,7 +30,7 @@
 #include <linux/mtd/spi-nor.h>
 
 /* SPINOR DMMR read mode uses SYSDMA */
-#define DMMR_DMA_MODE
+//#define DMMR_DMA_MODE
 
 /* Cvitek SPIF registers, bits and macros */
 #define SPI_FLASH_BLOCK_SIZE             256

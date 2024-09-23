@@ -189,9 +189,21 @@ static unsigned int dw_wdt_get_timeout(struct dw_wdt *dw_wdt)
 static int dw_wdt_ping(struct watchdog_device *wdd)
 {
 	struct dw_wdt *dw_wdt = to_dw_wdt(wdd);
+	void __iomem            *wdt2_toc_reg;
+	static uint32_t c906l_heartbeat = 0;
+	uint32_t value;
 
-	writel(WDOG_COUNTER_RESTART_KICK_VALUE, dw_wdt->regs +
-	       WDOG_COUNTER_RESTART_REG_OFFSET);
+	wdt2_toc_reg = ioremap(0x0301201C, 4);
+
+	value = readl(wdt2_toc_reg);
+
+	if (value != c906l_heartbeat) {
+		writel(WDOG_COUNTER_RESTART_KICK_VALUE, dw_wdt->regs +
+			WDOG_COUNTER_RESTART_REG_OFFSET);
+		c906l_heartbeat = value;
+	}
+
+	iounmap(wdt2_toc_reg);
 
 	return 0;
 }
@@ -646,6 +658,7 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	wdd->max_hw_heartbeat_ms = dw_wdt_get_max_timeout_ms(dw_wdt);
 	wdd->parent = dev;
 
+	watchdog_stop_on_reboot(wdd);
 	watchdog_set_drvdata(wdd, dw_wdt);
 	watchdog_set_nowayout(wdd, nowayout);
 	watchdog_init_timeout(wdd, 0, dev);

@@ -237,4 +237,6 @@ source "drivers/counter/Kconfig"
 source "drivers/most/Kconfig"
 
 source "drivers/efuse/Kconfig"
+
+source "drivers/alios_log/Kconfig"
 endmenu

@@ -30,4 +30,16 @@ config CVI_BT_PIN
 	  GPIO number to do certain action, ex. power on
 	  or wakeup pin.
 
+config CVITEK_FASTBOOT
+	depends on ARCH_CVITEK
+	bool "Support cvitek fastboot"
+	help
+	  This enables some features for cvitek dual_os fastboot
+
+
+source "drivers/soc/cvitek/sys/Kconfig"
+source "drivers/soc/cvitek/tpu/Kconfig"
+source "drivers/soc/cvitek/ipcm/Kconfig"
+source "drivers/soc/cvitek/clock_cooling/Kconfig"
+source "drivers/soc/cvitek/ive/Kconfig"
 endmenu

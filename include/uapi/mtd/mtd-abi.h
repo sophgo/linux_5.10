@@ -216,12 +216,12 @@ struct otp_message {
  * without OOB, e.g., NOR flash.
  */
 #define MEMWRITE		_IOWR('M', 24, struct mtd_write_req)
-#define MEMWRITE		_IOWR('M', 24, struct mtd_write_req)
 #define OTPWRITE		_IOW('M', 25, struct mtd_otp_buf)
 #define OTPREAD			_IOR('M', 26, struct mtd_otp_buf)
 #define OTPERASE		_IOWR('M', 27, struct erase_info_user)
-#define OTPINFO		_IOWR('M', 28, struct otp_message)
-
+#define OTPINFO			_IOWR('M', 28, struct otp_message)
+#define OTP_NAND_INFO		_IOWR('M', 30, struct otp_info)
+#define GET_ALL_SIZE		_IOR('M', 29, unsigned long long)
 /*
  * Obsolete legacy interface. Keep it in order not to break userspace
  * interfaces

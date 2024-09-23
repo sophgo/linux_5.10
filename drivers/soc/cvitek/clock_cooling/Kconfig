@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CV181X_CLK_COOLING
+	tristate "cv181x clock cooling dirver"
+	depends on ION_CVITEK && CV181X_SYS
+	help
+		"cv181x clock cooling"

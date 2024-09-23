@@ -88,7 +88,11 @@ static int bm_reset_probe(struct platform_device *pdev)
 	if (!data)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!strcmp(pdev->dev.of_node->parent->full_name, "i2c@0502B000"))
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	else
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+
 	data->membase = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(data->membase))
 		goto out_free_devm;

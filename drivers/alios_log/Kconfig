@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Generic alios log drivers configuration
+#
+
+menuconfig ALIOS_LOG
+	bool "alios log drivers"
+	default n
+	help
+		alios log drivers offer a generic mechanism for
+		get alios log.
+		Only support cv181x and cv180x currently
+

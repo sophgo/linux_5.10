@@ -136,6 +136,8 @@ struct uart_8250_port {
 	void			(*rs485_start_tx)(struct uart_8250_port *);
 	void			(*rs485_stop_tx)(struct uart_8250_port *);
 
+	struct hrtimer uart_flush_timer;
+	struct tasklet_struct hrtimer_tasklet;
 	/* Serial port overrun backoff */
 	struct delayed_work overrun_backoff;
 	u32 overrun_backoff_time_ms;

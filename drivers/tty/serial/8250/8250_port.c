@@ -31,6 +31,9 @@
 #include <linux/uaccess.h>
 #include <linux/pm_runtime.h>
 #include <linux/ktime.h>
+#include <linux/printk.h>
+#include <linux/of.h>
+#include <linux/serial_core.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -80,7 +83,8 @@ static const struct serial8250_config uart_config[] = {
 		.name		= "16550A",
 		.fifo_size	= 16,
 		.tx_loadsz	= 16,
-		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
+		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_00 | UART_FCR_T_TRIG_11 |
+				  UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT,
 		.rxtrig_bytes	= {1, 4, 8, 14},
 		.flags		= UART_CAP_FIFO,
 	},
@@ -1577,10 +1581,10 @@ static inline void __start_tx(struct uart_port *port)
 	/*
 	 * Re-enable the transmitter if we disabled it.
 	 */
-	if (port->type == PORT_16C950 && up->acr & UART_ACR_TXDIS) {
+	/*if (port->type == PORT_16C950 && up->acr & UART_ACR_TXDIS) {
 		up->acr &= ~UART_ACR_TXDIS;
 		serial_icr_write(up, UART_ACR, up->acr);
-	}
+	}*/
 }
 
 /**
@@ -1778,7 +1782,6 @@ unsigned char serial8250_rx_chars(struct uart_8250_port *up, unsigned char lsr)
 {
 	struct uart_port *port = &up->port;
 	int max_count = 256;
-
 	do {
 		serial8250_read_char(up, lsr);
 		if (--max_count == 0)
@@ -1796,6 +1799,7 @@ void serial8250_tx_chars(struct uart_8250_port *up)
 	struct uart_port *port = &up->port;
 	struct circ_buf *xmit = &port->state->xmit;
 	int count;
+
 
 	if (port->x_char) {
 		serial_out(up, UART_TX, port->x_char);
@@ -1888,7 +1892,7 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 	unsigned long flags;
 	struct uart_8250_port *up = up_to_u8250p(port);
 	bool skip_rx = false;
-
+	
 	if (iir & UART_IIR_NO_INT)
 		return 0;
 
@@ -1908,10 +1912,13 @@ int serial8250_handle_irq(struct uart_port *port, unsigned int iir)
 	    (port->status & (UPSTAT_AUTOCTS | UPSTAT_AUTORTS)) &&
 	    !(port->read_status_mask & UART_LSR_DR))
 		skip_rx = true;
-
+	
 	if (status & (UART_LSR_DR | UART_LSR_BI) && !skip_rx) {
-		if (!up->dma || handle_rx_dma(up, iir))
+
+		if (!up->dma || handle_rx_dma(up, iir)){
 			status = serial8250_rx_chars(up, status);
+		}
+
 	}
 	serial8250_modem_status(up);
 	if ((!up->dma || up->dma->tx_err) && (status & UART_LSR_THRE) &&
@@ -2144,6 +2151,65 @@ static void serial8250_put_poll_char(struct uart_port *port,
 
 #endif /* CONFIG_CONSOLE_POLL */
 
+static enum hrtimer_restart _uart_flush_timer_handler(struct hrtimer *timer)
+{
+	struct uart_8250_port *up = container_of(timer, struct uart_8250_port, uart_flush_timer);
+
+	tasklet_schedule(&up->hrtimer_tasklet);
+
+	hrtimer_forward_now(timer, ktime_set(0, UART_TIMEOUT * 1000000));
+
+	return HRTIMER_RESTART;
+}
+
+static void uart_flush_time_remove(struct uart_8250_port *up)
+{
+	tasklet_kill(&up->hrtimer_tasklet);
+	hrtimer_cancel(&up->uart_flush_timer);
+}
+
+static void serial_8250_hrtimer_tasklet_callback(unsigned long param)
+{
+	struct uart_8250_port *up = (struct uart_8250_port *)param;
+
+	serial8250_rx_dma_flush2(up);
+}
+
+int uart_flush_timer_init(struct uart_8250_port *up)
+{
+	hrtimer_init(&up->uart_flush_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	up->uart_flush_timer.function = _uart_flush_timer_handler;
+
+	return 0;
+}
+EXPORT_SYMBOL(uart_flush_timer_init);
+
+static void uart_flush_timer_start(struct uart_8250_port *up)
+{
+	tasklet_init(&up->hrtimer_tasklet, serial_8250_hrtimer_tasklet_callback,  (unsigned long)up);
+	hrtimer_start(&up->uart_flush_timer, ktime_set(0, UART_TIMEOUT * 1000000), HRTIMER_MODE_REL);
+}
+
+void uart_flush_timer_reset(struct uart_8250_port *up)
+{
+	//pr_info("ttyS%d %s flush timer reset\n", serial_index(&up->port), __func__);
+	hrtimer_cancel(&up->uart_flush_timer);
+	hrtimer_start(&up->uart_flush_timer, ktime_set(0, UART_TIMEOUT * 1000000), HRTIMER_MODE_REL);
+}
+EXPORT_SYMBOL(uart_flush_timer_reset);
+
+int uart_dma_name(struct uart_8250_port *p)
+{
+	int ret;
+	const char *str;
+	ret = of_property_read_string(p->port.dev->of_node,"dma-names",&str);
+	if(ret){
+		pr_info("ttyS%d, get NULL dma-names\n", serial_index(&p->port));
+	}
+
+	return ret;
+}
+
 int serial8250_do_startup(struct uart_port *port)
 {
 	struct uart_8250_port *up = up_to_u8250p(port);
@@ -2269,11 +2335,7 @@ int serial8250_do_startup(struct uart_port *port)
 		}
 	}
 
-	/* Check if we need to have shared IRQs */
-	if (port->irq && (up->port.flags & UPF_SHARE_IRQ))
-		up->port.irqflags |= IRQF_SHARED;
-
-	if (port->irq && !(up->port.flags & UPF_NO_THRE_TEST)) {
+	if (port->irq) {
 		unsigned char iir1;
 
 		if (port->irqflags & IRQF_SHARED)
@@ -2288,6 +2350,8 @@ int serial8250_do_startup(struct uart_port *port)
 		 * allow register changes to become visible.
 		 */
 		spin_lock_irqsave(&port->lock, flags);
+		if (up->port.irqflags & IRQF_SHARED)
+			disable_irq_nosync(port->irq);
 
 		wait_for_xmitr(up, UART_LSR_THRE);
 		serial_port_out_sync(port, UART_IER, UART_IER_THRI);
@@ -2299,10 +2363,9 @@ int serial8250_do_startup(struct uart_port *port)
 		iir = serial_port_in(port, UART_IIR);
 		serial_port_out(port, UART_IER, 0);
 
-		spin_unlock_irqrestore(&port->lock, flags);
-
 		if (port->irqflags & IRQF_SHARED)
 			enable_irq(port->irq);
+		spin_unlock_irqrestore(&port->lock, flags);
 
 		/*
 		 * If the interrupt is not reasserted, or we otherwise
@@ -2332,7 +2395,7 @@ int serial8250_do_startup(struct uart_port *port)
 		/*
 		 * Most PC uarts need OUT2 raised to enable interrupts.
 		 */
-		if (port->irq)
+		if (port->irq) 
 			up->port.mctrl |= TIOCM_OUT2;
 
 	serial8250_set_mctrl(port, port->mctrl);
@@ -2348,7 +2411,7 @@ int serial8250_do_startup(struct uart_port *port)
 	 * test if we receive TX irq.  This way, we'll never enable
 	 * UART_BUG_TXEN.
 	 */
-	if (up->port.quirks & UPQ_NO_TXEN_TEST)
+	if (up->port.flags & UPF_NO_TXEN_TEST)
 		goto dont_test_tx_en;
 
 	/*
@@ -2388,16 +2451,15 @@ dont_test_tx_en:
 	 * Request DMA channels for both RX and TX.
 	 */
 	if (up->dma) {
-		const char *msg = NULL;
-
-		if (uart_console(port))
-			msg = "forbid DMA for kernel console";
-		else if (serial8250_request_dma(up))
-			msg = "failed to request DMA";
-		if (msg) {
-			dev_warn_ratelimited(port->dev, "%s\n", msg);
-			up->dma = NULL;
-		}
+		if (!uart_dma_name(up)) {
+			retval = serial8250_request_dma(up);
+			if (retval) {
+				pr_warn_ratelimited("ttyS%d - failed to request DMA\n",
+					    	serial_index(port));
+				up->dma = NULL;
+			}
+		} else
+			up->dma = NULL; /* Set UART0 dma as NULL */
 	}
 
 	/*
@@ -2405,7 +2467,13 @@ dont_test_tx_en:
 	 * enable until after the FIFOs are enabled; otherwise, an already-
 	 * active sender can swamp the interrupt handler with "too much work".
 	 */
-	up->ier = UART_IER_RLSI | UART_IER_RDI;
+//	up->ier = UART_IER_RLSI | UART_IER_RDI;
+
+	if (!uart_dma_name(up))
+		up->ier = UART_IER_RLSI;
+	else
+		up->ier = UART_IER_RLSI | UART_IER_RDI;
+
 
 	if (port->flags & UPF_FOURPORT) {
 		unsigned int icp;
@@ -2416,6 +2484,11 @@ dont_test_tx_en:
 		outb_p(0x80, icp);
 		inb_p(icp);
 	}
+
+	/* start a timer to do reqular check or sysDMA flush */
+	if (!uart_dma_name(up))
+		uart_flush_timer_start(up);
+
 	retval = 0;
 out:
 	serial8250_rpm_put(up);
@@ -2445,6 +2518,10 @@ void serial8250_do_shutdown(struct uart_port *port)
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	synchronize_irq(port->irq);
+	
+	/* stop flush timer */
+	if (!uart_dma_name(up))
+		uart_flush_time_remove(up);
 
 	if (up->dma)
 		serial8250_release_dma(up);
@@ -2815,15 +2892,46 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 		tty_termios_encode_baud_rate(termios, baud, baud);
 }
 EXPORT_SYMBOL(serial8250_do_set_termios);
+static inline void finish_set_termios(struct uart_port *port, struct ktermios *termios,
+		       struct ktermios *old)
+{
+	struct uart_8250_port *up = up_to_u8250p(port);
+	struct uart_8250_dma	*dma = up->dma;
+
+	if(dma && dma->rx_suspend){
+		dmaengine_resume(dma->rxchan);
+		dma->rx_running = 1;
+		dma->rx_suspend = 0;
+	}
+}
+
+
+static inline void prepre_set_termios(struct uart_port *port, struct ktermios *termios,
+		       struct ktermios *old)
+{
+	struct uart_8250_port *up = up_to_u8250p(port);
+	struct uart_8250_dma	*dma = up->dma;
+
+	if(dma && dma->rx_running) {
+		dma->rx_suspend = 1;
+		dma->rx_running = 0;
+ 		dmaengine_pause(dma->rxchan);
+	}
+}
+
 
 static void
 serial8250_set_termios(struct uart_port *port, struct ktermios *termios,
 		       struct ktermios *old)
 {
+	prepre_set_termios(port, termios, old);
+
 	if (port->set_termios)
 		port->set_termios(port, termios, old);
 	else
 		serial8250_do_set_termios(port, termios, old);
+
+	finish_set_termios(port, termios, old);
 }
 
 void serial8250_do_set_ldisc(struct uart_port *port, struct ktermios *termios)
@@ -3224,14 +3332,17 @@ void serial8250_set_defaults(struct uart_8250_port *up)
 	}
 
 	set_io_from_upio(port);
-
 	/* default dma handlers */
 	if (up->dma) {
-		if (!up->dma->tx_dma)
+		if (!up->dma->tx_dma){
 			up->dma->tx_dma = serial8250_tx_dma;
-		if (!up->dma->rx_dma)
+		}
+			
+		if (!up->dma->rx_dma){
 			up->dma->rx_dma = serial8250_rx_dma;
 	}
+		}
+			
 }
 EXPORT_SYMBOL_GPL(serial8250_set_defaults);
 

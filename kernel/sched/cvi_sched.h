@@ -11,8 +11,7 @@ static struct cvi_priority_info priority_list[] = {
 	{ "cvitask_vc_wt0", SCHED_RR, 95 },
 	{ "cvitask_vc_wt1", SCHED_RR, 95 },
 	{ "cvitask_vc_bh0", SCHED_RR, 95 },
-	{ "cvitask_vpss_0", SCHED_FIFO, 90 },
-	{ "cvitask_vpss_1", SCHED_FIFO, 90 },
+	{ "cvitask_sc_hdl", SCHED_FIFO, 90 },
 	{ "cvitask_tpu_wor", SCHED_RR, 85 }
 };
 #define MAX_OPT_RT_PRIORITY 80

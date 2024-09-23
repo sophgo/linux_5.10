@@ -22,8 +22,132 @@
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 #include <linux/slab.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
+#include <linux/mtd/rawnand.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
 
 #include "cvsnfc.h"
+
+char otp_en;
+int spi_general_execute(struct cvsnfc_host *host)
+{
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2, 0x0);
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL3, 0x0);
+	cvsfc_write(host, REG_SPI_NAND_TRX_CMD0, SPI_NAND_CMD_PROGRAM_EXECUTE);
+
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL0,
+		    cvsfc_read(host, REG_SPI_NAND_TRX_CTRL0) | BIT_REG_TRX_START);
+
+	cvsnfc_send_nondata_cmd_and_wait(host);
+	return 0;
+}
+
+static int nand_show_sr2(struct seq_file *m, void *v)
+{
+	struct cvsnfc_host *host = m->private;
+	u32 reg = 0;
+
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+
+	seq_printf(m, "\tOTP read/write is %s\n", ((reg & STATUS_OTP_E_MASK) ? "enable" : "disable"));
+	seq_printf(m, "\tOTP area lock is %s\n", ((reg & STATUS_OTP_L_MASK) ? "enable" : "disable"));
+
+	return 0;
+}
+
+static int seq_otp_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nand_show_sr2, PDE_DATA(inode));
+}
+
+static ssize_t nand_otp_set(struct file *file, const char __user *data, size_t len, loff_t *off)
+{
+	int val;
+	int ret = 0;
+	u32 reg = 0;
+	struct cvsnfc_host *host = PDE_DATA(file_inode(file));
+	struct cvsnfc_op *spi = host->spi;
+	struct spi_nand_driver *spi_driver = spi->driver;
+
+	mutex_lock(&host->lock);
+	ret = kstrtouint_from_user(data, len, 10, &val);
+
+	switch (val) {
+	case 0:
+		{
+			spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+			reg &= ~(STATUS_OTP_E_MASK);
+			spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+			otp_en = 0;
+			break;
+		}
+	case 1:
+		{
+			spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+			reg |= (STATUS_OTP_E_MASK);
+			reg &= ~(STATUS_OTP_L_MASK);
+			spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+			otp_en = 1;
+			break;
+		}
+	case 2:
+		{
+			spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+			if (reg & STATUS_OTP_E_MASK) {
+				reg |= STATUS_OTP_L_MASK;
+				spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+				otp_en = 1;
+			}
+			break;
+		}
+	case 3:
+		{
+			spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+			reg &= ~(STATUS_OTP_E_MASK | STATUS_OTP_L_MASK);
+			spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+			otp_en = 1;
+			break;
+		}
+	default:
+		dev_info(host->dev, "Incorrect input %d for /proc/nand_otp please input 0 - 3\n", val);
+		break;
+	}
+	mutex_unlock(&host->lock);
+	return len;
+}
+
+const struct proc_ops  nand_otp_proc_ops = {
+	.proc_open = seq_otp_open,
+	.proc_read = seq_read,
+	.proc_write = nand_otp_set,
+	.proc_release = single_release,
+};
+
+static int nand_show_id(struct seq_file *m, void *v)
+{
+	struct cvsnfc_host *host = m->private;
+	struct nand_chip *nand_chip = &host->nand;
+	uint32_t id = 0;
+
+	id = nand_chip->id.data[1] << 8 | nand_chip->id.data[0];
+	seq_printf(m, "%#x\n", id);
+	return 0;
+}
+
+int opennand(struct inode *inode, struct file *file)
+{
+        return single_open(file, nand_show_id, PDE_DATA(inode));
+}
+
+const struct proc_ops nand_id_proc_ops = {
+	.proc_open = opennand,
+	.proc_read = seq_read,
+	.proc_release = single_release,
+};
 
 struct cvsnfc_dt {
 	struct cvsnfc_host cvsnfc;
@@ -44,6 +168,8 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 	struct cvsnfc_host *host;
 	const struct of_device_id *of_id;
 	struct mtd_info *mtd;
+	struct proc_dir_entry *proc_id = NULL;
+	struct proc_dir_entry *proc_otp = NULL;
 
 	of_id = of_match_device(cvsnfc_dt_ids, &pdev->dev);
 
@@ -83,6 +209,7 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 
 	host->io_base_phy = res->start;
 	host->nand.priv = host;
+	mutex_init(&host->lock);
 
 	cvsnfc_nand_init(&host->nand);
 
@@ -106,6 +233,13 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	proc_id = proc_create_data("nandid", 0444, NULL, &nand_id_proc_ops, (void *)host);
+	if (!proc_id)
+		dev_err(host->dev, "Create cvsnfc nand id proc failed!\n");
+
+	proc_otp = proc_create_data("nand_otp", 0664, NULL, &nand_otp_proc_ops, (void *)host);
+	if (!proc_otp)
+		dev_err(host->dev, "Create cvsnfc nand otp proc failed!\n");
 
 	platform_set_drvdata(pdev, dt);
 	return 0;

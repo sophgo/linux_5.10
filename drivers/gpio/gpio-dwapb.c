@@ -830,6 +830,9 @@ static struct platform_driver dwapb_gpio_driver = {
 	.probe		= dwapb_gpio_probe,
 };
 
+#ifdef CONFIG_CVITEK_FASTBOOT
+#define module_init(x) deferred_initcall(x)
+#endif
 module_platform_driver(dwapb_gpio_driver);
 
 MODULE_LICENSE("GPL");

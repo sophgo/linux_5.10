@@ -103,9 +103,14 @@ int cvi_ion_alloc(enum ion_heap_type type, size_t len, bool mmap_cache)
 }
 EXPORT_SYMBOL(cvi_ion_alloc);
 
-void cvi_ion_free(pid_t fd_pid, int fd)
+void cvi_ion_free(pid_t fd_tgid, int fd)
 {
-	ion_free(fd_pid, fd);
+	if (fd_tgid == current->tgid) {
+		ion_free(fd_tgid, fd);
+	} else {
+		pr_warn("can not close fd(%d) by different process, fd_tgid:%d current tgid:%d.\n",
+			fd, fd_tgid, current->tgid);
+	}
 }
 EXPORT_SYMBOL(cvi_ion_free);
 
@@ -114,6 +119,13 @@ void cvi_ion_free_nofd(struct ion_buffer *buffer)
 	ion_free_nofd(buffer);
 }
 EXPORT_SYMBOL(cvi_ion_free_nofd);
+
+int cvi_ion_get_memory_statics(uint64_t *total_size,
+	uint64_t *free_size, uint64_t *max_avail_size)
+{
+	return ion_get_memory_statics(total_size, free_size, max_avail_size);
+}
+EXPORT_SYMBOL(cvi_ion_get_memory_statics);
 
 void cvi_ion_dump(struct ion_heap *heap)
 {

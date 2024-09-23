@@ -428,7 +428,12 @@ static int __init dw_i2c_init_driver(void)
 {
 	return platform_driver_register(&dw_i2c_driver);
 }
+
+#ifndef CONFIG_CVITEK_FASTBOOT
 subsys_initcall(dw_i2c_init_driver);
+#else
+deferred_initcall(dw_i2c_init_driver);
+#endif
 
 static void __exit dw_i2c_exit_driver(void)
 {

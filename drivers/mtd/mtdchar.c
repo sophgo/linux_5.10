@@ -668,6 +668,8 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	case BLKRRPART:
 	case OTPREAD:
 	case OTPINFO:
+	case OTP_NAND_INFO:
+	case GET_ALL_SIZE:
 		break;
 
 	/* "dangerous" commands */
@@ -728,6 +730,14 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 			return -EFAULT;
 		break;
 
+	case GET_ALL_SIZE:
+	{
+		u64 size = mtd_get_device_size(mtd);
+
+		if (copy_to_user(argp, &size, sizeof(u64)))
+			return -EFAULT;
+		break;
+	}
 	case MEMERASE:
 	case MEMERASE64:
 	{
@@ -807,6 +817,24 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		ret = master->_get_otp_info(master, &otp_info);
 		if (copy_to_user(argp, &otp_info, sizeof(struct otp_message)))
 			return -EFAULT;
+		break;
+	}
+
+	case OTP_NAND_INFO:
+	{
+		struct mtd_info *master = mtd_get_master(mtd);
+		struct otp_info otp_info;
+
+		memset(&otp_info, 0, sizeof(struct otp_info));
+		if (!master->_get_otp_info_nand) {
+			pr_info("func pointer is not null\n");
+			return -EOPNOTSUPP;
+		}
+		ret = master->_get_otp_info_nand(master, &otp_info);
+		if (copy_to_user(argp, &otp_info, sizeof(struct otp_info))) {
+			pr_info("copy data to user\n");
+			return -EFAULT;
+		}
 		break;
 	}
 

@@ -576,6 +576,11 @@ config MMC_SDHCI_CVI
 
       If unsure, say N.
 
+config MMC_SKIP_TUNING
+	bool "CVITEK Skip EMMC Tuning"
+	depends on MMC_SDHCI_CVI
+	default n
+
 config MMC_MXC
 	tristate "Freescale i.MX21/27/31 or MPC512x Multimedia Card support"
 	depends on ARCH_MXC || PPC_MPC512x

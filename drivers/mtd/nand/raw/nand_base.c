@@ -4302,6 +4302,23 @@ static int nand_block_isbad(struct mtd_info *mtd, loff_t offs)
 }
 
 /**
+ * nand_get_otp_info - [MTD Interface] get nand otp information
+ * @mtd: MTD device structure
+ * @otp_info: information of otp
+ */
+static int nand_get_otp_info(struct mtd_info *mtd, struct otp_info *otp_info)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	int ret = 0;
+
+	if (chip->legacy.otp_info) {
+		pr_info("get nand otp info from low driver level\n");
+		ret = chip->legacy.otp_info(chip, otp_info);
+	}
+	return ret;
+}
+
+/**
  * nand_block_markbad - [MTD Interface] Mark block at the given offset as bad
  * @mtd: MTD device structure
  * @ofs: offset relative to mtd start
@@ -5849,7 +5866,7 @@ static int nand_scan_tail(struct nand_chip *chip)
 	mtd->_block_isbad = nand_block_isbad;
 	mtd->_block_markbad = nand_block_markbad;
 	mtd->_max_bad_blocks = nanddev_mtd_max_bad_blocks;
-
+	mtd->_get_otp_info_nand = nand_get_otp_info;
 	/*
 	 * Initialize bitflip_threshold to its default prior scan_bbt() call.
 	 * scan_bbt() might invoke mtd_read(), thus bitflip_threshold must be

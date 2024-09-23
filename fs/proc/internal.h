@@ -280,6 +280,10 @@ extern struct proc_dir_entry proc_root;
 
 extern void proc_self_init(void);
 
+#ifdef CONFIG_CVITEK_FASTBOOT
+void do_deferred_initcalls(void);
+#endif
+
 /*
  * task_[no]mmu.c
  */

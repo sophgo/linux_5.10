@@ -1927,7 +1927,11 @@ static int __init ipv4_offload_init(void)
 	return 0;
 }
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 fs_initcall(ipv4_offload_init);
+#else
+deferred_initcall(ipv4_offload_init);
+#endif
 
 static struct packet_type ip_packet_type __read_mostly = {
 	.type = cpu_to_be16(ETH_P_IP),
@@ -2060,7 +2064,12 @@ out_unregister_tcp_proto:
 	goto out;
 }
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 fs_initcall(inet_init);
+#else
+deferred_initcall(inet_init);
+#endif
+
 
 /* ------------------------------------------------------------------------ */
 

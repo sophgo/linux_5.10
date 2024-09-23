@@ -141,6 +141,8 @@ static void cvi_stats_seq_printout(struct seq_file *s)
 			else
 				type = "SDHC";
 			seq_printf(s, "(%s)\n", type);
+		} else {
+			seq_printf(s, "(%s)\n", "Normal");
 		}
 
 		timing = mmc->ios.timing;
@@ -489,6 +491,17 @@ int cvi_sdio_rescan(void)
 }
 EXPORT_SYMBOL_GPL(cvi_sdio_rescan);
 
+// register sysfs
+static ssize_t rescan_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	// mmc rescan
+	cvi_sdio_rescan();
+
+	return count;
+}
+
+static DEVICE_ATTR(rescan, 0200, NULL, rescan_store);
 
 void sdhci_cvi_emmc_voltage_switch(struct sdhci_host *host)
 {
@@ -1045,7 +1058,6 @@ static void cvi_adma_write_desc(struct sdhci_host *host, void **desc,
 	len -= tmplen;
 	sdhci_adma_write_desc(host, desc, addr, len, cmd);
 }
-
 static const struct sdhci_ops sdhci_cv180x_emmc_ops = {
 	.reset = sdhci_cv180x_emmc_reset,
 	.set_clock = sdhci_set_clock,
@@ -1124,8 +1136,8 @@ static const struct sdhci_pltfm_data sdhci_cv180x_sd_pdata = {
 
 static const struct sdhci_pltfm_data sdhci_cv180x_sdio_pdata = {
 	.ops = &sdhci_cv180x_sdio_ops,
-	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN | SDHCI_QUIRK2_NO_1_8_V,
+	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN | SDHCI_QUIRK_BROKEN_ADMA,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN | SDHCI_QUIRK2_NO_1_8_V | SDHCI_QUIRK2_BROKEN_64_BIT_DMA,
 };
 
 static const struct sdhci_pltfm_data sdhci_cv180x_fpga_emmc_pdata = {
@@ -1220,6 +1232,7 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	struct sdhci_cvi_host *cvi_host;
 	const struct of_device_id *match;
 	const struct sdhci_pltfm_data *pdata;
+	struct clk *clk_sd;
 	int ret;
 	int gpio_cd = -EINVAL;
 	u32 extra;
@@ -1245,6 +1258,21 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	cvi_host->topbase = ioremap(TOP_BASE, 0x2000);
 	cvi_host->pinmuxbase = ioremap(PINMUX_BASE, 0x1000);
 	cvi_host->clkgenbase = ioremap(CLKGEN_BASE, 0x100);
+
+	clk_sd = devm_clk_get(&pdev->dev, "clk_sd");
+	if (!IS_ERR(clk_sd))
+		clk_set_rate(clk_sd, 375000000);
+
+	if (strstr(dev_name(mmc_dev(host->mmc)), "cv-sd")) {
+		void __iomem *pll_reg;
+		void __iomem *clk_sel_reg;
+		pll_reg = ioremap(0x3002070, 0x20);
+		clk_sel_reg = ioremap(0x3002030, 0x20);
+		writel(0x40009, pll_reg);
+		writel(readl(clk_sel_reg) & ~BIT(6), clk_sel_reg);
+		iounmap(pll_reg);
+		iounmap(clk_sel_reg);
+	}
 
 	sdhci_cv180x_sd_voltage_restore(host, false);
 
@@ -1288,6 +1316,7 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 			}
 		}
 	}
+
 	/*
 	 * extra adma table cnt for cross 128M boundary handling.
 	 */
@@ -1302,9 +1331,12 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, cvi_host);
 
-	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd"))
+	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd")) {
 		wifi_mmc = host->mmc;
-	else
+
+		if (device_create_file(&host->mmc->class_dev, &dev_attr_rescan))
+			pr_err("Fail to create rescan sysfs file.\n");
+	} else
 		wifi_mmc = NULL;
 
 	/* device proc entry */

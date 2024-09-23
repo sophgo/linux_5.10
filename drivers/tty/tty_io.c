@@ -854,6 +854,7 @@ static ssize_t tty_read(struct file *file, char __user *buf, size_t count,
 	struct inode *inode = file_inode(file);
 	struct tty_struct *tty = file_tty(file);
 	struct tty_ldisc *ld;
+  
 
 	if (tty_paranoia_check(tty, inode, "tty_read"))
 		return -EIO;
@@ -1029,6 +1030,7 @@ static ssize_t tty_write(struct file *file, const char __user *buf,
 	struct tty_struct *tty = file_tty(file);
  	struct tty_ldisc *ld;
 	ssize_t ret;
+	
 
 	if (tty_paranoia_check(tty, file_inode(file), "tty_write"))
 		return -EIO;

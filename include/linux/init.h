@@ -238,6 +238,10 @@ extern bool initcall_debug;
 
 #define console_initcall(fn)	___define_initcall(fn,, .con_initcall)
 
+#define deferred_initcall(fn) \
+	static initcall_t __initcall_##fn \
+	__used __section(".deferred_initcall.init") = fn
+
 struct obs_kernel_param {
 	const char *str;
 	int (*setup_func)(char *);

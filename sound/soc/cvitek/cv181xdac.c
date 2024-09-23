@@ -30,23 +30,25 @@ static DEFINE_MUTEX(cv181xdac_mutex);
 int mute_pin_l; // 495
 int mute_pin_r; // 510
 
-
 void muteAmp(bool enable)
 {
-	if (enable) {
-		if (mute_pin_l != -EINVAL) {
+	if (mute_pin_l != -EINVAL) {
+		gpio_request(mute_pin_l, "mute_pin_l");
+		gpio_direction_output(mute_pin_l, 1);
+		if(enable)
 			gpio_set_value(mute_pin_l, 0);
-		}
-		if (mute_pin_r != -EINVAL) {
-			gpio_set_value(mute_pin_r, 0);
-		}
-	} else {
-		if (mute_pin_l != -EINVAL) {
+		else
 			gpio_set_value(mute_pin_l, 1);
-		}
-		if (mute_pin_r != -EINVAL) {
+		gpio_free(mute_pin_l);
+	}
+	if (mute_pin_r != -EINVAL) {
+		gpio_request(mute_pin_r, "mute_pin_r");
+		gpio_direction_output(mute_pin_r, 1);
+		if(enable)
+			gpio_set_value(mute_pin_r, 0);
+		else
 			gpio_set_value(mute_pin_r, 1);
-		}
+		gpio_free(mute_pin_r);
 	}
 }
 
@@ -650,6 +652,7 @@ static int cv181xdac_probe(struct platform_device *pdev)
 		gpio_request(mute_pin_l, "mute_pin_l");
 		gpio_direction_output(mute_pin_l, 1);
 		gpio_set_value(mute_pin_l, 0);
+		gpio_free(mute_pin_l);
 	}
 
 	if (!gpio_is_valid(mute_pin_r)) {
@@ -659,6 +662,7 @@ static int cv181xdac_probe(struct platform_device *pdev)
 		gpio_request(mute_pin_r, "mute_pin_r");
 		gpio_direction_output(mute_pin_r, 1);
 		gpio_set_value(mute_pin_r, 0);
+		gpio_free(mute_pin_r);
 	}
 	return devm_snd_soc_register_component(&pdev->dev, &soc_component_dev_cv181xdac,
 					  &cv181xdac_dai, 1);

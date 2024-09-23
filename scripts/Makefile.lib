@@ -216,6 +216,14 @@ dtc_cpp_flags  = -Wp,-MMD,$(depfile).pre.tmp -nostdinc                    \
 		 $(addprefix -I,$(DTC_INCLUDE))                          \
 		 -undef -D__DTS__
 
+ifeq (${CONFIG_CVITEK_FASTBOOT},y)
+dtc_cpp_flags += -D__FASTBOOT__
+endif
+
+ifeq (${CONFIG_MMC_SKIP_TUNING},y)
+dtc_cpp_flags += -D__MMC_SUP_V1_8__
+endif
+
 # Useful for describing the dependency of composite objects
 # Usage:
 #   $(call multi_depend, multi_used_targets, suffix_to_remove, suffix_to_add)

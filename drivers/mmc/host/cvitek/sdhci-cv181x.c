@@ -141,6 +141,8 @@ static void cvi_stats_seq_printout(struct seq_file *s)
 			else
 				type = "SDHC";
 			seq_printf(s, "(%s)\n", type);
+		} else {
+			seq_printf(s, "(%s)\n", "Normal");
 		}
 
 		timing = mmc->ios.timing;
@@ -367,6 +369,32 @@ static void sdhci_cv181x_sd_setup_io(struct sdhci_host *host, bool reset)
 		cvi_host->pinmuxbase + 0xA14);
 }
 
+static void sdhci_cv181x_sd1_setup_pad(struct sdhci_host *host, bool bunplug)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
+
+	/* Name              Offset unplug plug
+	 * PAD_SDIO1_D3      0xD0   XGPIO  SDIO1
+	 * PAD_SDIO1_D2	     0xD4   XGPIO  SDIO1
+	 * PAD_SDIO1_D1      0xD8   XGPIO  SDIO1
+	 * PAD_SDIO1_D0      0xDC   XGPIO  SDIO1
+	 * PAD_SDIO1_CMD     0xE0   XGPIO  SDIO1
+	 * PAD_SDIO1_CLK     0xE4   XGPIO  SDIO1
+	 * 0x0: SDIO1 function
+	 * 0x3: XGPIO function
+	 */
+
+	u8 val = (bunplug) ? 0x3 : 0x0;
+
+	writeb(val, cvi_host->pinmuxbase + 0xD0);
+	writeb(val, cvi_host->pinmuxbase + 0xD4);
+	writeb(val, cvi_host->pinmuxbase + 0xD8);
+	writeb(val, cvi_host->pinmuxbase + 0xDC);
+	writeb(val, cvi_host->pinmuxbase + 0xE0);
+	writeb(val, cvi_host->pinmuxbase + 0xE4);
+}
+
 static void sdhci_cvi_reset_helper(struct sdhci_host *host, u8 mask)
 {
 	// disable Intr before reset
@@ -489,6 +517,17 @@ int cvi_sdio_rescan(void)
 }
 EXPORT_SYMBOL_GPL(cvi_sdio_rescan);
 
+// register sysfs
+static ssize_t rescan_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	// mmc rescan
+	cvi_sdio_rescan();
+
+	return count;
+}
+
+static DEVICE_ATTR(rescan, 0200, NULL, rescan_store);
 
 void sdhci_cvi_emmc_voltage_switch(struct sdhci_host *host)
 {
@@ -536,7 +575,15 @@ static int sdhci_cv181x_general_execute_tuning(struct sdhci_host *host, u32 opco
 
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
-
+#ifdef CONFIG_MMC_SKIP_TUNING
+	if(cvi_host->final_tap){
+		if (strstr(dev_name(mmc_dev(cvi_host->host->mmc)), "cv-emmc")) {
+			sdhci_cvi_cv181x_set_tap(host, cvi_host->final_tap);
+			pr_debug("eMMC skip tuning, code:%d\n", cvi_host->final_tap);
+			return 0;
+		}
+	}
+#endif
 	reg = sdhci_readw(host, SDHCI_ERR_INT_STATUS);
 	pr_debug("%s : SDHCI_ERR_INT_STATUS 0x%x\n", mmc_hostname(host->mmc),
 		 reg);
@@ -1132,13 +1179,13 @@ static const struct sdhci_pltfm_data sdhci_cv181x_emmc_pdata = {
 static const struct sdhci_pltfm_data sdhci_cv181x_sd_pdata = {
 	.ops = &sdhci_cv181x_sd_ops,
 	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN | SDHCI_QUIRK2_BROKEN_DDR50,
 };
 
 static const struct sdhci_pltfm_data sdhci_cv181x_sdio_pdata = {
 	.ops = &sdhci_cv181x_sdio_ops,
-	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN | SDHCI_QUIRK2_NO_1_8_V,
+	.quirks = SDHCI_QUIRK_INVERTED_WRITE_PROTECT | SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN | SDHCI_QUIRK_BROKEN_ADMA,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN | SDHCI_QUIRK2_NO_1_8_V | SDHCI_QUIRK2_BROKEN_64_BIT_DMA,
 };
 
 static const struct sdhci_pltfm_data sdhci_cv181x_fpga_emmc_pdata = {
@@ -1260,6 +1307,33 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	cvi_host->pinmuxbase = ioremap(PINMUX_BASE, 0x1000);
 	cvi_host->clkgenbase = ioremap(CLKGEN_BASE, 0x100);
 
+	clk_sd = devm_clk_get(&pdev->dev, "clk_sd");
+	if (!IS_ERR(clk_sd))
+		clk_set_rate(clk_sd, 375000000);
+
+	if (strstr(dev_name(mmc_dev(host->mmc)), "cv-sd")) {
+		void __iomem *pll_reg;
+		void __iomem *clk_sel_reg;
+		pll_reg = ioremap(0x3002070, 0x20);
+		clk_sel_reg = ioremap(0x3002030, 0x20);
+		writel(0x40009, pll_reg);
+		writel(readl(clk_sel_reg) & ~BIT(6), clk_sel_reg);
+		iounmap(pll_reg);
+		iounmap(clk_sel_reg);
+	}
+
+#ifdef CONFIG_MMC_SKIP_TUNING
+	if (strstr(dev_name(mmc_dev(host->mmc)), "cv-emmc")) {
+		void __iomem *emmc_ctrl_reg;
+		emmc_ctrl_reg = ioremap(0x4300200, 0x4c);
+		cvi_host->final_tap = (readl(emmc_ctrl_reg+0x40) >>16) & 0x7F;
+		pr_debug("emmc final tap: 0x%x.\n", cvi_host->final_tap);
+		iounmap(emmc_ctrl_reg);
+	}
+#endif
+	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd"))
+		sdhci_cv181x_sd1_setup_pad(host, false);
+
 	sdhci_cv181x_sd_voltage_restore(host, false);
 
 	ret = mmc_of_parse(host->mmc);
@@ -1302,6 +1376,7 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 			}
 		}
 	}
+
 	/*
 	 * extra adma table cnt for cross 128M boundary handling.
 	 */
@@ -1316,9 +1391,12 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, cvi_host);
 
-	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd"))
+	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd")) {
 		wifi_mmc = host->mmc;
-	else
+
+		if (device_create_file(&host->mmc->class_dev, &dev_attr_rescan))
+			pr_err("Fail to create rescan sysfs file.\n");
+	} else
 		wifi_mmc = NULL;
 
 	/* device proc entry */

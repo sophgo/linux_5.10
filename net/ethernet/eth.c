@@ -497,7 +497,11 @@ static int __init eth_offload_init(void)
 	return 0;
 }
 
+#ifndef CONFIG_CVITEK_FASTBOOT
 fs_initcall(eth_offload_init);
+#else
+deferred_initcall(eth_offload_init);
+#endif
 
 unsigned char * __weak arch_get_platform_mac_address(void)
 {

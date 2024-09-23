@@ -915,6 +915,11 @@
 		KEEP(*(.initcall##level##.init))			\
 		KEEP(*(.initcall##level##s.init))			\
 
+#define DEFERRED_INITCALLS						\
+		__deferred_initcall_start = .;		\
+		KEEP(*(.deferred_initcall.init))			\
+		__deferred_initcall_end = .;
+
 #define INIT_CALLS							\
 		__initcall_start = .;					\
 		KEEP(*(.initcallearly.init))				\
@@ -927,7 +932,9 @@
 		INIT_CALLS_LEVEL(rootfs)				\
 		INIT_CALLS_LEVEL(6)					\
 		INIT_CALLS_LEVEL(7)					\
-		__initcall_end = .;
+		INIT_CALLS_LEVEL(deferred)					\
+		__initcall_end = .;					\
+		DEFERRED_INITCALLS
 
 #define CON_INITCALL							\
 		__con_initcall_start = .;				\

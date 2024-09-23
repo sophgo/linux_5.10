@@ -17,6 +17,7 @@
 #include <mtd/mtd-abi.h>
 
 #include <asm/div64.h>
+#include <uapi/mtd/mtd-abi.h>
 
 #define MTD_FAIL_ADDR_UNKNOWN -1LL
 
@@ -319,6 +320,7 @@ struct mtd_info {
 	int (*_erase_otp)(struct mtd_info *mtd, struct erase_info *instr);
 	int (*_read_otp)(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf);
 	int (*_get_otp_info)(struct mtd_info *mtd, struct otp_message *otp_info);
+	int (*_get_otp_info_nand)(struct mtd_info *mtd, struct otp_info *otp_info);
 	int (*_write) (struct mtd_info *mtd, loff_t to, size_t len,
 		       size_t *retlen, const u_char *buf);
 	int (*_write_otp)(struct mtd_info *mtd, loff_t to, size_t len,
@@ -326,9 +328,9 @@ struct mtd_info {
 	int (*_panic_write) (struct mtd_info *mtd, loff_t to, size_t len,
 			     size_t *retlen, const u_char *buf);
 	int (*_read_oob) (struct mtd_info *mtd, loff_t from,
+						struct mtd_oob_ops *ops);
+	int (*_write_oob)(struct mtd_info *mtd, loff_t to,
 			  struct mtd_oob_ops *ops);
-	int (*_write_oob) (struct mtd_info *mtd, loff_t to,
-			   struct mtd_oob_ops *ops);
 	int (*_get_fact_prot_info) (struct mtd_info *mtd, size_t len,
 				    size_t *retlen, struct otp_info *buf);
 	int (*_read_fact_prot_reg) (struct mtd_info *mtd, loff_t from,

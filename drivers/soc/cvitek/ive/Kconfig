@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CV181X_IVE
+	tristate "cv181x ive dirver"
+	depends on ION_CVITEK && CV181X_SYS
+	help
+		"cv181x ive"

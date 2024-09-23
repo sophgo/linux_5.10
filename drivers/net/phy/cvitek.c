@@ -192,11 +192,12 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	// En TX_Rterm
 	writel((0x0001 | readl(reg_ephy_base + 0x40)), reg_ephy_base + 0x40);
 	//Change rx vcm
-	writel((0x820 |readl(reg_ephy_base + 0x4c)), reg_ephy_base + 0x4c);
+	writel((0x820 | readl(reg_ephy_base + 0x4c)), reg_ephy_base + 0x4c);
 //	Link Pulse
 	// Switch to MII-page10
 	writel(0x0a00, reg_ephy_base + 0x7c);
-#if 1
+
+// #if 1
 	// Set Link Pulse
 	writel(0x3e00, reg_ephy_base + 0x40);
 	writel(0x7864, reg_ephy_base + 0x44);
@@ -211,7 +212,9 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	writel(0x8688, reg_ephy_base + 0x68);
 	writel(0x8484, reg_ephy_base + 0x6c);
 	writel(0x0082, reg_ephy_base + 0x70);
-#else 
+
+// #else
+/*
 	// from sean
 	// Fix err: the status is still linkup when removed the network cable.
 	writel(0x2000, reg_ephy_base + 0x40);
@@ -227,7 +230,9 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	writel(0x8283, reg_ephy_base + 0x68);
 	writel(0x8182, reg_ephy_base + 0x6c);
 	writel(0x0081, reg_ephy_base + 0x70);
-#endif
+*/
+// #endif
+
 // TP_IDLE
 	// Switch to MII-page11
 	writel(0x0b00, reg_ephy_base + 0x7c);
@@ -343,6 +348,22 @@ err_ephy_mem_1:
 	return ret;
 }
 
+static int cvi_genphy_suspend(struct phy_device *phydev)
+{
+	return 0;
+}
+
+static int cvi_genphy_resume(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = cv182xa_phy_config_init(phydev);
+	if (ret < 0)
+		return ret;
+	ret = genphy_config_aneg(phydev);
+	//return phy_clear_bits(phydev, MII_BMCR, BMCR_PDOWN);
+	return 0;
+}
 static struct phy_driver cv182xa_phy_driver[] = {
 {
 	.phy_id		= 0x00435649,
@@ -355,8 +376,8 @@ static struct phy_driver cv182xa_phy_driver[] = {
 	.ack_interrupt	= cv182xa_phy_ack_interrupt,
 	.config_intr	= cv182xa_phy_config_intr,
 	.aneg_done	= genphy_aneg_done,
-	.suspend	= genphy_suspend,
-	.resume		= genphy_resume,
+	.suspend	= cvi_genphy_suspend,
+	.resume		= cvi_genphy_resume,
 	.set_loopback   = genphy_loopback,
 } };
 

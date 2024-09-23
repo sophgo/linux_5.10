@@ -838,4 +838,9 @@ static int __init gpiolib_sysfs_init(void)
 
 	return status;
 }
+
+#ifndef CONFIG_CVITEK_FASTBOOT
 postcore_initcall(gpiolib_sysfs_init);
+#else
+deferred_initcall(gpiolib_sysfs_init);
+#endif

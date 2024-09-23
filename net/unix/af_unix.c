@@ -2934,7 +2934,11 @@ static void __exit af_unix_exit(void)
    request_module() don't end up in a loop when modprobe tries
    to use a UNIX socket. But later than subsys_initcall() because
    we depend on stuff initialised there */
+#ifndef CONFIG_CVITEK_FASTBOOT
 fs_initcall(af_unix_init);
+#else
+deferred_initcall(af_unix_init);
+#endif
 module_exit(af_unix_exit);
 
 MODULE_LICENSE("GPL");

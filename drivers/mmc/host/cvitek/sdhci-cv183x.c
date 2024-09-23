@@ -133,6 +133,8 @@ static void cvi_stats_seq_printout(struct seq_file *s)
 			else
 				type = "SDHC";
 			seq_printf(s, "(%s)\n", type);
+		} else {
+			seq_printf(s, "(%s)\n", "Normal");
 		}
 
 		timing = mmc->ios.timing;

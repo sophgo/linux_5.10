@@ -180,7 +180,6 @@ static DEFINE_SPINLOCK(cv181x_clk_lock);
 struct cv181x_clock_data {
 	void __iomem *base;
 	spinlock_t *lock;
-	struct clk_hw_onecell_data hw_data;
 #ifdef CONFIG_PM_SLEEP
 	uint32_t clken_saved_regs[REG_CLK_EN_NUM];
 	uint32_t clksel_saved_regs[REG_CLK_SEL_NUM];
@@ -194,6 +193,7 @@ struct cv181x_clock_data {
 	uint32_t cam1pll_ssc_syn_set_saved_reg;
 	uint32_t pll_g6_csr_saved_regs[REG_PLL_G6_CSR_NUM];
 #endif /* CONFIG_PM_SLEEP */
+	struct clk_hw_onecell_data hw_data;
 };
 
 struct cv181x_gate {
@@ -457,7 +457,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_EFUSE, "clk_efuse",
 		((const char *[]) {"osc"}),
 		REG_CLK_EN_0, 11,
@@ -1033,7 +1033,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_H265C, "clk_h265c",
 		((const char *[]) {"clk_axi_video_codec"}),
 		REG_CLK_EN_2, 11,
@@ -1042,7 +1042,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_JPEG, "clk_jpeg",
 		((const char *[]) {"clk_axi_video_codec"}),
 		REG_CLK_EN_2, 12,
@@ -1069,7 +1069,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_APB_H265C, "clk_apb_h265c",
 		((const char *[]) {"clk_axi6"}),
 		REG_CLK_EN_2, 15,
@@ -1078,7 +1078,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_CAM0, "clk_cam0",
 		((const char *[]) {"clk_cam0pll", "clk_cam0pll_d2", "clk_cam0pll_d3", "clk_mipimpll_d3"}),
 		REG_CLK_EN_2, 16,
@@ -1132,7 +1132,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_IMG_V_VIP, "clk_img_v_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 22,
@@ -1141,7 +1141,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_SC_TOP_VIP, "clk_sc_top_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 23,
@@ -1159,7 +1159,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_SC_V1_VIP, "clk_sc_v1_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 25,
@@ -1168,7 +1168,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_SC_V2_VIP, "clk_sc_v2_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 26,
@@ -1177,7 +1177,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_SC_V3_VIP, "clk_sc_v3_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 27,
@@ -1186,7 +1186,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_DWA_VIP, "clk_dwa_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 28,
@@ -1195,7 +1195,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_BT_VIP, "clk_bt_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_2, 29,
@@ -1294,7 +1294,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		REG_CLK_BYP_0, 31,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_PM, "clk_pm",
 		((const char *[]) {"clk_axi6"}),
 		REG_CLK_EN_3, 8,
@@ -1483,7 +1483,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		REG_CLK_BYP_1, 0,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_SRC_VIP_SYS_2, "clk_src_vip_sys_2",
 		((const char *[]) {"osc", "clk_mipimpll", "clk_cam0pll", "clk_disppll", "clk_fpll"}),
 		REG_CLK_EN_3, 29,
@@ -1546,7 +1546,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		REG_CLK_BYP_1, 3,
 		0, -1,
 		0, -1,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_PWM_SRC, "clk_pwm_src",
 		((const char *[]) {"osc", "clk_fpll", "clk_disppll"}),
 		REG_CLK_EN_4, 4,
@@ -1663,7 +1663,7 @@ static struct cv181x_hw_clock cv181x_clks[] = {
 		REG_CLK_BYP_1, 9,
 		0, -1,
 		REG_DIV_CLK_SRC_VIP_SYS_4, 8,
-		0),
+		CLK_IGNORE_UNUSED),
 	CV181X_CLK(CV181X_CLK_IVE_VIP, "clk_ive_vip",
 		((const char *[]) {"clk_axi_vip"}),
 		REG_CLK_EN_4, 17,

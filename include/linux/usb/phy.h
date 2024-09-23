@@ -362,4 +362,16 @@ static inline const char *usb_phy_type_string(enum usb_phy_type type)
 		return "UNKNOWN PHY TYPE";
 	}
 }
+
+#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+enum chg_plug_type {
+	CHG_PLUG_NONE = 0,
+	CHG_PLUG_HUB,
+	CHG_PLUG_ADAPTER,
+	CHG_PLUG_HOST,
+};
+
+enum chg_plug_type cvi_get_chg_plug(void);
+#endif
+
 #endif /* __LINUX_USB_PHY_H */

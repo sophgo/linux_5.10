@@ -1005,6 +1005,7 @@ struct nand_legacy {
 			    u8 *subfeature_para);
 	int (*get_features)(struct nand_chip *chip, int feature_addr,
 			    u8 *subfeature_para);
+	int (*otp_info)(struct nand_chip *chip, struct otp_info *otp_info);
 	int chip_delay;
 	struct nand_controller dummy_controller;
 };

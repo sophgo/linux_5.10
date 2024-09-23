@@ -526,4 +526,9 @@ static int __init pwm_sysfs_init(void)
 {
 	return class_register(&pwm_class);
 }
+
+#ifndef CONFIG_CVITEK_FASTBOOT
 subsys_initcall(pwm_sysfs_init);
+#else
+deferred_initcall(pwm_sysfs_init);
+#endif

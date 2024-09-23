@@ -99,6 +99,7 @@
 #include <linux/kcsan.h>
 #include <linux/init_syscalls.h>
 #include <linux/early_time_log.h>
+#include <linux/cost_time.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -1351,6 +1352,12 @@ static int run_init_process(const char *init_filename)
 	for (p = envp_init; *p; p++)
 		pr_debug("    %s\n", *p);
 
+#ifdef CONFIG_CVITEK_FASTBOOT
+	uint16_t *t_addr = ioremap(&time_records->kernel_run_init_start, 4);
+	*t_addr = read_time_ms();
+	iounmap(t_addr);
+#endif
+
 	early_time_log(__func__);
 	return kernel_execve(init_filename, argv_init, envp_init);
 }
@@ -1413,6 +1420,37 @@ void __weak free_initmem(void)
 	free_initmem_default(POISON_FREE_INITMEM);
 }
 
+extern initcall_t __deferred_initcall_start[], __deferred_initcall_end[];
+
+#ifdef CONFIG_CVITEK_FASTBOOT
+/* call deferred init routines */
+void do_deferred_initcalls(void)
+{
+	initcall_t *call;
+	static int already_run=0;
+
+	if (already_run) {
+		printk("do_deferred_initcalls() has already run\n");
+		return;
+	}
+
+	already_run=1;
+
+	printk("Running do_deferred_initcalls()\n");
+
+// 	lock_kernel();	/* make environment similar to early boot */
+
+	for(call = __deferred_initcall_start;
+	    call < __deferred_initcall_end; call++)
+		do_one_initcall(*call);
+
+	flush_scheduled_work();
+
+	free_initmem();
+// 	unlock_kernel();
+}
+#endif
+
 static int __ref kernel_init(void *unused)
 {
 	int ret;
@@ -1422,7 +1460,9 @@ static int __ref kernel_init(void *unused)
 	async_synchronize_full();
 	kprobe_free_init_mem();
 	ftrace_free_init_mem();
+#ifndef CONFIG_CVITEK_FASTBOOT
 	free_initmem();
+#endif
 	mark_readonly();
 
 	/*

@@ -13,6 +13,18 @@ menuconfig INPUT_KEYBOARD
 
 if INPUT_KEYBOARD
 
+config CVITEK_KEYSCAN
+	tristate "cvitek keyscan support"
+	depends on ARCH_CVITEK || COMPILE_TEST
+	select INPUT_MATRIXKMAP
+	help
+	  Say Y here if you want to use a keypad attached to the keyscan block
+	  on some cvitek SoC devices.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cvi-keyscan.
+
+
 config KEYBOARD_ADC
 	tristate "ADC Ladder Buttons"
 	depends on IIO

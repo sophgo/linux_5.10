@@ -7,6 +7,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
 
 #include "cvsnfc_common.h"
 #include "cvsnfc_spi_ids.h"
@@ -51,6 +52,10 @@
 #define STATUS_E_FAIL_MASK			(1 << 2)
 #define STATUS_WEL_MASK				(1 << 1)
 #define STATUS_OIP_MASK				(1 << 0)
+
+#define STATUS_SR1_L_MASK			BIT(5)
+#define STATUS_OTP_E_MASK			BIT(6)
+#define STATUS_OTP_L_MASK			BIT(7)
 
 /*****************************************************************************/
 /* latest register definition */
@@ -510,6 +515,7 @@ struct cvsnfc_chip_info {
 	struct nand_flash_dev nand_info;
 	struct nand_ecc_info ecc_info;
 	struct spi_nand_driver *driver;
+	struct otp_info otp_info;
 	unsigned int flags;
 };
 
@@ -578,7 +584,7 @@ struct cvsnfc_host {
 	unsigned short *epm;  /* nand empty page mark */
 
 	unsigned int uc_er;
-
+	struct mutex lock;  /* operation lock */
 	void (*set_system_clock)(struct spi_op_info *op, int clk_en);
 
 	void (*send_cmd_pageprog)(struct cvsnfc_host *host);

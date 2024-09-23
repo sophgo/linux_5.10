@@ -204,4 +204,8 @@ static int __init mm_sysfs_init(void)
 
 	return 0;
 }
+#ifndef CONFIG_CVITEK_FASTBOOT
 postcore_initcall(mm_sysfs_init);
+#else
+deferred_initcall(mm_sysfs_init);
+#endif

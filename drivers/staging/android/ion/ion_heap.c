@@ -22,6 +22,36 @@ void *ion_heap_map_kernel(struct ion_heap *heap,
 {
 	void *vaddr;
 
+#if defined(CONFIG_ARM) || defined(__arm__) || defined(__aarch64__)
+	struct sg_page_iter piter;
+	pgprot_t pgprot;
+	struct sg_table *table = buffer->sg_table;
+	int npages = PAGE_ALIGN(buffer->size) / PAGE_SIZE;
+	struct page **pages = vmalloc(array_size(npages,
+						 sizeof(struct page *)));
+	struct page **tmp = pages;
+
+	if (!pages)
+		return ERR_PTR(-ENOMEM);
+
+	if (buffer->flags & ION_FLAG_CACHED)
+		pgprot = PAGE_KERNEL;
+	else
+		pgprot = pgprot_writecombine(PAGE_KERNEL);
+
+	for_each_sgtable_page(table, &piter, 0) {
+		BUG_ON(tmp - pages >= npages);
+		*tmp++ = sg_page_iter_page(&piter);
+	}
+
+	vaddr = vmap(pages, npages, VM_MAP, pgprot);
+	vfree(pages);
+
+	if (!vaddr)
+		return ERR_PTR(-ENOMEM);
+
+#else
+
 	pr_debug("ion_heap_map_kernel addr=0x%llx, size=%lu\n", buffer->paddr, PAGE_ALIGN(buffer->size));
 
 	if (buffer->flags & ION_FLAG_CACHED)
@@ -34,16 +64,22 @@ void *ion_heap_map_kernel(struct ion_heap *heap,
 		return ERR_PTR(-ENOMEM);
 	}
 
+#endif
 	return vaddr;
 }
 
 void ion_heap_unmap_kernel(struct ion_heap *heap,
 			   struct ion_buffer *buffer)
 {
+#if defined(CONFIG_ARM) || defined(__arm__) || defined(__aarch64__)
+	vunmap(buffer->vaddr);
+#else
 	if (buffer->flags & ION_FLAG_CACHED)
 		memunmap(buffer->vaddr);
 	else
 		iounmap(buffer->vaddr);
+
+#endif
 }
 
 int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,

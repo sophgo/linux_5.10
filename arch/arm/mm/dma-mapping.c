@@ -315,7 +315,7 @@ static void *__alloc_remap_buffer(struct device *dev, size_t size, gfp_t gfp,
 				 pgprot_t prot, struct page **ret_page,
 				 const void *caller, bool want_vaddr);
 
-#define DEFAULT_DMA_COHERENT_POOL_SIZE	SZ_256K
+#define DEFAULT_DMA_COHERENT_POOL_SIZE	SZ_512K
 static struct gen_pool *atomic_pool __ro_after_init;
 
 static size_t atomic_pool_size __initdata = DEFAULT_DMA_COHERENT_POOL_SIZE;
@@ -2303,6 +2303,7 @@ void arch_sync_dma_for_device(phys_addr_t paddr, size_t size,
 	__dma_page_cpu_to_dev(phys_to_page(paddr), paddr & (PAGE_SIZE - 1),
 			      size, dir);
 }
+EXPORT_SYMBOL_GPL(arch_sync_dma_for_device);
 
 void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
 		enum dma_data_direction dir)

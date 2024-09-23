@@ -92,7 +92,10 @@ static void ion_carveout_heap_free(struct ion_buffer *buffer)
 	phys_addr_t paddr = PFN_PHYS(page_to_pfn(page));
 
 	//remove it for saving cpu usage and vmap/unvmap frequency
-	//ion_heap_buffer_zero(buffer);
+#ifdef ENABLE_DATA_ZERO
+	ion_heap_buffer_zero(buffer);
+#endif
+
 #ifdef CONFIG_ION_CVITEK
 	if (buffer->name)
 		vfree(buffer->name);
@@ -134,6 +137,14 @@ void cvi_get_rtos_ion_size(size_t *psize)
 }
 #endif
 
+struct gen_pool *ion_carveout_get_pool(struct ion_heap *heap)
+{
+	struct ion_carveout_heap *carveout_heap =
+		container_of(heap, struct ion_carveout_heap, heap);
+
+	return carveout_heap->pool;
+}
+
 struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *heap_data)
 {
 	struct ion_carveout_heap *carveout_heap;
@@ -164,9 +175,11 @@ struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *heap_data)
 	}
 #endif
 
+#ifdef ENABLE_DATA_ZERO
 	ret = ion_heap_pages_zero(page, size, pgprot_writecombine(PAGE_KERNEL));
 	if (ret)
 		return ERR_PTR(ret);
+#endif
 
 	carveout_heap = kzalloc(sizeof(*carveout_heap), GFP_KERNEL);
 	if (!carveout_heap)

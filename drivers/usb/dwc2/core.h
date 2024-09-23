@@ -846,6 +846,7 @@ struct dwc2_hregs_backup {
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
 
 enum CHG_PORT_E {
+	CHGDET_NONE,
 	CHGDET_SDP,	/* standard downstream port. */
 	CHGDET_DCP,	/* dedicated charging port. */
 	CHGDET_CDP,	/* charging downstream port. */
