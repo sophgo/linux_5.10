@@ -93,7 +93,7 @@ void sdvt_init_chip(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_co
 	m_data_8b = 0;
 	cdev->ops->write_reg(cdev, SDVT_CAN_CONTROL, m_data_8b);
 
-	if (p_config_st->cfg_ext_frame_mode_b == 0)
+	if (p_config_st->cfg_ext_frame_mode_b == SDVT_CAN_STANDARD_FRAME)
 		m_data_8b = m_data_8b | (SDVT_CAN_STANDARD_FRAME << 2);  // Standard frame format
 	else
 		m_data_8b = m_data_8b | (SDVT_CAN_EXTENDED_FRAME << 2); // Extended frame format
@@ -124,15 +124,15 @@ void sdvt_init_chip(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_co
 	cdev->ops->write_reg(cdev, SDVT_CAN_EXT_CONTROL, m_data_8b);
 
 	// Disable IRQ
-	m_data_8b = 0x0;
-	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE0, m_data_8b);
-	m_data_8b = 0x0;
-	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, m_data_8b);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE0, 0x0);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, 0x0);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, 0x0);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, 0x0);
 
 	// clear intr register
 	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_STATUS0, 0xFF);
 	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_STATUS1, 0xFF);
-	dev_info(cdev->dev, "INFO : init_chip() :: DUT CONFIGURATION COMPLETED\n");
+	dev_info(cdev->dev, "INFO : init_chip() :: CAN DUT CONFIGURATION COMPLETED\n");
 
 	// flush the RX data fifo
 	m_data_8b = 0x1 << SDVT_CAN_RX_DATA_FIFO_FLUSH;
@@ -214,43 +214,10 @@ void send_command(struct sdvt_can_classdev *cdev,
 		// Program the identifier[4:0]
 		m_data_8b = p_cmd_st->ident_32b & 0x1F;
 		cdev->ops->write_reg(cdev, SDVT_CAN_ARB_ID4, m_data_8b);
-		dev_info(cdev->dev, "INFO : %s() :: Extended frame :: 0x%x\n", __func__, m_data_8b);
+		// dev_info(cdev->dev, "INFO : %s() :: Extended frame\n", __func__);
 	}
 
-	// FD CAN enable
-	if (p_config_st->cfg_can_mode_2b == SDVT_CAN_FD_MODE) {
-		if (p_cmd_st->dlc_4b == 9) {
-			// The max.data length code is 9
-			m_bytes_8b = 12;
-		} else if (p_cmd_st->dlc_4b == 10) {
-			// The max.data length code is 10
-			m_bytes_8b = 16;
-		} else if (p_cmd_st->dlc_4b == 11) {
-			// The max.data length code is 11
-			m_bytes_8b = 20;
-		} else if (p_cmd_st->dlc_4b == 12) {
-			// The max.data length code is 12
-			m_bytes_8b = 24;
-		} else if (p_cmd_st->dlc_4b == 13) {
-			// The max.data length code is 13
-			m_bytes_8b = 32;
-		} else if (p_cmd_st->dlc_4b == 14) {
-			// The max.data length code is 14
-			m_bytes_8b = 48;
-		} else if (p_cmd_st->dlc_4b == 15) {
-			// The max.data length code is 15
-			m_bytes_8b = 64;
-		} else {
-			// Data length code is valid
-			m_bytes_8b = p_cmd_st->dlc_4b;
-		}
-	} else {
-		if (p_cmd_st->dlc_4b > 8) {          // The max.data length code is 8
-			m_bytes_8b  = 8;
-		} else {					        // Data length code is valid
-			m_bytes_8b  = p_cmd_st->dlc_4b;
-		}
-	}
+	m_bytes_8b = p_cmd_st->data_len_code_4b;
 
     // Generate data only in non remote frames mode
 	if (m_rtr_b == 0) {
@@ -293,7 +260,7 @@ void send_command(struct sdvt_can_classdev *cdev,
 
 //              p_cmd_st :Pointer to command object
 
-void receive_frame(struct sdvt_can_classdev *cdev,
+u8 receive_frame(struct sdvt_can_classdev *cdev,
 		   struct sdvt_can_command *p_cmd_st,
 		   struct sdvt_can_config *p_config_st)
 {
@@ -308,6 +275,11 @@ void receive_frame(struct sdvt_can_classdev *cdev,
 		m_data_8b         = cdev->ops->read_reg(cdev, SDVT_CAN_RX_LEN_FIFO);
 		p_cmd_st->rx_len_2d_8b[m_idx_i] = m_data_8b;
 		m_len_8b = m_data_8b;
+	}
+
+	if (p_cmd_st->rx_len_2d_8b[0] > 5) {
+		dev_err(cdev->dev, "ERR : %s() :: id len = %d\n", __func__, p_cmd_st->rx_len_2d_8b[0]);
+		return 1;
 	}
 
 	if (p_config_st->cfg_ext_frame_mode_b == SDVT_CAN_STANDARD_FRAME) {
@@ -335,13 +307,19 @@ void receive_frame(struct sdvt_can_classdev *cdev,
 
 	// Read the data from RX DATA FIFO based on length
 
+	if (m_len_8b > 64) {
+		dev_err(cdev->dev, "ERR : %s() :: data len = %d\n", __func__, m_len_8b);
+		m_len_8b = 64;
+	}
+
 	for (m_idx_i = 0; m_idx_i < m_len_8b; m_idx_i += 1) {
-		m_data_8b         = cdev->ops->read_reg(cdev, SDVT_CAN_RX_DATA_FIFO);
+		m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_RX_DATA_FIFO);
 		p_cmd_st->rx_data_2d_8b[m_idx_i] = m_data_8b;
 	}
+	return 0;
 }
 
-void receive_remote_frame(struct sdvt_can_classdev *cdev,
+u8 receive_remote_frame(struct sdvt_can_classdev *cdev,
 			  struct sdvt_can_command *p_cmd_st,
 			  struct sdvt_can_config *p_config_st)
 {
@@ -357,6 +335,10 @@ void receive_remote_frame(struct sdvt_can_classdev *cdev,
 		m_len_8b = m_data_8b;
 	}
 
+	if (p_cmd_st->rx_len_2d_8b[0] > 5) {
+		dev_err(cdev->dev, "ERR : %s() :: id len = %d\n", __func__, p_cmd_st->rx_len_2d_8b[0]);
+		return 1;
+	}
 	if (p_config_st->cfg_ext_frame_mode_b == SDVT_CAN_STANDARD_FRAME) {
 		for (m_idx_i = 0; m_idx_i < p_cmd_st->rx_len_2d_8b[0]; m_idx_i++)
 			m_can_id[m_idx_i] = cdev->ops->read_reg(cdev, SDVT_CAN_RX_DATA_FIFO);
@@ -379,6 +361,7 @@ void receive_remote_frame(struct sdvt_can_classdev *cdev,
 			p_cmd_st->ident_32b = ((can_index >> 3) & 0x1FFFFFFF) | CAN_EFF_FLAG;
 		}
 	}
+	return 0;
 }
 
 // detect_irq_status :This method is used to handle the interrupts
@@ -388,6 +371,11 @@ void receive_remote_frame(struct sdvt_can_classdev *cdev,
 void detect_irq_status(struct sdvt_can_classdev *cdev, struct sdvt_can_command *p_cmd_st)
 {
 	u8 m_rd_status_2b ; // Status 1 reg
+
+	p_cmd_st->irq_status0_8b = 0;
+	p_cmd_st->irq_status1_8b = 0;
+	p_cmd_st->irq_status4_8b = 0;
+	p_cmd_st->irq_status5_8b = 0;
 
 	m_rd_status_2b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS0);
 	if (m_rd_status_2b) {
@@ -400,6 +388,14 @@ void detect_irq_status(struct sdvt_can_classdev *cdev, struct sdvt_can_command *
 		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_STATUS1, m_rd_status_2b);
 		p_cmd_st->irq_status1_8b = m_rd_status_2b;
 	}
+	m_rd_status_2b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS4);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_STATUS4, m_rd_status_2b);
+	p_cmd_st->irq_status4_8b = m_rd_status_2b;
+
+	m_rd_status_2b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS5);
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_STATUS5, m_rd_status_2b);
+	p_cmd_st->irq_status5_8b = m_rd_status_2b;
+
 }
 
 // mask_irq :This method is used to mask the IRQ
@@ -432,6 +428,16 @@ void sdvt_mask_irq(struct sdvt_can_classdev *cdev,
 		m_new_mask_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE3) & ~p_mask_8b;
 		p_config_st->irq_enable3_8b = m_new_mask_8b;
 		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE3, m_new_mask_8b);
+		break;
+	case SDVT_CAN_IRQ_ENABLE4:
+		m_new_mask_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE4) & ~p_mask_8b;
+		p_config_st->irq_enable4_8b = m_new_mask_8b;
+		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE4, m_new_mask_8b);
+		break;
+	case SDVT_CAN_IRQ_ENABLE5:
+		m_new_mask_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE5) & ~p_mask_8b;
+		p_config_st->irq_enable5_8b = m_new_mask_8b;
+		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE5, m_new_mask_8b);
 		break;
 	default:
 		break;
@@ -469,6 +475,16 @@ void sdvt_unmask_irq(struct sdvt_can_classdev *cdev,
 		p_config_st->irq_enable3_8b = m_new_mask_8b;
 		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE3, m_new_mask_8b);
 		break;
+	case SDVT_CAN_IRQ_ENABLE4:
+		m_new_mask_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE4) | p_mask_8b;
+		p_config_st->irq_enable4_8b = m_new_mask_8b;
+		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE4, m_new_mask_8b);
+		break;
+	case SDVT_CAN_IRQ_ENABLE5:
+		m_new_mask_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE5) | p_mask_8b;
+		p_config_st->irq_enable5_8b = m_new_mask_8b;
+		cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE5, m_new_mask_8b);
+		break;
 	default:
 		break;
 	}
@@ -479,23 +495,32 @@ void sdvt_unmask_irq(struct sdvt_can_classdev *cdev,
 
 int32_t wait_tx_done(struct sdvt_can_classdev *cdev)
 {
-	u8 m_data_8b   ; // Command control register
+	u8 can_tx_status = 0; // Command control register
 	u32 timeout = CAN_TXRX_TIMEOUT;
 
-	m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS1);
-	m_data_8b = m_data_8b & (1 << SDVT_CAN_IRQ_TX_DONE);
+	// m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS1);
+	// m_data_8b = m_data_8b & (1 << SDVT_CAN_IRQ_TX_DONE);
 
-	// Command is pending
-	while (m_data_8b == 0 && --timeout) {
-		m_data_8b   = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_STATUS1);
-		m_data_8b   = m_data_8b & (1 << SDVT_CAN_IRQ_TX_DONE);
-		mdelay(1);
+	while (can_tx_status == 0 && timeout > 0) {
+		udelay(10);
+		can_tx_status = cdev->ops->read_reg(cdev, SDVT_CAN_STATUS);
+		can_tx_status = can_tx_status & (0x1 << SDVT_CAN_STATUS_TX_DONE);
+		timeout--;
 	}
 	if (timeout <= 0) {
-		dev_info(cdev->dev, "tx timeout!\n");
+		dev_err(cdev->dev, "%s:tx busy\n", __func__);
 		return -1;
 	}
 	return 0;
+}
+void abort_tx(struct sdvt_can_classdev *cdev)
+{
+	u8 command = 1; // Command control register
+
+	dev_err(cdev->dev, "%s:abort tx\n", __func__);
+	command = cdev->ops->read_reg(cdev, SDVT_CAN_COMMAND);
+	cdev->ops->write_reg(cdev, SDVT_CAN_COMMAND, command | (0x1 << SDVT_CAN_CMD_ABORT));
+	cdev->ops->write_reg(cdev, SDVT_CAN_COMMAND, command);
 }
 
 // wait_rx_valid :This method is used for waiting for completion of request

@@ -258,6 +258,11 @@ config REALTEK_PHY
 	help
 	  Supports the Realtek 821x PHY.
 
+config MOTORCOMM_PHY
+	tristate "MOTORCOMM PHYs"
+	help
+	  Supports the MOTORCOMM YT8531 PHY.
+
 config RENESAS_PHY
 	tristate "Renesas PHYs"
 	help

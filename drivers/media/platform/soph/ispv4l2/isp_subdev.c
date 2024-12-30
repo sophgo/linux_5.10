@@ -184,6 +184,9 @@ static int sop_isp_sd_s_power(struct v4l2_subdev *sd, int on)
 
 			isp_dev->sensors[index].sd = remote_sensor;
 		}
+
+		isp_dev->cif_sdev = remote_cif;
+
 	} else {
 		for (i = 0; i < MAX_SENSOR_NUM; i++)
 			isp_dev->sensors[index].sd = NULL;

@@ -76,6 +76,7 @@ struct lt6911_mode {
 	u32 exp_def;
 	u32 mipi_wdr_mode;
 	struct v4l2_fract max_fps;
+	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t lt6911_sync_info;
 	struct lt6911_reg_list reg_list;
 	struct lt6911_reg_list wdr_reg_list;
@@ -301,6 +302,23 @@ static int g_mbus_config(struct v4l2_subdev *sd, unsigned int pad_id,
 	return 0;
 }
 
+static int enum_frame_interval(struct v4l2_subdev *sd,
+			      struct v4l2_subdev_pad_config *cfg,
+			      struct v4l2_subdev_frame_interval_enum *fie)
+{
+	struct lt6911 *lt6911 = to_lt6911(sd);
+
+	fie->width  = lt6911->cur_mode->width;
+	fie->height = lt6911->cur_mode->height;
+
+	if (lt6911->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
+		fie->interval.numerator   = lt6911->cur_mode->max_fps.numerator;
+		fie->interval.denominator = lt6911->cur_mode->max_fps.denominator;
+	}
+
+	return 0;
+}
+
 static int enum_mbus_code(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_mbus_code_enum *code)
@@ -433,13 +451,29 @@ static int set_pad_format(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static void lt6911uxe_reset(struct lt6911 *lt6911)
+{
+	static int cnt = 0;
+	if (!cnt) {
+		gpiod_set_value(lt6911->reset_gpio, 0);
+		usleep_range(20000, 21000);
+		gpiod_set_value(lt6911->reset_gpio, 1);
+		usleep_range(20000, 21000);
+		gpiod_set_value(lt6911->reset_gpio, 0);
+		usleep_range(20000, 21000);
+		cnt++;
+	}
+}
+
 /* Start streaming */
 static int start_streaming(struct lt6911 *lt6911)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
-	const struct lt6911_reg_list *reg_list;
 	const sns_sync_info_t *sync_info;
+	const struct lt6911_reg_list *reg_list;
 	int ret;
+	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
+	
+	lt6911uxe_reset(lt6911);
 
 	if (lt6911->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
 		reg_list = &lt6911->cur_mode->reg_list;
@@ -736,6 +770,7 @@ static const struct v4l2_subdev_pad_ops lt6911_pad_ops = {
 	.set_fmt = set_pad_format,
 	.enum_frame_size = enum_frame_size,
 	.get_mbus_config = g_mbus_config,
+	.enum_frame_interval = enum_frame_interval,
 };
 
 static const struct v4l2_subdev_ops lt6911_subdev_ops = {
@@ -947,6 +982,15 @@ static int lt6911_probe(struct i2c_client *client,
 		return ret;
 	}
 	dev_info(dev, "sensor_%d request_irq success\n", index_id);
+
+	lt6911_gpio_irq_thread_handler(client->irq, lt6911);
+
+	lt6911->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(lt6911->reset_gpio)) {
+		dev_err(dev, "cannot get reset gpio property\n");
+		return PTR_ERR(lt6911->reset_gpio);
+	}
+	dev_info(dev, "sensor_%d request_reset success\n", index_id);
 
 	return 0;
 

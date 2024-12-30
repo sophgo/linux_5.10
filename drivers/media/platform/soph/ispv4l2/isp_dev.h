@@ -72,6 +72,7 @@ struct sop_isp_device {
 	struct v4l2_async_notifier notifier;
 	struct sop_sensor_info *active_sensor;
 	struct sop_sensor_info sensors[MAX_SENSOR_NUM];
+	struct v4l2_subdev *cif_sdev;
 	int num_sensors;
 	int is_powerOn;
 };

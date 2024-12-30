@@ -643,6 +643,10 @@ struct phy_device {
 	/* MACsec management functions */
 	const struct macsec_ops *macsec_ops;
 #endif
+
+#if IS_ENABLED(CONFIG_ARCH_CV186X)
+	char phy_led_flag;
+#endif
 };
 #define to_phy_device(d) container_of(to_mdio_device(d), \
 				      struct phy_device, mdio)

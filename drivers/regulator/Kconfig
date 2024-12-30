@@ -366,6 +366,16 @@ config REGULATOR_GPIO
 	  and the platform has to provide a mapping of GPIO-states
 	  to target volts/amps.
 
+config REGULATOR_CS32L010
+	tristate "BasisLink CS32L010 PMIC Support"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say yes here to add support for BasisLink CS32L010. This is
+	  a Power Management IC. This driver provides common support for
+	  accessing the device; additional drivers must be enabled in order
+	  to use the functionality of the device.
+
 config REGULATOR_HI6421
 	tristate "HiSilicon Hi6421 PMIC voltage regulator support"
 	depends on MFD_HI6421_PMIC && OF

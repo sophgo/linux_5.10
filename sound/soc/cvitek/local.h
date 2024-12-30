@@ -308,7 +308,7 @@ struct cvi_i2s_dev {
 	bool mclk_out;
 #ifdef CONFIG_PM_SLEEP
 	struct cvi_i2s_reg_context *reg_ctx;
-	struct cvi_dwi2s_reg_contex *reg_dwctx;
+	struct cvi_dwi2s_reg_context *reg_dwctx;
 #endif
 };
 
@@ -316,7 +316,7 @@ struct cvi_i2s_dev {
 static void cvi_pcm_push_tx(struct cvi_i2s_dev *dev);
 static int cvi_pcm_register(struct platform_device *pdev);
 #else
-static void cvi_pcm_push_tx(struct cvi_i2s_dev *dev) { }
+//static void cvi_pcm_push_tx(struct cvi_i2s_dev *dev) { }
 static int cvi_pcm_register(struct platform_device *pdev)
 {
 	return -EINVAL;

@@ -476,7 +476,7 @@ static long adc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	case ACODEC_SET_INPUT_VOL:
 		pr_debug("adc: ACODEC_SET_INPUT_VOL\n");
-		if (val < 0 | val > 24)
+		if (val < 0 || val > 24)
 			pr_err("Only support range 0 [0dB] ~ 24 [48dB]\n");
 		else if (val == 0) {
 			/* set mute */
@@ -527,7 +527,7 @@ static long adc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case ACODEC_SET_GAIN_MICL:
 		pr_debug("adc: ACODEC_SET_GAIN_MICL\n");
-		if (val < 0 | val > 24)
+		if (val < 0 || val > 24)
 			pr_err("Only support range 0 [0dB] ~ 24 [48dB]\n");
 		else {
 			temp = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA0) & ~AUDIO_PHY_REG_ADC_VOLL_MASK;
@@ -538,7 +538,7 @@ static long adc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case ACODEC_SET_GAIN_MICR:
 		pr_debug("adc: ACODEC_SET_GAIN_MICR\n");
-		if (val < 0 | val > 24)
+		if (val < 0 || val > 24)
 			pr_err("Only support range 0 [0dB] ~ 24 [48dB]\n");
 		else {
 			temp = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA0) & ~AUDIO_PHY_REG_ADC_VOLR_MASK;

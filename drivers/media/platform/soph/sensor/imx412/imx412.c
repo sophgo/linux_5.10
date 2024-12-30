@@ -66,6 +66,7 @@ struct imx412_mode {
 	u32 exp_def;
 	u32 mipi_wdr_mode;
 	struct v4l2_fract max_fps;
+	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t imx412_sync_info;
 	struct imx412_reg_list reg_list;
 	struct imx412_reg_list wdr_reg_list;
@@ -359,11 +360,11 @@ static void imx412_standby(struct imx412 *imx412)
 	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x01);
 }
 
-static void imx412_restart(struct imx412 *imx412)
-{
-	imx412_write_reg(imx412, 0x3000, REG_VALUE_08BIT, 0x00);
-	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x00);
-}
+//static void imx412_restart(struct imx412 *imx412)
+//{
+//	imx412_write_reg(imx412, 0x3000, REG_VALUE_08BIT, 0x00);
+//	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x00);
+//}
 
 /* Start streaming */
 static int start_streaming(struct imx412 *imx412)

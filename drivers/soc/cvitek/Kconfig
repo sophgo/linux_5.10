@@ -29,5 +29,10 @@ config CVI_BT_PIN
 	  Enable this configuration to enable API to get
 	  GPIO number to do certain action, ex. power on
 	  or wakeup pin.
+config WLAN_VENDOR_AIC8800
+	bool "support AIC8800"
+	depends on CVI_WIFI_PIN
+	default y
+
 
 endmenu

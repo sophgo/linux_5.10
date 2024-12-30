@@ -122,6 +122,7 @@ typedef enum {
 } color_depth_t;
 
 struct phy_config {
+	u32			index;
 	pixel_repetition_t	pixel;
 	color_depth_t		color;
 	operation_mode_t	opmode;
@@ -265,6 +266,8 @@ struct dw_hdmi *dw_hdmi_bind(struct platform_device *pdev,
 			     const struct dw_hdmi_plat_data *plat_data);
 
 void dw_hdmi_resume(struct dw_hdmi *hdmi);
+
+void dw_hdmi_suspend(struct dw_hdmi *hdmi);
 
 void dw_hdmi_setup_rx_sense(struct dw_hdmi *hdmi, bool hpd, bool rx_sense);
 

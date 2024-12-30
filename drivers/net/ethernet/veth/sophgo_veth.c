@@ -8,6 +8,9 @@
 #include <linux/mod_devicetable.h>
 #include <linux/spinlock.h>
 #include <linux/of.h>
+#include <linux/sysfs.h>
+#include <linux/kobject.h>
+#include <linux/string.h>
 
 #include "sophgo_common.h"
 #include "sophgo_veth.h"
@@ -97,6 +100,7 @@ static int veth_open(struct net_device *ndev)
 	atomic_set(&vdev->link, false);
 	err = set_ready_flag(vdev);
 	if (err) {
+		devm_free_irq(&vdev->pdev->dev, vdev->rx_irq, vdev);
 		pr_err("set ready falg failed!\n");
 		return 1;
 	}
@@ -111,8 +115,10 @@ static int veth_close(struct net_device *ndev)
 {
 	struct veth_dev *vdev = netdev_priv(ndev);
 
+	disable_irq(vdev->rx_irq);
 	napi_disable(&vdev->napi);
 	netif_stop_queue(ndev);
+	devm_free_irq(&vdev->pdev->dev, vdev->rx_irq, vdev);
 	return 0;
 }
 
@@ -303,6 +309,9 @@ static int sg_veth_get_resource(struct platform_device *pdev, struct veth_dev *v
 		return err;
 	}
 
+	// set the veth's initial status to 0
+	sg_write32(vdev->shm_cfg_reg, VETH_CTRL_STATUS, 0);
+
 	return 0;
 }
 
@@ -320,6 +329,132 @@ static bool sg_veth_init_mode_check(unsigned int index)
 
         return val ? true : false;
 }
+
+static ssize_t ipaddr_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET);
+    return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t ipaddr_store(struct device *dev, struct device_attribute *attr,
+                        const char *buf, size_t count)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val;
+
+    if (kstrtouint(buf, 10, &val))
+        return -EINVAL;
+
+    sg_write32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET, val);
+    return count;
+}
+
+static ssize_t mask_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_MASK_OFFSET);
+    return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t mask_store(struct device *dev, struct device_attribute *attr,
+                        const char *buf, size_t count)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val;
+
+    if (kstrtouint(buf, 10, &val))
+        return -EINVAL;
+
+    sg_write32(vdev->shm_cfg_reg, VETH_MASK_OFFSET, val);
+    return count;
+}
+
+static ssize_t mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->top_misc_reg, 0x4);
+	return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t ctrl_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->shm_cfg_reg, VETH_CTRL_STATUS);
+	return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t ctrl_status_store(struct device *dev, struct device_attribute *attr,
+                        const char *buf, size_t count)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val;
+
+    if (kstrtouint(buf, 10, &val))
+        return -EINVAL;
+
+    sg_write32(vdev->shm_cfg_reg, VETH_CTRL_STATUS, val);
+    return count;
+}
+
+static ssize_t link_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->shm_cfg_reg, SHM_HANDSHAKE_OFFSET);
+	return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t gw_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_GW_OFFSET);
+    return sprintf(buf, "%08x\n", val);
+}
+
+static ssize_t gw_store(struct device *dev, struct device_attribute *attr,
+                        const char *buf, size_t count)
+{
+    struct net_device *ndev = to_net_dev(dev);
+    struct veth_dev *vdev = netdev_priv(ndev);
+    u32 val;
+
+    if (kstrtouint(buf, 10, &val))
+        return -EINVAL;
+
+    sg_write32(vdev->shm_cfg_reg, VETH_GW_OFFSET, val);
+    return count;
+}
+
+DEVICE_ATTR_RW(ipaddr);
+DEVICE_ATTR_RW(mask);
+DEVICE_ATTR_RO(mode);
+DEVICE_ATTR_RW(ctrl_status);
+DEVICE_ATTR_RO(link_status);
+DEVICE_ATTR_RW(gw);
+
+static struct attribute *sg_veth_attrs[] = {
+	&dev_attr_ipaddr.attr,
+	&dev_attr_mask.attr,
+	&dev_attr_mode.attr,
+	&dev_attr_ctrl_status.attr,
+	&dev_attr_link_status.attr,
+	&dev_attr_gw.attr,
+	NULL
+};
+
+static struct attribute_group sg_veth_attr_group = {
+	.name = "params",
+	.attrs = sg_veth_attrs,
+};
 
 static int sg_veth_probe(struct platform_device *pdev)
 {
@@ -366,12 +501,16 @@ static int sg_veth_probe(struct platform_device *pdev)
 	ndev->netdev_ops = &veth_ops;
 	ndev->irq = vdev->rx_irq;
 	ndev->mtu = VETH_DEFAULT_MTU;
-
 	netif_napi_add(ndev, &vdev->napi, veth_napi_poll_rx, NAPI_POLL_WEIGHT);
 	err = register_netdev(ndev);
 	if (err) {
 		pr_err("register net device failed!\n");
 		goto err_free_netdev;
+	}
+
+	err = sysfs_create_group(&ndev->dev.kobj, &sg_veth_attr_group);
+	if (err) {
+		pr_err("failed to create sysfs group!\n");
 	}
 
 	return 0;
@@ -391,6 +530,8 @@ static int sg_veth_remove(struct platform_device *pdev)
 	netif_carrier_off(ndev);
 	if (!ndev)
 		return -ENODEV;
+
+	sysfs_remove_group(&ndev->dev.kobj, &sg_veth_attr_group);
 
 	vdev = netdev_priv(ndev);
 	disable_irq(vdev->rx_irq);

@@ -120,4 +120,6 @@ void cv182xa_reset_adc(void);
 void dwi2s_get_subsys(void);
 void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1);
 
+void aud_clk_enable(void);
+void aud_clk_disable(void);
 #endif

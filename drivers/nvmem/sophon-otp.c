@@ -135,20 +135,21 @@ static SIMPLE_DEV_PM_OPS(sophon_otp_pm_ops, sophon_otp_suspend, sophon_otp_resum
 
 static inline uint32_t otp2_segment_read(uint32_t segment, uint32_t addr)
 {
-	pr_debug("otp2 read 0x%lx\n", (SYSTEM_OTP2_BS + (((segment << 5) + addr) << 2)));
+	pr_debug("otp2 read 0x%x\n", (SYSTEM_OTP2_BS + (((segment << 5) + addr) << 2)));
 	return ioread32(otp_base + SYSTEM_OTP2_BS + (((segment << 5) + addr) << 2));
 }
 
-static void otp2_segment_dump(uint32_t segment)
-{
-	const uint32_t size = 32; // one segment size
-	uint32_t buf[size];
-	uint32_t i = 0;
-
-	for (; i < size; i++) {
-		buf[i] = otp2_segment_read(segment, i);
-	}
-}
+//static void otp2_segment_dump(uint32_t segment)
+//{
+//	const uint32_t size = 32; // one segment size
+	//uint32_t buf[size];
+//	uint32_t buf;
+//	uint32_t i = 0;
+//
+//	for (; i < size; i++) {
+//		buf = otp2_segment_read(segment, i);
+//	}
+//}
 
 static inline void otp2_segment_addr_program(uint32_t segment, uint32_t addr, uint32_t value)
 {
@@ -157,17 +158,17 @@ static inline void otp2_segment_addr_program(uint32_t segment, uint32_t addr, ui
 	iowrite32(value, otp_base + SYSTEM_OTP2_BS + (((segment << 5) + addr) << 2));
 }
 
-static void otp2_segment_program(uint32_t segment, uint32_t *value, uint32_t size)
-{
-	uint32_t i = 0;
-
-	if (size > 32)
-		size = 32;
-
-	for (;i < size; i++) {
-		otp2_segment_addr_program(segment, i, value[i]);
-	}
-}
+//static void otp2_segment_program(uint32_t segment, uint32_t *value, uint32_t size)
+//{
+//	uint32_t i = 0;
+//
+//	if (size > 32)
+//		size = 32;
+//
+//	for (;i < size; i++) {
+//		otp2_segment_addr_program(segment, i, value[i]);
+//	}
+//}
 
 #if defined(CONFIG_ARM) || defined(__arm__) || defined(__aarch64__)
 static int otp3_read(uint32_t segment, uint32_t addr, uint32_t size, uint32_t *buffer)
@@ -520,7 +521,9 @@ static int sophon_otp_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	clk_bulk_prepare_enable(otp->num_clks, otp->clks);
+	ret = clk_bulk_prepare_enable(otp->num_clks, otp->clks);
+	if (ret)
+		return ret;
 
 	otp_major = register_chrdev(0, DEVICE_NAME, &otp_fops);
 	if (otp_major < 0) {

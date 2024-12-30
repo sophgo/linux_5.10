@@ -1715,6 +1715,7 @@ static void cif_set_phy3_lane_id(struct cif_ctx *ctx, enum lane_id_e lane,
 		CIF_WR_BITS(wrap_4l, reg_sensor_phy_4l_t,
 				reg_08, csi_lane_ck_pnswap,
 				pn_swap);
+		break;
 	case CIF_LANE_0:
 		CIF_WR_BITS(wrap_4l, reg_sensor_phy_4l_t,
 				reg_04, csi_lane_d0_sel,
@@ -1770,6 +1771,7 @@ static void cif_set_phy4_lane_id(struct cif_ctx *ctx, enum lane_id_e lane,
 		CIF_WR_BITS(wrap_4l, reg_sensor_phy_4l_t,
 				reg_08, csi_lane_ck_pnswap,
 				pn_swap);
+		break;
 	case CIF_LANE_0:
 		CIF_WR_BITS(wrap_4l, reg_sensor_phy_4l_t,
 				reg_04, csi_lane_d0_sel,

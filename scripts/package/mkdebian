@@ -91,7 +91,7 @@ if [ -n "$KDEB_PKGVERSION" ]; then
 	revision=${packageversion##*-}
 else
 	revision=$(cat .version 2>/dev/null||echo 1)
-	packageversion=$version-$revision
+	packageversion=$version
 fi
 sourcename=$KDEB_SOURCENAME
 
@@ -178,7 +178,7 @@ Rules-Requires-Root: no
 Build-Depends: bc, rsync, kmod, cpio, bison, flex | flex:native $extra_build_depends
 Homepage: https://www.kernel.org/
 
-Package: $packagename-$version
+Package: $packagename
 Architecture: $debarch
 Description: Linux kernel, version $version
  This package contains the Linux kernel, modules and corresponding other
@@ -197,7 +197,7 @@ EOF
 if is_enabled CONFIG_MODULES; then
 cat <<EOF >> debian/control
 
-Package: linux-headers-$version
+Package: linux-headers
 Architecture: $debarch
 Description: Linux kernel headers for $version on $debarch
  This package provides kernel header files for $version on $debarch
@@ -209,7 +209,7 @@ fi
 if is_enabled CONFIG_DEBUG_INFO; then
 cat <<EOF >> debian/control
 
-Package: linux-image-$version-dbg
+Package: linux-image-dbg
 Section: debug
 Architecture: $debarch
 Description: Linux kernel debugging symbols for $version

@@ -197,11 +197,9 @@ static int c_show(struct seq_file *m, void *v)
 		seq_puts(m, "\n");
 
 		seq_printf(m, "CPU implementer\t: 0x%02x\n",
-			   MIDR_IMPLEMENTOR(midr));
-		if (opt_cpu == 0)
-			seq_printf(m, "CPU architecture: 8\n");
-		else
-			seq_printf(m, "CPU architecture: 6\n");
+			MIDR_IMPLEMENTOR(midr));
+
+		seq_printf(m, "CPU architecture: %d\n", 8);
 		seq_printf(m, "CPU variant\t: 0x%x\n", MIDR_VARIANT(midr));
 		seq_printf(m, "CPU part\t: 0x%03x\n", MIDR_PARTNUM(midr));
 		seq_printf(m, "CPU revision\t: %d\n\n", MIDR_REVISION(midr));

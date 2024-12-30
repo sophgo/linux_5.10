@@ -9,12 +9,57 @@
 #include <linux/of_platform.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include "cv1835_i2s_subsys.h"
 
 struct cvi_i2s_subsys_dev *dev;
 void __iomem *master_reg;
 u32 current_freq;
 void __iomem *subsys_reg;
+
+typedef struct _audio_power_ctrl_ {
+    	struct clk *aud_clk[6];
+	struct clk *aud_src;
+	struct clk *aud_dw;
+} aud_power_ctrl;
+
+static const char *const aud_clk_name[8] = {
+        "clk_sdma_aud0", "clk_sdma_aud1", "clk_sdma_aud2", "clk_sdma_aud3",
+        "clk_sdma_aud4", "clk_sdma_aud5", "clk_audsrc", "clk_aud_dw"
+};
+
+static aud_power_ctrl aud_pwm_ctrl = {0};
+
+int aud_register_clk(void)
+{
+	int ret;
+	int i;
+
+	for (i = 0; i < 6; i++) {
+		aud_pwm_ctrl.aud_clk[i] = devm_clk_get(dev->dev, aud_clk_name[i]);
+		if (IS_ERR(aud_pwm_ctrl.aud_clk[i])) {
+			ret = PTR_ERR(aud_pwm_ctrl.aud_clk[i]);
+			dev_err(dev->dev, "failed to retrieve aud %s clock",  aud_clk_name[i]);
+			return ret;
+		}
+	}
+
+	aud_pwm_ctrl.aud_src = devm_clk_get(dev->dev, aud_clk_name[6]);
+	if (IS_ERR(aud_pwm_ctrl.aud_src)) {
+		ret = PTR_ERR( aud_pwm_ctrl.aud_src);
+		dev_err(dev->dev, "failed to retrieve aud %s clock",  aud_clk_name[6]);
+		return ret;
+	}
+
+	aud_pwm_ctrl.aud_dw = devm_clk_get(dev->dev, aud_clk_name[7]);
+	if (IS_ERR(aud_pwm_ctrl.aud_dw)) {
+		ret = PTR_ERR( aud_pwm_ctrl.aud_dw);
+		dev_err(dev->dev, "failed to retrieve aud %s clock",  aud_clk_name[7]);
+		return ret;
+	}
+
+	return 0;
+}
 
 u32 i2s_subsys_query_master(void)
 {
@@ -196,10 +241,40 @@ void dwi2s_get_subsys(void)
 {
 	if (subsys_reg) {
 		pr_info("[%s][subsys:%p]dwi2s_mode:0x%x, dwi2s_slacemode_source:0x%x, clk_ctrl0:0x%x, clk_ctrl1:%x\n",
-			subsys_reg, __func__, readl(subsys_reg + DW_I2S_MODE_REG),
+			__func__, subsys_reg, readl(subsys_reg + DW_I2S_MODE_REG),
 			readl(subsys_reg + DW_I2S_SLAVEMODE_SOURCE),
 			readl(subsys_reg + DW_I2S_CLK_CTRL0), readl(subsys_reg + DW_I2S_CLK_CTRL1));
 	}
+}
+
+void aud_clk_enable(void){
+	int i;
+
+	for(i = 0; i < 6; i++){
+		if (!__clk_is_enabled(aud_pwm_ctrl.aud_clk[i]))
+        		clk_prepare_enable(aud_pwm_ctrl.aud_clk[i]);
+	}
+
+	if (!__clk_is_enabled(aud_pwm_ctrl.aud_src))
+        		clk_prepare_enable(aud_pwm_ctrl.aud_src);
+
+	if (!__clk_is_enabled(aud_pwm_ctrl.aud_dw))
+        		clk_prepare_enable(aud_pwm_ctrl.aud_dw);
+}
+
+void aud_clk_disable(void){
+	int i;
+
+	for(i = 0; i < 6; i++){
+		if (__clk_is_enabled(aud_pwm_ctrl.aud_clk[i]))
+        		clk_disable_unprepare(aud_pwm_ctrl.aud_clk[i]);
+	}
+
+	if (__clk_is_enabled(aud_pwm_ctrl.aud_src))
+        		clk_disable_unprepare(aud_pwm_ctrl.aud_src);
+
+	if (__clk_is_enabled(aud_pwm_ctrl.aud_dw))
+        		clk_disable_unprepare(aud_pwm_ctrl.aud_dw);
 }
 
 static int i2s_subsys_probe(struct platform_device *pdev)
@@ -248,7 +323,13 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 
 	audio_clk = clk_get_rate(i2sclk);
 	pr_info("get audio clk=%d\n", audio_clk);
+
+	if (aud_register_clk()) {
+            dev_err(dev->dev, "aud clock init failed\n");
+        }
 	cv1835_set_mclk(audio_clk);
+	aud_clk_enable();
+	aud_clk_disable();
 
 #if defined(CONFIG_ARCH_CV186X)
 #if defined(CONFIG_SND_SOC_CV1835PDM)

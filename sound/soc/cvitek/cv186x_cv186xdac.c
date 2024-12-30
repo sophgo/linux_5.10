@@ -87,7 +87,7 @@ static struct snd_soc_dai_link cv181x_dac_dai[] = {
 		.ops = &cv181x_dac_ops,
 		.init = cv181x_dac_codec_init,
 		.dai_fmt = SND_SOC_DAIFMT_I2S
-		| SND_SOC_DAIFMT_IB_IF
+		| SND_SOC_DAIFMT_IB_NF
 		| SND_SOC_DAIFMT_CBS_CFS,
 		.playback_only = 1,
 	},
@@ -103,7 +103,7 @@ static struct snd_soc_dai_link cv181x_dac_dai[] = {
 		.ops = &cv181x_dac_ops,
 		.init = cv181x_dac_codec_init,
 		.dai_fmt = SND_SOC_DAIFMT_I2S
-		| SND_SOC_DAIFMT_IB_IF
+		| SND_SOC_DAIFMT_IB_NF
 		| SND_SOC_DAIFMT_CBS_CFS,
 		.playback_only = 1,
 	},

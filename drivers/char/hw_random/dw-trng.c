@@ -41,10 +41,10 @@ static int dw_trng_read(struct hwrng *rng, void *buf, size_t max, bool wait)
 	do {
 		arm_smccc_smc(OPTEE_SMC_CALL_CV_TRNG_READ, 0, 0, 0, 0, 0, 0, 0, &res);
 
-		pr_debug("a0 : 0x%x\n", res.a0);
-		pr_debug("a1 : 0x%x\n", res.a1);
-		pr_debug("a2 : 0x%x\n", res.a2);
-		pr_debug("a3 : 0x%x\n", res.a3);
+		pr_debug("a0 : 0x%lx\n", res.a0);
+		pr_debug("a1 : 0x%lx\n", res.a1);
+		pr_debug("a2 : 0x%lx\n", res.a2);
+		pr_debug("a3 : 0x%lx\n", res.a3);
 
 		ret = max - currsize;
 		if (ret >= 16) {

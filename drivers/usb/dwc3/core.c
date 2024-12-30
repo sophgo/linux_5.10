@@ -1083,6 +1083,10 @@ static int dwc3_core_init(struct dwc3 *dwc)
 		}
 	}
 
+	reg = dwc3_readl(dwc->regs, DWC3_GCTL);
+	reg &= ~DWC3_GCTL_PWRDNSCALE_MASK;
+	dwc3_writel(dwc->regs, DWC3_GCTL, reg | DWC3_GCTL_PWRDNSCALE(0xD));
+
 	return 0;
 
 err4:
@@ -1539,7 +1543,7 @@ static int dwc3_probe(struct platform_device *pdev)
 	pm_runtime_forbid(dev);
 
 	if (!dev->dma_mask)
-		dev->dma_mask = dev->coherent_dma_mask;
+		dev->dma_mask = &dev->coherent_dma_mask;
 
 	ret = dma_set_coherent_mask(dev, DMA_BIT_MASK(64));
 	if (ret) {

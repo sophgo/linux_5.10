@@ -1,20 +1,20 @@
 #ifndef SDVT_CAN_DEFINES_H
 #define SDVT_CAN_DEFINES_H
 //0---------------------------------------------------------------------------------------------------
-//                           SmartDV Technologies Proprietary 
+//                           SmartDV Technologies Proprietary
 //            Copyright 2007-2023 SmartDV Technologies India Private Limited
-// 
+//
 //                               CONFIDENTIAL INFORMATION
-// 
+//
 //                                  All rights reserved
-// 
-//             The use, modification, or duplication of this product is protected 
+//
+//             The use, modification, or duplication of this product is protected
 //             according to SmartDV Technologies's licensing agreement.
-// 
-//             This Intellectual property contains confidential and proprietary 
-//             information which are the properties of SmartDV Technologies. 
-// 
-//             Unauthorized use, disclosure, duplication, or reproduction are prohibited. 
+//
+//             This Intellectual property contains confidential and proprietary
+//             information which are the properties of SmartDV Technologies.
+//
+//             Unauthorized use, disclosure, duplication, or reproduction are prohibited.
 //0---------------------------------------------------------------------------------------------------
 // Date Created   : 02-06-2023
 
@@ -22,32 +22,32 @@
 //0---------------------------------------------------------------------------------------------------
 
 //0###################################################################################################
-// #State machine defines 
+// #State machine defines
 //0###################################################################################################
 #define SDVT_CAN_IDLE                                              0x0       //  State for IDLE
-#define SDVT_CAN_SOF                                               0x1       //  State for SOF    
-#define SDVT_CAN_ARB_FIELD                                         0x2       //  State for ARB_FIELD    
-#define SDVT_CAN_CTRL_FIELD                                        0x3       //  State for CTRL_FIELD    
-#define SDVT_CAN_DATA_FIELD                                        0x4       //  State for DATA_FIELD    
-#define SDVT_CAN_CRC_FIELD                                         0x5       //  State for CRC_FIELD    
-#define SDVT_CAN_CRC_DELIM                                         0x6       //  State for CRC_DELIM    
-#define SDVT_CAN_ACK                                               0x7       //  State for ACK    
-#define SDVT_CAN_ACK_DELIM                                         0x8       //  State for ACK_DELIM    
-#define SDVT_CAN_EOF                                               0x9       //  State for EOF   
-#define SDVT_CAN_ERR_FLAG                                          0xA       //  State for ERR_FLAG 
-#define SDVT_CAN_ERR_DELIM                                         0xB       //  State for ERR_DELIM    
-#define SDVT_CAN_OVER_LD_FLAG                                      0xC       //  State for OVER_LD_FLAG    
-#define SDVT_CAN_OVER_LD_DELIM                                     0xD       //  State for OVER_LD_DELIM    
+#define SDVT_CAN_SOF                                               0x1       //  State for SOF
+#define SDVT_CAN_ARB_FIELD                                         0x2       //  State for ARB_FIELD
+#define SDVT_CAN_CTRL_FIELD                                        0x3       //  State for CTRL_FIELD
+#define SDVT_CAN_DATA_FIELD                                        0x4       //  State for DATA_FIELD
+#define SDVT_CAN_CRC_FIELD                                         0x5       //  State for CRC_FIELD
+#define SDVT_CAN_CRC_DELIM                                         0x6       //  State for CRC_DELIM
+#define SDVT_CAN_ACK                                               0x7       //  State for ACK
+#define SDVT_CAN_ACK_DELIM                                         0x8       //  State for ACK_DELIM
+#define SDVT_CAN_EOF                                               0x9       //  State for EOF
+#define SDVT_CAN_ERR_FLAG                                          0xA       //  State for ERR_FLAG
+#define SDVT_CAN_ERR_DELIM                                         0xB       //  State for ERR_DELIM
+#define SDVT_CAN_OVER_LD_FLAG                                      0xC       //  State for OVER_LD_FLAG
+#define SDVT_CAN_OVER_LD_DELIM                                     0xD       //  State for OVER_LD_DELIM
 
 //0###################################################################################################
-// #Bit timing State machine defines 
+// #Bit timing State machine defines
 //0###################################################################################################
 #define SDVT_CAN_TIM_IDLE                                          0x0       //  State for TIM_IDLE
 #define SDVT_CAN_TIM_LOW                                           0x1       //  State for TIM_LOW
 #define SDVT_CAN_TIM_HIGH                                          0x2       //  State for TIM_HIGH
 
 //0###################################################################################################
-// #MODE register fields 
+// #MODE register fields
 //0###################################################################################################
 #define SDVT_CAN_RESET_MODE                                        0         // Reset mode
 #define SDVT_CAN_RECEIVE_DONE                                      1         // Reception done
@@ -57,7 +57,7 @@
 #define SDVT_CAN_CAN_FD                                            7         // CAN FD enable
 
 //0###################################################################################################
-// #COMMAND register fields 
+// #COMMAND register fields
 //0###################################################################################################
 #define SDVT_CAN_TRANSMISSION_REQ                                  0         // Transmission request
 #define SDVT_CAN_ABORT_REQ                                         1         // Abort request
@@ -67,7 +67,7 @@
 #define SDVT_CAN_OVERLOAD_REQ                                      5         // Overload reception
 
 //0###################################################################################################
-// #CAN status register fields 
+// #CAN status register fields
 //0###################################################################################################
 #define SDVT_CAN_RX_BUFFER                                         0         // Receive buffer
 #define SDVT_CAN_DATA_OVERRUN                                      1         // Data over run
@@ -79,7 +79,7 @@
 #define SDVT_CAN_BUS_STATUS                                        7         // Bus status
 
 //0###################################################################################################
-// #INTR status and enable register fields 
+// #INTR status and enable register fields
 //0###################################################################################################
 #define SDVT_CAN_RECEPTION_DONE                                    0         // Reception done
 #define SDVT_CAN_TRANSMIT_DONE                                     1         // Transmit done
@@ -91,58 +91,58 @@
 #define SDVT_CAN_BUS_ERR                                           7         // Bus erro
 
 //0###################################################################################################
-// #Bus timing 0 register fields 
+// #Bus timing 0 register fields
 //0###################################################################################################
 #define SDVT_CAN_BAUD_RATE_PRE                                     5:0       // Baud rate prescaler
 #define SDVT_CAN_SJ_WIDTH                                          7:6       // Synchronization jump width
 
 //0###################################################################################################
-// #Bus timing 1 register fields 
+// #Bus timing 1 register fields
 //0###################################################################################################
 #define SDVT_CAN_TIME_SEG1                                         3:0       // Timer segment1
 #define SDVT_CAN_TIME_SEG2                                         6:4       // Timer segment2
 #define SDVT_CAN_SAMP_TYPE                                         7         // Sampling type
 
 //0###################################################################################################
-// #ARB lost capture register fields 
+// #ARB lost capture register fields
 //0###################################################################################################
 #define SDVT_CAN_LOST_ARB                                          4:0       // Bit position of losing arbitration
 
 //0###################################################################################################
-// #Error code capture register fields 
+// #Error code capture register fields
 //0###################################################################################################
 #define SDVT_CAN_ERR_SEGMENT                                       4:0       // Error segment
 #define SDVT_CAN_DIRECTION                                         5         // Error direction
 #define SDVT_CAN_ERROR_CODE                                        7:6       // Error code
 
 //0###################################################################################################
-// #Clock divider register fields 
+// #Clock divider register fields
 //0###################################################################################################
 #define SDVT_CAN_CLK_DIV                                           2:0       // Clock divider
 #define SDVT_CAN_CLK_OFF                                           3         // Clock off
 #define SDVT_CAN_CAN_MODE                                          7         // CAN mode
 
 //0###################################################################################################
-// #Extended information register fields 
+// #Extended information register fields
 //0###################################################################################################
 #define SDVT_CAN_REMOTE_FRAME_IRQ                                  0         // Remote frame IRQ for basic mode
 #define SDVT_CAN_REC_INCR_EN                                       1         // REC increment enable
 
 //0###################################################################################################
-// #DLC remote frame register fields 
+// #DLC remote frame register fields
 //0###################################################################################################
 #define SDVT_CAN_AUTO_REMOTE                                       0         // Automatic remote mode
 #define SDVT_CAN_DATA_LEN_CODE                                     4:1       // Data length code
 #define SDVT_CAN_REMOTE_FRAME_VLD                                  5         // Remote frame valid
 
 //0###################################################################################################
-// #FD speed control register fields 
+// #FD speed control register fields
 //0###################################################################################################
 #define SDVT_CAN_FD_SPEED_SWITCH                                   0         // Switch the speed
 #define SDVT_CAN_FD_PRESCALER                                      7:1       // Prescaler value
 
 //0###################################################################################################
-// #Defines for HCI Command DWowrd 
+// #Defines for HCI Command DWowrd
 //0###################################################################################################
 #define SDVT_CAN_CMD_DW0_OWN                                       0         // Descriptor ownership bit
 #define SDVT_CAN_CMD_DW0_PRI                                       1         // Priority of command
@@ -152,7 +152,7 @@
 #define SDVT_CAN_CMD_DW0_ADDR                                      31:16     // Register address of command
 
 //0###################################################################################################
-// #Defines for HCI status DWowrd 
+// #Defines for HCI status DWowrd
 //0###################################################################################################
 #define SDVT_CAN_STS_DW2_SUC                                       0         // Command status
 #define SDVT_CAN_STS_DW2_SWE                                       1         // SOC write error
@@ -161,26 +161,26 @@
 #define SDVT_CAN_STS_DW2_ALR                                       4         // Arb retry abort limit reached
 #define SDVT_CAN_STS_DW2_CRC                                       5         // CRC error
 #define SDVT_CAN_STS_DW2_NRP                                       6         // No response error
-#define SDVT_CAN_STS_DW2_FRE                                       7         // Form error 
-#define SDVT_CAN_STS_DW2_STE                                       8         // stuff error 
-#define SDVT_CAN_STS_DW2_BER                                       9         // Bit error 
+#define SDVT_CAN_STS_DW2_FRE                                       7         // Form error
+#define SDVT_CAN_STS_DW2_STE                                       8         // stuff error
+#define SDVT_CAN_STS_DW2_BER                                       9         // Bit error
 #define SDVT_CAN_STS_DW2_ODE                                       10        // Overload delimitter error
 
 //0###################################################################################################
-// #Defines for HCI read data status DWowrd 
+// #Defines for HCI read data status DWowrd
 //0###################################################################################################
 #define SDVT_CAN_STS_DW3_NRS                                       15:0      // No response status, each bit points to one byte
 #define SDVT_CAN_STS_DW3_RPE                                       31:16     // Read parity error status, each bit points to one byte
 
 //0###################################################################################################
-// Defines for can 
+// Defines for can
 //0###################################################################################################
 #define SDVT_CAN_CONTROL                                           0x0       // This register is control register
 #define SDVT_CAN_EXT_CONTROL                                       0x1       // This register is extended control register
 #define SDVT_CAN_FD_CONTROL                                        0x2       // The register is FD mode control register
 #define SDVT_CAN_COMMAND                                           0x3       // This register is command register
 #define SDVT_CAN_DLC_REMOTE_FRAME                                  0x4       // The register controls the DLC of remote frame response to send
-#define SDVT_CAN_STATUS                                            0x5       // This register holds CAN status Register  
+#define SDVT_CAN_STATUS                                            0x5       // This register holds CAN status Register
 #define SDVT_CAN_ACCEPTANCE_CODE0                                  0x6       // The holds the acceptance code 0 register
 #define SDVT_CAN_ACCEPTANCE_CODE1                                  0x7       // The holds the acceptance code 1 register
 #define SDVT_CAN_ACCEPTANCE_CODE2                                  0x8       // The holds the acceptance code 2 register
@@ -244,7 +244,7 @@
 #define SDVT_CAN_SOC_TIMEOUT                                       0x42      // SOC timeout register
 
 //0###################################################################################################
-// Defines for subfields of CSR CONTROL 
+// Defines for subfields of CSR CONTROL
 //0###################################################################################################
 #define SDVT_CAN_CTRL_RESET                                        0         // Reset request
 #define SDVT_CAN_CTRL_CLK_OFF                                      1         // Clock off control
@@ -252,7 +252,7 @@
 #define SDVT_CAN_CTRL_MODE                                         4:3       // Normal CAN or CAN FD Mode
 
 //0###################################################################################################
-// Defines for subfields of CSR EXT_CONTROL 
+// Defines for subfields of CSR EXT_CONTROL
 //0###################################################################################################
 #define SDVT_CAN_EXT_CTRL_LISTEN                                   0         // Listen only mode
 #define SDVT_CAN_EXT_CTRL_SELF_TEST                                1         // Self test mode
@@ -262,12 +262,12 @@
 #define SDVT_CAN_EXT_ID_RX                                         5         // Extended Identifier in Receiver side
 
 //0###################################################################################################
-// Defines for subfields of CSR FD_CONTROL 
+// Defines for subfields of CSR FD_CONTROL
 //0###################################################################################################
 #define SDVT_CAN_FD_BRS                                            0         // BRS mode enable or disable, 0 means disabled, 1 means enabled
 
 //0###################################################################################################
-// Defines for subfields of CSR COMMAND 
+// Defines for subfields of CSR COMMAND
 //0###################################################################################################
 #define SDVT_CAN_CMD_REQ                                           0         // Transmission Request
 #define SDVT_CAN_CMD_EXT_ID                                        1         // Send extended frame
@@ -279,14 +279,14 @@
 #define SDVT_CAN_CMD_REQ_SLEEP                                     7         // Go To Sleep
 
 //0###################################################################################################
-// Defines for subfields of CSR DLC_REMOTE_FRAME 
+// Defines for subfields of CSR DLC_REMOTE_FRAME
 //0###################################################################################################
 #define SDVT_CAN_REMOTE_DLC                                        3:0       // DLC value of remote frame response
 #define SDVT_CAN_REMOTE_EXT_ID                                     4         // Use extended ID for remote frame response
 #define SDVT_CAN_REMOTE_RSP_VALID                                  5         // Remote frame response is ready
 
 //0###################################################################################################
-// Defines for subfields of CSR STATUS 
+// Defines for subfields of CSR STATUS
 //0###################################################################################################
 #define SDVT_CAN_STATUS_RX_BUF                                     0         // CAN status to indicate receive buffer status
 #define SDVT_CAN_STATUS_OVERRUN                                    1         // CAN status to indicate Data Overrun Status
@@ -298,33 +298,33 @@
 #define SDVT_CAN_STATUS_BUS_OFF                                    7         // CAN status to indicate bus off
 
 //0###################################################################################################
-// Defines for subfields of CSR NOR_BUS_TIMING0 
+// Defines for subfields of CSR NOR_BUS_TIMING0
 //0###################################################################################################
 #define SDVT_CAN_BAUD_PRESCALER                                    5:0       // The field controls the baud rate prescaler (2*(value + 1))
 #define SDVT_CAN_SYNC_JUMP_WIDTH                                   7:6       // The field controls the Synchronization Jump Width  (value + 1)
 
 //0###################################################################################################
-// Defines for subfields of CSR NOR_BUS_TIMING1 
+// Defines for subfields of CSR NOR_BUS_TIMING1
 //0###################################################################################################
 #define SDVT_CAN_TIME_SEGMENT1                                     3:0       // The field controls the timing segement 1 (TSEG1) (value + 1)
 #define SDVT_CAN_TIME_SEGMENT2                                     6:4       // The field controls the timing segement 2 (TSEG2) (value + 1)
 #define SDVT_CAN_TIME_TRIPLE_SAMPLE                                7         // The field controls the timing triple sample
 
 //0###################################################################################################
-// Defines for subfields of CSR ERR_CODE_CAPTURE 
+// Defines for subfields of CSR ERR_CODE_CAPTURE
 //0###################################################################################################
 #define SDVT_CAN_ERR_CODE_SEG                                      4:0       // Error capture code segment(Segment0,1,2,3,4)
 #define SDVT_CAN_ERR_CODE_DIR                                      5         // Error capture code direction
 #define SDVT_CAN_ERR_CODE_TYPE                                     7:6       // Error capture code type
 
 //0###################################################################################################
-// Defines for subfields of CSR ERR_COUNTER_LOAD 
+// Defines for subfields of CSR ERR_COUNTER_LOAD
 //0###################################################################################################
 #define SDVT_CAN_TX_LOAD_ERR                                       0         // Load transmitter error counter
 #define SDVT_CAN_RX_LOAD_ERR                                       1         // Load receiver error counter
 
 //0###################################################################################################
-// Defines for subfields of CSR FIFO_FLUSH 
+// Defines for subfields of CSR FIFO_FLUSH
 //0###################################################################################################
 #define SDVT_CAN_TX_DATA_FIFO_FLUSH                                0         // Transmit Data FIFO flush
 #define SDVT_CAN_RX_DATA_FIFO_FLUSH                                1         // Receive Data FIFO flush
@@ -332,7 +332,7 @@
 #define SDVT_CAN_TX_RSP_FIFO_FLUSH                                 3         // Transmit response FIFO flush
 
 //0###################################################################################################
-// Defines for subfields of CSR FIFO_STATUS 
+// Defines for subfields of CSR FIFO_STATUS
 //0###################################################################################################
 #define SDVT_CAN_TX_DFIFO_FULL                                     0         // Transmit Data FIFO full
 #define SDVT_CAN_TX_DFIFO_EMPTY                                    1         // Transmit Data FIFO empty
@@ -344,7 +344,7 @@
 #define SDVT_CAN_TX_RFIFO_EMPTY                                    7         // Transmit Response FIFO empty
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE0 
+// Defines for subfields of CSR IRQ_ENABLE0
 //0###################################################################################################
 #define SDVT_CAN_IRQ_INFO_EMPTY                                    0         // Irq info empty register
 #define SDVT_CAN_IRQ_TRANSMIT_BUFFER_STATUS                        1         // Irq transmit buffer status register
@@ -356,13 +356,13 @@
 #define SDVT_CAN_IRQ_BUS_ERR                                       7         // Irq Bus error register
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE1 
+// Defines for subfields of CSR IRQ_ENABLE1
 //0###################################################################################################
 #define SDVT_CAN_IRQ_TX_DONE                                       0         // Transmitter is done transmitting
 #define SDVT_CAN_IRQ_RX_DATA_FRAME                                 1         // Receiver has recieved data frame which is not remote frame
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE2 
+// Defines for subfields of CSR IRQ_ENABLE2
 //0###################################################################################################
 #define SDVT_CAN_IRQ_TX_DATA_FIFO_TT                               0         // Transmit Data FIFO threshold reached on read
 #define SDVT_CAN_IRQ_TX_DATA_FIFO_UR                               1         // Transmit Data FIFO underrun
@@ -371,7 +371,7 @@
 #define SDVT_CAN_IRQ_TX_DATA_FIFO_EMPTY                            4         // Transmit Data FIFO empty
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE3 
+// Defines for subfields of CSR IRQ_ENABLE3
 //0###################################################################################################
 #define SDVT_CAN_IRQ_TX_RSP_FIFO_TT                                0         // Transmit Response FIFO threshold reached on read
 #define SDVT_CAN_IRQ_TX_RSP_FIFO_UR                                1         // Transmit Response FIFO underrun
@@ -380,51 +380,51 @@
 #define SDVT_CAN_IRQ_TX_RSP_FIFO_EMPTY                             4         // Transmit Response FIFO empty
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE4 
+// Defines for subfields of CSR IRQ_ENABLE4
 //0###################################################################################################
 #define SDVT_CAN_IRQ_RX_DATA_FIFO_TT                               0         // Receive Data FIFO threshold reached on write
 #define SDVT_CAN_IRQ_RX_DATA_FIFO_UR                               1         // Receive Data FIFO underrun
-#define SDVT_CAN_IRQ_RX_DATA_FIFO_OR                               2         // Receive Data FIFO overrun                 
+#define SDVT_CAN_IRQ_RX_DATA_FIFO_OR                               2         // Receive Data FIFO overrun
 #define SDVT_CAN_IRQ_RX_DATA_FIFO_FULL                             3         // Receive Data FIFO full
 #define SDVT_CAN_IRQ_RX_DATA_FIFO_EMPTY                            4         // Receive Data FIFO empty
 
 //0###################################################################################################
-// Defines for subfields of CSR IRQ_ENABLE5 
+// Defines for subfields of CSR IRQ_ENABLE5
 //0###################################################################################################
 #define SDVT_CAN_IRQ_RX_LEN_FIFO_TT                                0         // Receive Length FIFO threshold reached on write
 #define SDVT_CAN_IRQ_RX_LEN_FIFO_UR                                1         // Receive Length FIFO underrun
-#define SDVT_CAN_IRQ_RX_LEN_FIFO_OR                                2         // Receive Length FIFO overrun                 
+#define SDVT_CAN_IRQ_RX_LEN_FIFO_OR                                2         // Receive Length FIFO overrun
 #define SDVT_CAN_IRQ_RX_LEN_FIFO_FULL                              3         // Receive Length FIFO full
 #define SDVT_CAN_IRQ_RX_LEN_FIFO_EMPTY                             4         // Receive Length FIFO empty
 
 //0###################################################################################################
-// Defines for enum for csr CONTROL field CTRL_FRAME_MODE of can 
+// Defines for enum for csr CONTROL field CTRL_FRAME_MODE of can
 //0###################################################################################################
 #define SDVT_CAN_STANDARD_FRAME                                    0         // CAN in standard frame mode
 #define SDVT_CAN_EXTENDED_FRAME                                    1         // CAN in extended frame mode
 
 //0###################################################################################################
-// Defines for enum for csr CONTROL field CTRL_MODE of can 
+// Defines for enum for csr CONTROL field CTRL_MODE of can
 //0###################################################################################################
 #define SDVT_CAN_CLASSIC_MODE                                      0         // CAN in Classic mode
 #define SDVT_CAN_FD_MODE                                           1         // CAN in FD mode
 #define SDVT_CAN_AUTO_MODE                                         2         // CAN in Auto mode, Transmitter and receiver in Normal Mode,  will detect CAN FD frames in receive path automatically and switch to FD mode. Same way, will detect normal mode and switch to normal mode
 
 //0###################################################################################################
-// Defines for enum for csr EXT_CONTROL field EXT_CTRL_ACC_FILTER of can 
+// Defines for enum for csr EXT_CONTROL field EXT_CTRL_ACC_FILTER of can
 //0###################################################################################################
 #define SDVT_CAN_DUAL_FILTER                                       0         // Acceptance filter mode is dual filter mode
 #define SDVT_CAN_SINGLE_FILTER                                     1         // Acceptance filter mode is single filter mode
 
 //0###################################################################################################
-// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_SEG of can 
+// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_SEG of can
 //0###################################################################################################
 #define SDVT_CAN_SOF_CODE                                          0x03      // Error capture at SOF
 #define SDVT_CAN_ID28_ID21_CODE                                    0x02      // Error capture at ID.28 to ID.21
 #define SDVT_CAN_ID20_ID18_CODE                                    0x06      // Error capture at ID.20 to ID.18
-#define SDVT_CAN_BIT_SRTR                                          0x04      // Error capture at Bit SRTR 
+#define SDVT_CAN_BIT_SRTR                                          0x04      // Error capture at Bit SRTR
 #define SDVT_CAN_BIT_IDE                                           0x05      // Error capture at Bit IDE
-#define SDVT_CAN_ID17_ID13_CODE                                    0x07      // Error capture at ID.17 to ID.13 
+#define SDVT_CAN_ID17_ID13_CODE                                    0x07      // Error capture at ID.17 to ID.13
 #define SDVT_CAN_ID12_ID5_CODE                                     0x0F      // Error capture at ID.12 to ID.5
 #define SDVT_CAN_ID4_ID0_CODE                                      0x0E      // Error capture at ID.4 to ID.0
 #define SDVT_CAN_BIT_RTR                                           0x0C      // Error capture at Bit RTR
@@ -445,13 +445,13 @@
 #define SDVT_CAN_OVERLOAD_FLAG                                     0x1C      // Error capture at Overload flag
 
 //0###################################################################################################
-// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_DIR of can 
+// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_DIR of can
 //0###################################################################################################
 #define SDVT_CAN_TX_DIR                                            0         // Transmit direction
 #define SDVT_CAN_RX_DIR                                            1         // Receive direction
 
 //0###################################################################################################
-// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_TYPE of can 
+// Defines for enum for csr ERR_CODE_CAPTURE field ERR_CODE_TYPE of can
 //0###################################################################################################
 #define SDVT_CAN_BIT_ERR                                           0         // Bit error
 #define SDVT_CAN_FORM_ERR                                          1         // Form error
@@ -460,19 +460,19 @@
 
 
 //0---------------------------------------------------------------------------------------------------
-//                           SmartDV Technologies Proprietary 
+//                           SmartDV Technologies Proprietary
 //            Copyright 2007-2023 SmartDV Technologies India Private Limited
-// 
+//
 //                               CONFIDENTIAL INFORMATION
-// 
+//
 //                                  All rights reserved
-// 
-//             The use, modification, or duplication of this product is protected 
+//
+//             The use, modification, or duplication of this product is protected
 //             according to SmartDV Technologies's licensing agreement.
-// 
-//             This Intellectual property contains confidential and proprietary 
-//             information which are the properties of SmartDV Technologies. 
-// 
-//             Unauthorized use, disclosure, duplication, or reproduction are prohibited. 
+//
+//             This Intellectual property contains confidential and proprietary
+//             information which are the properties of SmartDV Technologies.
+//
+//             Unauthorized use, disclosure, duplication, or reproduction are prohibited.
 //0---------------------------------------------------------------------------------------------------
 #endif

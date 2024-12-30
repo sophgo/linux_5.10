@@ -605,4 +605,5 @@ static int __init cv186x_pcie_init(void)
 	return platform_driver_register(&cv186x_pcie_driver);
 }
 
-device_initcall(cv186x_pcie_init);
+//device_initcall(cv186x_pcie_init);
+late_initcall_sync(cv186x_pcie_init);

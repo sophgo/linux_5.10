@@ -83,7 +83,7 @@ void dwi2s_ctrl(struct cvi_i2s_dev *dev, u32 stream, unsigned int on)
 			dmacr |= DMAEN_TXBLOCK;
             i2s_write_reg(dev->i2s_base, DWI2S_TX_BLOCK_EN, I2S_TX_ON);
             i2s_write_reg(dev->i2s_base, DWI2S_TX0_EN, I2S_TX_ON);
-            i2s_write_reg(dev->i2s_base, DWI2S_TX1_EN, I2S_TX_ON);
+            i2s_write_reg(dev->i2s_base, DWI2S_TX1_EN, I2S_TX_OFF);
 
             printk("[%s][%d]tx enable\n", __func__, __LINE__);
         } else {
@@ -100,7 +100,7 @@ void dwi2s_ctrl(struct cvi_i2s_dev *dev, u32 stream, unsigned int on)
 			dmacr |= DMAEN_RXBLOCK;
             i2s_write_reg(dev->i2s_base, DWI2S_RX_BLOCK_EN, I2S_RX_ON);
             i2s_write_reg(dev->i2s_base, DWI2S_RX0_EN, I2S_RX_ON);
-            i2s_write_reg(dev->i2s_base, DWI2S_RX1_EN, I2S_RX_ON);
+            i2s_write_reg(dev->i2s_base, DWI2S_RX1_EN, I2S_RX_OFF);
 
             printk("[%s][%d]rx enable\n", __func__, __LINE__);
         } else {
@@ -245,7 +245,7 @@ static void dwi2s_start(struct cvi_i2s_dev *dev,
 {
 
 	dwi2s_clear_irqs(dev, substream->stream);
-	dwi2s_enable_irqs(dev, substream->stream);
+	dwi2s_disable_irqs(dev, substream->stream);
 
 	dwi2s_fifo_reset(dev, substream->stream);
 
@@ -401,8 +401,8 @@ less than or equal to the largest configured/programmed audio resolution*/
 
 /* Make sure the data to the DDR is high aligned*/
  	i2s_write_reg(dev->i2s_base, DWI2S_RX0_CFG_WLEN, DW_32_RESOLUTION);
-	i2s_write_reg(dev->i2s_base, DWI2S_TX1_CFG_WLEN, DW_32_RESOLUTION);
-	i2s_write_reg(dev->i2s_base, DWI2S_RX0_CFG_WLEN, DW_32_RESOLUTION);
+	i2s_write_reg(dev->i2s_base, DWI2S_TX0_CFG_WLEN, DW_32_RESOLUTION);
+	i2s_write_reg(dev->i2s_base, DWI2S_RX1_CFG_WLEN, DW_32_RESOLUTION);
 	i2s_write_reg(dev->i2s_base, DWI2S_TX1_CFG_WLEN, DW_32_RESOLUTION);
 /*dwi2s_fifo size:16 * 4chn * 4byte*/
  	i2s_write_reg(dev->i2s_base, DWI2S_RX0_CFG_FIFO_LEVEL, DWI2S_DEFAULT_FIFO_LEVEL);
@@ -410,9 +410,10 @@ less than or equal to the largest configured/programmed audio resolution*/
 	i2s_write_reg(dev->i2s_base, DWI2S_RX1_CFG_FIFO_LEVEL, DWI2S_DEFAULT_FIFO_LEVEL);
 	i2s_write_reg(dev->i2s_base, DWI2S_TX1_CFG_FIFO_LEVEL, DWI2S_DEFAULT_FIFO_LEVEL);
 
-#if 1
+
 /*config audio clk and mclk_div*/
 	config->sample_rate = params_rate(params);
+#if 0
 	switch (config->sample_rate) {
 	case 11025:
 	case 22050:
@@ -483,7 +484,7 @@ less than or equal to the largest configured/programmed audio resolution*/
 audio_clk = CVI_24576_MHZ;
 clk_ctrl1 |= MCLK_DIV(2);
 mclk_div = 2;
-bclk_div = (audio_clk / 1000) / (WSS_16_CLKCYCLE * (config->sample_rate / 1000) * mclk_div);
+bclk_div = (audio_clk / 1000) / (WSS_32_CLKCYCLE * (config->sample_rate / 1000) * mclk_div);
 clk_ctrl1 |= BCLK_DIV(bclk_div);
 
 #endif

@@ -31,6 +31,8 @@
 struct proc_dir_entry *proc_audio_dir;
 static int cvi_i2s_suspend(struct snd_soc_dai *dai);
 static int cvi_i2s_resume(struct snd_soc_dai *dai);
+static int really_state[4] = {0};
+
 
 static inline void i2s_write_reg(void __iomem *io_base, int reg, u32 val)
 {
@@ -314,6 +316,8 @@ static int cvi_i2s_startup(struct snd_pcm_substream *substream,
 	snd_soc_dai_set_dma_data(cpu_dai, substream, (void *)dma_data);
 	dev_dbg(dev->dev, "%s end cpu_dai->playback_dma_data = %p\n",
 		__func__, cpu_dai->playback_dma_data);
+	dev->tx_substream = substream;
+	printk(KERN_ERR"cvi_i2s_startup i2s_dev:%d,substream:%p\n",dev->dev_id,dev->tx_substream);
 	return 0;
 }
 
@@ -978,6 +982,7 @@ static int cvi_i2s_suspend(struct snd_soc_dai *dai)
 
 	if (dev->capability & CVI_I2S_MASTER)
 		clk_disable(dev->clk);
+	aud_clk_disable();
 	return 0;
 }
 
@@ -987,7 +992,7 @@ static int cvi_i2s_resume(struct snd_soc_dai *dai)
 
 	if (dev->capability & CVI_I2S_MASTER)
 		clk_enable(dev->clk);
-
+	aud_clk_enable();
 	return 0;
 }
 
@@ -1314,6 +1319,16 @@ static int cvi_i2s_pm_suspend(struct device *dev)
 			return -ENOMEM;
 	}
 
+	really_state[i2s_dev->dev_id] = i2s_read_reg(i2s_dev->i2s_base, I2S_ENABLE);
+	dev_dbg(i2s_dev->dev,"suspend check devID:%d,really_state:%d,stream:%p\n",i2s_dev->dev_id,really_state[i2s_dev->dev_id],i2s_dev->tx_substream);
+	if(really_state[i2s_dev->dev_id] && i2s_dev->tx_substream)
+	{
+        	// stop dma
+	        snd_dmaengine_pcm_trigger(i2s_dev->tx_substream, SNDRV_PCM_TRIGGER_STOP);
+	        //stop i2s
+	        i2s_stop(i2s_dev, i2s_dev->tx_substream);
+	}
+
 	i2s_dev->reg_ctx->blk_setting = i2s_read_reg(i2s_dev->i2s_base, BLK_MODE_SETTING);
 	i2s_dev->reg_ctx->frame_setting = i2s_read_reg(i2s_dev->i2s_base, FRAME_SETTING);
 	i2s_dev->reg_ctx->slot_setting1 = i2s_read_reg(i2s_dev->i2s_base, SLOT_SETTING1);
@@ -1355,6 +1370,13 @@ static int cvi_i2s_pm_resume(struct device *dev)
 	i2s_write_reg(i2s_dev->i2s_base, I2S_CLK_CTRL1, i2s_dev->reg_ctx->i2c_clk_ctl1);
 	i2s_write_reg(i2s_dev->i2s_base, I2S_PCM_SYNTH, i2s_dev->reg_ctx->i2s_pcm_synth);
 
+	if(really_state[i2s_dev->dev_id] && i2s_dev->tx_substream)
+	{
+	        // start dma
+	        snd_dmaengine_pcm_trigger(i2s_dev->tx_substream, SNDRV_PCM_TRIGGER_START);
+	        //start i2s
+	        i2s_start(i2s_dev, i2s_dev->tx_substream);
+	}
 	return 0;
 }
 

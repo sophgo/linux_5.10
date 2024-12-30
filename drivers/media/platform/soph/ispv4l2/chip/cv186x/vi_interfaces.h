@@ -15,7 +15,6 @@ const char * const clk_isp_name[] = {
 const char * const clk_mac_name[] = {
 	"clk_csi_mac0", "clk_csi_mac1", "clk_csi_mac2",
 	"clk_csi_mac3", "clk_csi_mac4", "clk_csi_mac5",
-	"clk_csi_mac_vi0", "clk_csi_mac_vi1"
 };
 
 /*******************************************************

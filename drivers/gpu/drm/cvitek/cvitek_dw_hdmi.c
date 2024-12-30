@@ -38,6 +38,7 @@ struct cvitek_hdmi_chip_data {
 struct cvitek_hdmi {
 	struct device *dev;
 	struct drm_encoder encoder;
+	struct drm_device *drm_dev;
 	const struct cvitek_hdmi_chip_data *chip_data;
 	struct dw_hdmi_plat_data *plat_data;
 	struct dw_hdmi *hdmi;
@@ -72,6 +73,7 @@ static void dw_hdmi_cvitek_encoder_mode_set(struct drm_encoder *encoder,
 					      struct drm_display_mode *adj_mode)
 {
 	struct cvitek_hdmi *hdmi = to_cvitek_hdmi(encoder);
+
 	drm_display_mode_to_videomode(adj_mode, &hdmi->vm);
 }
 
@@ -117,28 +119,23 @@ static int dw_hdmi_cvitek_bind(struct device *dev, struct device *master,
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct dw_hdmi_plat_data *plat_data;
-	const struct of_device_id *match;
 	struct drm_device *drm = data;
 	struct drm_encoder *encoder = NULL;
 	struct cvitek_hdmi *hdmi = NULL;
-	int ret=0;
+	int ret = 0;
 
 	if (!pdev->dev.of_node)
 		return -ENODEV;
 
-	hdmi = devm_kzalloc(&pdev->dev, sizeof(*hdmi), GFP_KERNEL);
+	hdmi = platform_get_drvdata(pdev);
 	if (!hdmi)
 		return -ENOMEM;
 
-	match = of_match_node(dw_hdmi_cvitek_dt_ids, pdev->dev.of_node);
-	plat_data = devm_kmemdup(&pdev->dev, match->data,
-					     sizeof(*plat_data), GFP_KERNEL);
-
+	plat_data = hdmi->plat_data;
 	if (!plat_data)
 		return -ENOMEM;
 
-	hdmi->dev = &pdev->dev;
-	hdmi->chip_data = plat_data->phy_data;
+	hdmi->drm_dev = drm;
 	plat_data->phy_data = hdmi;
 	encoder = &hdmi->encoder;
 
@@ -159,7 +156,6 @@ static int dw_hdmi_cvitek_bind(struct device *dev, struct device *master,
 		return ret;
 	}
 
-	platform_set_drvdata(pdev, hdmi);
 	mipipll_clk_set(25200);
 	hdmi->hdmi = dw_hdmi_bind(pdev, encoder, plat_data);
 	/*
@@ -178,6 +174,7 @@ static void dw_hdmi_cvitek_unbind(struct device *dev, struct device *master,
 				    void *data)
 {
 	struct cvitek_hdmi *hdmi = dev_get_drvdata(dev);
+
 	dw_hdmi_unbind(hdmi->hdmi);
 }
 
@@ -213,7 +210,9 @@ static int dw_hdmi_cvitek_probe(struct platform_device *pdev)
 
 	plat_data->id = hdmi->id;
 	hdmi->plat_data = plat_data;
-	hdmi->chip_data = plat_data->phy_data;
+
+	if (plat_data->phy_data)
+		hdmi->chip_data = plat_data->phy_data;
 
 	platform_set_drvdata(pdev, hdmi);
 	pm_runtime_enable(&pdev->dev);
@@ -230,19 +229,45 @@ static int dw_hdmi_cvitek_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void dw_hdmi_cvitek_shutdown(struct platform_device *pdev)
+{
+	struct cvitek_hdmi *hdmi = dev_get_drvdata(&pdev->dev);
+
+	if (!hdmi)
+		return;
+
+	dw_hdmi_suspend(hdmi->hdmi);
+	pm_runtime_put_sync(&pdev->dev);
+}
+
+static int dw_hdmi_cvitek_suspend(struct device *dev)
+{
+	struct cvitek_hdmi *hdmi = dev_get_drvdata(dev);
+
+	dw_hdmi_suspend(hdmi->hdmi);
+	pm_runtime_put_sync(dev);
+
+	return 0;
+}
+
 static int dw_hdmi_cvitek_resume(struct device *dev)
 {
+	struct cvitek_hdmi *hdmi = dev_get_drvdata(dev);
+
+	dw_hdmi_resume(hdmi->hdmi);
 	pm_runtime_get_sync(dev);
+
 	return 0;
 }
 
 static const struct dev_pm_ops dw_hdmi_cvitek_pm = {
-	SET_SYSTEM_SLEEP_PM_OPS(NULL, dw_hdmi_cvitek_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(dw_hdmi_cvitek_suspend, dw_hdmi_cvitek_resume)
 };
 
 struct platform_driver dw_hdmi_cvitek_pltfm_driver = {
 	.probe  = dw_hdmi_cvitek_probe,
 	.remove = dw_hdmi_cvitek_remove,
+	.shutdown = dw_hdmi_cvitek_shutdown,
 	.driver = {
 		.name = "dw_hdmi_cvitek",
 		.pm = &dw_hdmi_cvitek_pm,

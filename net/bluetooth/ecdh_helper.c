@@ -119,7 +119,7 @@ free_tmp:
  *
  * Return: zero on success; error code in case of error.
  */
-int set_ecdh_privkey(struct crypto_kpp *tfm, const u8 private_key[32])
+int set_ecdh_privkey(struct crypto_kpp *tfm, const u8 *private_key)
 {
 	u8 *buf, *tmp = NULL;
 	unsigned int buf_len;

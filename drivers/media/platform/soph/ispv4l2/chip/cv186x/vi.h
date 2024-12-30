@@ -76,7 +76,6 @@ struct mem_mapping {
 	void *dmabuf;
 	pid_t fd_pid;
 	void *ionbuf;
-	struct files_struct *files;
 } vi_dma_buf_info, yuv_dump_vb_info, raw_dump_vb_info[2];
 
 struct _membuf {

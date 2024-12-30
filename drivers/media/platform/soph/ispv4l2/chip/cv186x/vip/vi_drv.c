@@ -609,6 +609,11 @@ void isp_pre_trig(struct isp_ctx *ctx, enum sop_isp_raw raw_num, const u8 chn_nu
 		union reg_isp_top_sw_ctrl_0 sw_ctrl_0;
 		union reg_isp_top_sw_ctrl_1 sw_ctrl_1;
 
+		if (ctx->is_suspend) {
+			vi_pr(VI_ERR, "already trig preraw\n");
+			return;
+		}
+
 		sw_ctrl_0.raw = sw_ctrl_1.raw = 0;
 
 		if (ctx->isp_pipe_cfg[raw_num].is_hdr_on) {
@@ -725,6 +730,11 @@ void isp_post_trig(struct isp_ctx *ctx, enum sop_isp_raw raw_num)
 	union reg_isp_top_sw_ctrl_1 sw_ctrl_1;
 
 	sw_ctrl_0.raw = sw_ctrl_1.raw = 0;
+
+	if (ctx->is_suspend) {
+		vi_pr(VI_ERR, "already trig postraw\n");
+		return;
+	}
 
 	if (_is_fe_be_online(ctx) && !ctx->is_slice_buf_on) { //fe->be->dram->post
 		vi_pr(VI_DBG, "dram->post trig raw_num(%d), is_slice_buf_on(%d)\n",
@@ -1610,7 +1620,14 @@ void ispblk_dma_enable(struct isp_ctx *ctx, u32 dmaid, u32 on, u8 dma_disable)
 		/* yuvtop uv crop5 */
 		srcb = ctx->phys_regs[ISP_BLK_ID_YUV_CROP_C];
 		break;
-
+	case ISP_BLK_ID_DMA_CTL_RAW_RDMA0:
+		/* yuvtop uv crop5 */
+		srcb = ctx->phys_regs[ISP_BLK_ID_RAW_CROP_LE];
+		break;
+	case ISP_BLK_ID_DMA_CTL_RAW_RDMA1:
+		/* yuvtop uv crop5 */
+		srcb = ctx->phys_regs[ISP_BLK_ID_RAW_CROP_SE];
+		break;
 	default:
 		break;
 	}
@@ -2179,6 +2196,7 @@ static void _ispblk_isptop_cfg_update(struct isp_ctx *ctx, const enum sop_isp_ra
 	} else if (_is_be_post_online(ctx)) {
 		if (ctx->isp_pipe_cfg[raw_num].is_yuv_sensor) { //yuv sensor
 			scene_ctrl.bits.raw2yuv_422_enable = 1;
+			scene_ctrl.bits.pre2yuv_422_enable = 0;
 			scene_ctrl.bits.dci_rgb0yuv1 = 1;
 			scene_ctrl.bits.hdr_enable = 0;
 
@@ -2211,6 +2229,9 @@ void _ispblk_be_yuv_cfg_update(struct isp_ctx *ctx, const enum sop_isp_raw raw_n
 		return;
 
 	if (ctx->isp_pipe_cfg[raw_num].is_yuv_sensor) { //YUV sensor
+		if (ctx->isp_pipe_cfg[raw_num].yuv_scene_mode == ISP_YUV_SCENE_ISP) {
+				return;
+			}
 		//Disable af dma
 		ISP_WR_BITS(af, reg_isp_af_t, kickoff, af_enable, 0);
 		ISP_WR_BITS(af, reg_isp_af_t, dmi_enable, dmi_enable, 0);

@@ -92,6 +92,7 @@ enum vi_ioctl_e {
 	VI_IOCTL_SET_DEV_ATTR,
 	VI_IOCTL_GET_AI_ISP_RAW,
 	VI_IOCTL_PUT_AI_ISP_RAW,
+	VI_IOCTL_GET_LINK_NUM,
 };
 
 enum vi_sdk_ctrl_e {

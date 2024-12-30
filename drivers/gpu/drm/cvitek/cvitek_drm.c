@@ -142,7 +142,7 @@ static int cvitek_drm_bind(struct device *dev)
 	struct cvitek_drm *cvitek;
 	int ret;
 
-	DRM_DEBUG_DRIVER("----cvitek_drm_bind.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek drm bind. ----\n");
 
 	cvitek = devm_drm_dev_alloc(dev, &cvitek_drm_drv, struct cvitek_drm, drm);
 	if (IS_ERR(cvitek))
@@ -215,8 +215,10 @@ err_unbind_all:
 
 static void cvitek_drm_unbind(struct device *dev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_unbind.\n");
 	struct drm_device *drm = dev_get_drvdata(dev);
+
+	DRM_DEBUG_DRIVER("---- enter cvitek drm unbind. ----\n");
+
 	drm_dev_unregister(drm);
 	drm_kms_helper_poll_fini(drm);
 	drm_atomic_helper_shutdown(drm);
@@ -236,10 +238,11 @@ static int compare_dev(struct device *dev, void *data)
 
 static struct component_match *cvitek_drm_match_add(struct device *dev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_match_add.\n");
-
 	struct component_match *match = NULL;
 	int i;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek drm match add. ----\n");
+
 	for (i = 0; i < num_cvitek_sub_drivers; i++) {
 		struct platform_driver *drv = cvitek_sub_drivers[i];
 		struct device *p = NULL, *d;
@@ -251,7 +254,7 @@ static struct component_match *cvitek_drm_match_add(struct device *dev)
 			if (!d)
 				break;
 			component_match_add(dev, &match, compare_dev, d);
-			DRM_DEBUG_DRIVER("----component_match_add[%d].\n", i);
+			DRM_DEBUG_DRIVER("---- after component match add[%d]. ----\n", i);
 		} while (true);
 	}
 
@@ -260,9 +263,9 @@ static struct component_match *cvitek_drm_match_add(struct device *dev)
 
 static int cvitek_drm_platform_probe(struct platform_device *pdev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_platform_probe.\n");
-
 	struct component_match *match;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek drm platform probe. ----\n");
 
 	match = cvitek_drm_match_add(&pdev->dev);
 	if (IS_ERR(match))
@@ -274,7 +277,8 @@ static int cvitek_drm_platform_probe(struct platform_device *pdev)
 
 static int cvitek_drm_platform_remove(struct platform_device *pdev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_platform_remove.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek drm platform remove. ----\n");
+
 	component_master_del(&pdev->dev, &drm_component_ops);
 
 	return 0;
@@ -288,6 +292,24 @@ static void cvitek_drm_platform_shutdown(struct platform_device *pdev)
 		drm_atomic_helper_shutdown(drm);
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int cvitek_drm_suspend(struct device *dev)
+{
+	struct drm_device *drm_dev = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_suspend(drm_dev);
+}
+
+static int cvitek_drm_resume(struct device *dev)
+{
+	struct drm_device *drm_dev = dev_get_drvdata(dev);
+
+	return drm_mode_config_helper_resume(drm_dev);
+}
+#endif
+
+static SIMPLE_DEV_PM_OPS(cvitek_drm_pm_ops, cvitek_drm_suspend, cvitek_drm_resume);
+
 static const struct of_device_id cvitek_drm_dts_match[] = {
 	{ .compatible = "cvitek,drm-subsystem", },
 	{ /* end node */ },
@@ -300,14 +322,16 @@ static struct platform_driver cvitek_drm_platform_driver = {
 	.shutdown = cvitek_drm_platform_shutdown,
 	.driver = {
 		.name = "cvitek-drm",
+		.pm = &cvitek_drm_pm_ops,
 		.of_match_table = cvitek_drm_dts_match,
 	},
 };
 
 static int __init cvitek_drm_init(void)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_init.\n");
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek drm init. ----\n");
 
 	num_cvitek_sub_drivers = 0;
 	ADD_CVITEK_SUB_DRIVER(cvitek_disp_driver, CONFIG_DRM_CVITEK);
@@ -333,7 +357,8 @@ err_unreg_drivers:
 
 static void __exit cvitek_drm_exit(void)
 {
-	DRM_DEBUG_DRIVER("----cvitek_drm_exit.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek drm exit. ----\n");
+
 	platform_driver_unregister(&cvitek_drm_platform_driver);
 	platform_unregister_drivers(cvitek_sub_drivers,
 				    num_cvitek_sub_drivers);

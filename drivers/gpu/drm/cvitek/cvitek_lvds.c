@@ -84,7 +84,7 @@ struct lvds_panel_desc {
 };
 
 struct panel_lvds {
-    struct drm_panel panel;
+	struct drm_panel panel;
 	struct device *dev;
 	struct gpio_desc *power_gpio;
 	struct gpio_desc *enable_gpio;
@@ -185,11 +185,11 @@ static int lvds_dphy_lane_init(struct cvitek_lvds *lvds)
 			}
 		} else {
 			ret = lvds_dphy_set_lane(lvds->info->lvds_id, i, lvds->lanes_map[i], lvds->lanes_swap[i]);
-			if (ret) {
+			if (!ret) {
+				lanes_en[lvds->lanes_map[i]] = true;
+			} else {
 				drm_err(lvds->drm, "lvds_dphy_set_lane [%d] fail.\n", i);
 				return ret;
-			} else {
-				lanes_en[lvds->lanes_map[i]] = true;
 			}
 		}
 	}
@@ -212,6 +212,7 @@ void disp_lvdstx_get(u8 lvds_id, union disp_lvdstx *cfg)
 static int lvds_dphy_config(struct cvitek_lvds *lvds)
 {
 	union disp_lvdstx lvds_cfg;
+
 	disp_lvdstx_get(lvds->info->lvds_id, &lvds_cfg);
 	lvds_cfg.b.en = lvds->desc->en;
 	lvds_cfg.b.out_bit = lvds->desc->out_bit;
@@ -230,6 +231,7 @@ static int lvds_dphy_config(struct cvitek_lvds *lvds)
 static int cvitek_lvds_init(struct cvitek_lvds *lvds)
 {
 	int ret;
+
 	lvds_dphy_power_on(lvds->info->lvds_id);
 	lvds_dphy_config(lvds);
 	ret = lvds_dphy_lane_init(lvds);
@@ -237,25 +239,27 @@ static int cvitek_lvds_init(struct cvitek_lvds *lvds)
 		drm_err(lvds->drm, "mipi_dphy_lane_init fail.\n");
 		return ret;
 	}
-	dphy_lvds_set_pll(lvds->info->lvds_id ,lvds->desc->mode->clock, 1);
+
+	dphy_lvds_set_pll(lvds->info->lvds_id, lvds->desc->mode->clock, 1);
 	return ret;
 }
 
 static void cvitek_lvds_encoder_enable(struct drm_encoder *encoder)
 {
 	struct cvitek_lvds *lvds = encoder_to_cvitek_lvds(encoder);
-	struct drm_display_mode *mode = &encoder->crtc->state->adjusted_mode;
+	struct drm_panel *cvitek_panel = NULL;
+	struct panel_lvds *lvds_panel = NULL;
 	int ret;
 
 	ret = drm_of_find_panel_or_bridge(lvds->dev->of_node, 1, 0,
 					  &lvds->panel, &lvds->bridge);
-	if (ret)
-	{
-		drm_err(lvds->drm,"drm_of_find_panel_or_bridge encoder_enable");
+	if (ret) {
+		drm_err(lvds->drm, "drm_of_find_panel_or_bridge encoder_enable");
 		return;
 	}
-	struct drm_panel *cvitek_panel = lvds->panel;
-	struct panel_lvds *lvds_panel = container_of(cvitek_panel, struct panel_lvds, panel);
+
+	cvitek_panel = lvds->panel;
+	lvds_panel = container_of(cvitek_panel, struct panel_lvds, panel);
 	lvds->desc = lvds_panel->desc;
 
 	ret = cvitek_lvds_init(lvds);
@@ -264,12 +268,13 @@ static void cvitek_lvds_encoder_enable(struct drm_encoder *encoder)
 		return;
 	}
 
-	if(lvds->panel){
+	if (lvds->panel) {
 		ret = drm_panel_prepare(lvds->panel);
 		if (ret) {
 			drm_err(lvds->drm, "failed to prepare panel\n");
 			return;
 		}
+
 		ret = drm_panel_enable(lvds->panel);
 		if (ret) {
 			drm_err(lvds->drm, "failed to enable panel\n");
@@ -297,14 +302,15 @@ static const struct drm_encoder_funcs cvitek_lvds_encoder_funcs = {
 static int cvitek_lvds_connector_get_modes(struct drm_connector *connector)
 {
 	struct cvitek_lvds *lvds = connector_to_cvitek_lvds(connector);
+	struct drm_panel *panel = NULL;
 	int ret;
+
 	ret = drm_of_find_panel_or_bridge(lvds->dev->of_node, 1, 0,
-						  &lvds->panel, &lvds->bridge);
+					  &lvds->panel, &lvds->bridge);
 	if (ret)
-	{
 		return ret;
-	}
-	struct drm_panel *panel = lvds->panel;
+
+	panel = lvds->panel;
 
 	return drm_panel_get_modes(panel, connector);
 }
@@ -350,13 +356,15 @@ static const struct drm_connector_helper_funcs cvitek_lvds_connector_helper_func
 static enum drm_connector_status
 cvitek_lvds_connector_detect(struct drm_connector *connector, bool force)
 {
-	DRM_DEBUG_DRIVER("----cvitek_lvds_connector_detect.\n");
 	struct cvitek_lvds *lvds = connector_to_cvitek_lvds(connector);
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek lvds connector detect. ----\n");
+
 	ret = drm_of_find_panel_or_bridge(lvds->dev->of_node, 1, 0,
 					  &lvds->panel, &lvds->bridge);
 	if (ret)
-		DRM_DEBUG_DRIVER("----cvitek_lvds_connector_detect drm_of_find_panel_or_bridge\n");
+		DRM_DEBUG_DRIVER("%s: ---- drm find panel or bridge failed!\n", __func__);
 
 	return lvds->panel ? connector_status_connected :
 			    connector_status_disconnected;
@@ -384,7 +392,7 @@ static int lvds_parse_lane_data(struct cvitek_lvds *lvds)
 
 	s32 lanes_map_default[LANE_MAX_NUM] = {MIPI_TX_LANE_0, MIPI_TX_LANE_1, MIPI_TX_LANE_CLK, MIPI_TX_LANE_2, MIPI_TX_LANE_3};
 	s32 lanes_map[LANE_MAX_NUM] = {-1, -1, -1, -1, -1};
-	u32 lanes_swap[LANE_MAX_NUM]= {false, false, false, false, false};
+	u32 lanes_swap[LANE_MAX_NUM] = {false, false, false, false, false};
 
 	prop = of_find_property(lvds->dev->of_node, "clock-lane", &len);
 	if (!prop) {
@@ -427,9 +435,8 @@ static int lvds_parse_lane_data(struct cvitek_lvds *lvds)
 		return ret;
 	}
 
-	for (i = 0; i < num_lanes; i++) {
+	for (i = 0; i < num_lanes; i++)
 		lanes_map[data_lanes[i]] = MIPI_TX_LANE_0 + i;
-	}
 
 	lvds->data_lanes_num = num_lanes;
 
@@ -471,14 +478,15 @@ default_lanes_maping:
 
 static int cvitek_lvds_bind(struct device *dev, struct device *master, void *data)
 {
-	DRM_DEBUG_DRIVER("----cvitek_lvds_bind.\n");
-
 	struct cvitek_lvds *lvds = dev_get_drvdata(dev);
 	struct drm_device *drm_dev = data;
 	struct drm_encoder *encoder;
 	struct drm_connector *connector;
 	int ret = 0;
 	struct device_node  *port;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek lvds bind. ----\n");
+
 	lvds = devm_kzalloc(dev, sizeof(*lvds), GFP_KERNEL);
 	if (!lvds)
 		return -ENOMEM;
@@ -536,10 +544,9 @@ static int cvitek_lvds_bind(struct device *dev, struct device *master, void *dat
 	return 0;
 }
 
-static void cvitek_lvds_unbind(struct device *dev, struct device *master, void *data) {
-	DRM_DEBUG_DRIVER("----cvitek_lvds_unbind.\n");
-	struct cvitek_lvds *lvds = dev_get_drvdata(dev);
-	return;
+static void cvitek_lvds_unbind(struct device *dev, struct device *master, void *data)
+{
+	DRM_DEBUG_DRIVER("---- enter cvitek lvds unbind. ----\n");
 }
 
 static const struct component_ops lvds_component_ops = {
@@ -567,15 +574,17 @@ static const struct of_device_id lvds_match_table[] = {
 
 static int cvitek_lvds_remove(struct platform_device *pdev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_lvds_remove.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek lvds remove. ----\n");
+
 	component_del(&pdev->dev, &lvds_component_ops);
 	return 0;
 }
 
 static int cvitek_lvds_probe(struct platform_device *pdev)
 {
-    DRM_DEBUG_DRIVER("----cvitek_lvds_probe.\n");
-    return component_add(&pdev->dev, &lvds_component_ops);
+	DRM_DEBUG_DRIVER("---- enter cvitek lvds probe. ----\n");
+
+	return component_add(&pdev->dev, &lvds_component_ops);
 }
 
 struct platform_driver cvitek_lvds_driver = {

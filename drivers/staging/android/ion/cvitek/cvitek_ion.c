@@ -307,11 +307,11 @@ long cvitek_ion_ioctl(struct ion_device *dev, unsigned int cmd, unsigned long ar
 			return -EFAULT;
 
 		if (IS_ERR(data.start)) {
-			pr_err("flush fault addr %p, size %zu!\n", data.start, data.size);
+			pr_err("flush fault addr %p, size %u!\n", data.start, data.size);
 			return -EFAULT;
 		}
 
-		pr_debug("flush addr %p, size %zu\n", data.start, data.size);
+		pr_debug("flush addr %p, size %u\n", data.start, data.size);
 #ifdef CONFIG_ARM
 		__cpuc_flush_user_range((u32)data.start, ((u32)data.start) + data.size, 0);
 #else
@@ -328,11 +328,11 @@ long cvitek_ion_ioctl(struct ion_device *dev, unsigned int cmd, unsigned long ar
 			return -EFAULT;
 
 		if (IS_ERR(data.start)) {
-			pr_err(" addr %p, size %zu!\n", data.start, data.size);
+			pr_err(" addr %p, size %u!\n", data.start, data.size);
 			return -EFAULT;
 		}
 
-		pr_debug("ion invalidate:%p, %zu\n", data.start, data.size);
+		pr_debug("ion invalidate:%p, %u\n", data.start, data.size);
 #ifdef CONFIG_ARM
 		pa = get_user_pa((u32)data.start);
 #else
@@ -348,7 +348,7 @@ long cvitek_ion_ioctl(struct ion_device *dev, unsigned int cmd, unsigned long ar
 #ifdef CONFIG_ARM
 		invalidate_kernel_vmap_range((void *)va, data.size);
 #else
-		__inval_dcache_area(va, data.size);
+		__inval_dcache_area((void *)va, data.size);
 #endif
 		break;
 	}
@@ -371,12 +371,12 @@ long cvitek_ion_ioctl(struct ion_device *dev, unsigned int cmd, unsigned long ar
 	case ION_IOC_CVITEK_FLUSH_PHY_RANGE:
 	{
 		struct cvitek_cache_range data;
-		unsigned long  va, pa;
+		//unsigned long  va, pa;
 
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;
 
-		pr_debug("flush addr %#llx, size %zu\n", data.paddr, data.size);
+		pr_debug("flush addr %#llx, size %u\n", data.paddr, data.size);
 
 #if defined(__arm__) || defined(__aarch64__)
 		/* compatible with previous version */
@@ -395,7 +395,7 @@ long cvitek_ion_ioctl(struct ion_device *dev, unsigned int cmd, unsigned long ar
 		if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
 			return -EFAULT;
 
-		pr_debug("invalidate addr %#llx, size %zu\n", data.paddr, data.size);
+		pr_debug("invalidate addr %#llx, size %u\n", data.paddr, data.size);
 
 
 #if defined(__arm__) || defined(__aarch64__)

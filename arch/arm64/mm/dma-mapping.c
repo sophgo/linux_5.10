@@ -19,6 +19,8 @@ void arch_sync_dma_for_device(phys_addr_t paddr, size_t size,
 	__dma_map_area(phys_to_virt(paddr), size, dir);
 }
 
+EXPORT_SYMBOL(arch_sync_dma_for_device);
+
 void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
 		enum dma_data_direction dir)
 {

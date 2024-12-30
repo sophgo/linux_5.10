@@ -23,13 +23,14 @@ typedef struct sns_sync_info {
 #define SNS_V4L2_GET_TYPE _IOWR('V', BASE_VIDIOC_PRIVATE + 1, int)
 
 // 0: normal, 1: mirror, 2: flip, 3: mirror and flip
-#define SNS_V4L2_SET_MIRROR_FLIP _IOWR('V', BASE_VIDIOC_PRIVATE + 2, int)
+#define SNS_V4L2_SET_MIRROR_FLIP    _IOWR('V', BASE_VIDIOC_PRIVATE + 2, int)
 
-#define SNS_V4L2_GET_I2C_INFO    _IOWR('V', BASE_VIDIOC_PRIVATE + 3, sns_i2c_info_t)
+#define SNS_V4L2_GET_I2C_INFO       _IOWR('V', BASE_VIDIOC_PRIVATE + 3, sns_i2c_info_t)
 
-#define SNS_V4L2_SET_HDR_ON      _IOWR('V', BASE_VIDIOC_PRIVATE + 4, int)
+#define SNS_V4L2_SET_HDR_ON         _IOWR('V', BASE_VIDIOC_PRIVATE + 4, int)
 
 #define SNS_V4L2_SET_SNS_SYNC_INFO  _IOWR('V', BASE_VIDIOC_PRIVATE + 5, sns_sync_info_t)
+
 // see any update on sample_comm.h
 typedef enum _V4L2_SNS_TYPE_E {
 	/* ------ LINEAR BEGIN ------*/
@@ -150,6 +151,7 @@ typedef enum _V4L2_SNS_TYPE_E {
 	V4L2_LONTIUM_MIPI_LT6911_1M_30FPS_8BIT,
 	V4L2_LONTIUM_MIPI_LT6911_2M_30FPS_8BIT,
 	V4L2_LONTIUM_MIPI_LT6911_8M_30FPS_8BIT,
+	V4L2_NUC_NC021_MIPI_2M_50FPS_8BIT,
 	/* ------ LINEAR END ------*/
 	V4L2_SNS_TYPE_LINEAR_BUTT,
 

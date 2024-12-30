@@ -66,6 +66,7 @@ struct gc4653_mode {
 	u32 exp_def;
 	u32 mipi_wdr_mode;
 	struct v4l2_fract max_fps;
+	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t gc4653_sync_info;
 	struct gc4653_reg_list reg_list;
 	struct gc4653_reg_list wdr_reg_list;
@@ -83,7 +84,7 @@ static struct gc4653_mode supported_modes[] = {
 		.vts_def = 2432,
 		.max_fps = {
 			.numerator = 10000,
-			.denominator = 300000,
+			.denominator = 250000,
 		},
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_2560x1440_12bit_regs),

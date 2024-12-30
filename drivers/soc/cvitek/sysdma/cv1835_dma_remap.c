@@ -82,13 +82,14 @@ static const struct of_device_id cv1835_sysdma_remap_id_match[] = {
 #ifdef CONFIG_PM_SLEEP
 static int dma_remap_suspend_late(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
+	//struct platform_device *pdev = to_platform_device(dev);
 
 	return 0;
 }
 
 static int dma_remap_resume_early(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	u32 val;
 
 	val = UPDATE_REMAP
@@ -106,6 +107,22 @@ static int dma_remap_resume_early(struct device *dev)
 		| (ch_remap[7] << 24);
 
 	writel(val, remap_subsys_base + 0x4);
+
+	if (device_property_present(&pdev->dev, "int_mux_base") &&
+		device_property_present(&pdev->dev, "int_mux")) {
+		u32 int_mux_base = 0;
+		u32 int_mux = 0;
+		void __iomem *int_mux_reg;
+
+		/* Set sysDMA interrupt receiver of IC after CV181X */
+		device_property_read_u32(&pdev->dev, "int_mux_base", &int_mux_base);
+		if (int_mux_base != 0x0) {
+			int_mux_reg = ioremap(int_mux_base, 0x4);
+			device_property_read_u32(&pdev->dev, "int_mux", &int_mux);
+			writel(int_mux, int_mux_reg);
+			iounmap(int_mux_reg);
+		}
+	}
 
 	return 0;
 }

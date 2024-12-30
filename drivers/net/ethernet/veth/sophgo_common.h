@@ -26,6 +26,17 @@ typedef u64 dma_addr_t;
 #define SHM_HOST_TAIL_OFFSET 0x14
 #define SHM_HANDSHAKE_OFFSET 0x40
 
+#define VETH_IPADDR_OFFSET			0x44
+#define VETH_A53_STATE_OFFSET		0x48
+#define VETH_GW_OFFSET				0x4c
+#define VETH_RESET_OFFSET			0x50
+#define VETH_MASK_OFFSET			0x54
+#define MIXMODE_CHIP_TEMP_OFFSET	0x58
+#define MIXMODE_BOARD_TEMP_OFFSET	0x5c
+
+
+#define VETH_CTRL_STATUS			0x7C
+
 #define TOP_MISC_GP_REG30_SET_OFFSET 0xF8
 #define TOP_MISC_GP_REG30_CLR_OFFSET 0x78
 
@@ -34,6 +45,8 @@ typedef u64 dma_addr_t;
 
 #define SOPH_VETH_RX_IRQ_CLR_BIT BIT(2)
 #define SOPH_VETH_TX_IRQ_SET_BIT BIT(12)
+
+#define SOPH_VETH_CTRL_HOST_UPDATE BIT(0)
 
 struct veth_dev {
 	struct platform_device *pdev;

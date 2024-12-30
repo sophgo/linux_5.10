@@ -13,6 +13,8 @@
 extern int vi_core_init(struct platform_device *pdev);
 extern int vi_register_video_device(struct sop_isp_device *isp_dev);
 extern int vi_destroy_instance(struct sop_isp_device *isp_dev);
+extern void vi_resume(struct sop_vi_dev *vdev);
+extern void vi_suspend(struct sop_vi_dev *vdev);
 
 /********************* ispsubdev function ***********************/
 extern int isp_subdev_register(struct sop_isp_device *isp_dev);
@@ -268,7 +270,7 @@ static int sop_isp_plat_remove(struct platform_device *pdev)
 {
 	struct v4l2_device *v4l2_dev = platform_get_drvdata(pdev);
 	struct sop_isp_device *isp_dev = container_of(v4l2_dev,
-									struct sop_isp_device, v4l2_dev);;
+						      struct sop_isp_device, v4l2_dev);;
 
 	media_device_unregister(&isp_dev->media_dev);
 	v4l2_async_notifier_unregister(&isp_dev->notifier);
@@ -278,6 +280,32 @@ static int sop_isp_plat_remove(struct platform_device *pdev)
 	vi_destroy_instance(isp_dev);
 	media_device_cleanup(&isp_dev->media_dev);
 	dev_set_drvdata(&pdev->dev, NULL);
+
+	return 0;
+}
+
+static int sop_isp_plat_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct v4l2_device *v4l2_dev = platform_get_drvdata(pdev);
+	struct sop_isp_device *isp_dev = container_of(v4l2_dev,
+						      struct sop_isp_device, v4l2_dev);;
+
+	dev_info(&pdev->dev, "suspend start\n");
+	vi_suspend(&isp_dev->vi_dev);
+	dev_info(&pdev->dev, "suspend end\n");
+
+	return 0;
+}
+
+static int sop_isp_plat_resume(struct platform_device *pdev)
+{
+	struct v4l2_device *v4l2_dev = platform_get_drvdata(pdev);
+	struct sop_isp_device *isp_dev = container_of(v4l2_dev,
+						      struct sop_isp_device, v4l2_dev);;
+
+	dev_info(&pdev->dev, "resume start\n");
+	vi_resume(&isp_dev->vi_dev);
+	dev_info(&pdev->dev, "resume end\n");
 
 	return 0;
 }
@@ -296,6 +324,8 @@ struct platform_driver sop_isp_plat_drv = {
 	},
 	.probe = sop_isp_plat_probe,
 	.remove = sop_isp_plat_remove,
+	.suspend = sop_isp_plat_suspend,
+	.resume = sop_isp_plat_resume,
 };
 
 static int __init isp_drv_init(void)

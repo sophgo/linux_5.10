@@ -85,15 +85,11 @@ static inline struct panel_lvds *to_lcm18x56_lvds(struct drm_panel *panel)
 
 static int lcm18x56_disable(struct drm_panel *panel)
 {
-	struct panel_lvds *lvds = to_lcm18x56_lvds(panel);
-	// msleep(50);
 	return 0;
 }
 
 static int lcm18x56_enable(struct drm_panel *panel)
 {
-	struct panel_lvds *lvds = to_lcm18x56_lvds(panel);
-	// msleep(50);
 	return 0;
 }
 

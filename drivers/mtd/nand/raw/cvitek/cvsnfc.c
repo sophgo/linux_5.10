@@ -775,7 +775,7 @@ static int parse_status_info(struct cvsnfc_host *host)
 	struct nand_ecc_info *ecc_info = &spi_dev->ecc_info;
 	uint8_t *id = spi_dev->nand_info.id;
 	uint32_t ecc_status0, ecc_status1, status;
-	uint32_t mask, sr_mask;
+	uint32_t mask;
 	uint32_t corr_bit = 0;
 
 	if (!ecc_info->ecc_sr_addr && !ecc_info->read_ecc_opcode) {

@@ -296,7 +296,8 @@ static int cif_s_stream(struct v4l2_subdev *sd, int enable)
 				} else {
 					return -EINVAL;
 				}
-			}
+			} else
+				cif_reset_mipi(dev, i);
 
 			sensor = get_remote_sensor(sd, CIF_PAD_SNS0 + i);
 			if (!sensor) {

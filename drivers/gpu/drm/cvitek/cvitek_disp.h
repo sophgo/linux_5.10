@@ -19,7 +19,7 @@ struct cvitek_format {
 };
 
 
-typedef enum _DISP_FORMAT_E {
+enum DISP_FORMAT_E {
 	DISP_FORMAT_YUV_PLANAR_420 = 0,
 	DISP_FORMAT_YUV_PLANAR_422 = 1,
 
@@ -38,14 +38,14 @@ typedef enum _DISP_FORMAT_E {
 
 	DISP_FORMAT_XRGB_8888 = 254,
 	DISP_FORMAT_UNSUPPORT = 255,
-} DISP_FORMAT_E;
+};
 
-typedef enum _VGOP_FORMAT_E {
+enum VGOP_FORMAT_E {
 	VGOP_FORMAT_ARGB8888 = 0,
 	VGOP_FORMAT_ARGB4444 = 4,
 	VGOP_FORMAT_ARGB1555 = 5,
 	VGOP_FORMAT_UNSUPPORT
-} VGOP_FORMAT_E;
+};
 
 static const struct cvitek_format disp_formats[] = {
 	{ DRM_FORMAT_XRGB8888, DISP_FORMAT_XRGB_8888 },
@@ -148,7 +148,7 @@ struct disp_mem {
 };
 
 struct disp_gop_ow_cfg {
-	VGOP_FORMAT_E fmt;
+	enum VGOP_FORMAT_E fmt;
 	struct disp_point start;
 	struct disp_point end;
 	u64 addr;
@@ -308,7 +308,7 @@ struct disp_cfg {
 	bool cache_mode;
 	bool sync_ext;
 	bool tgen_en;
-	DISP_FORMAT_E fmt;
+	enum DISP_FORMAT_E fmt;
 	enum disp_csc in_csc;
 	enum disp_csc out_csc;
 	u8 burst;       // 0~15
@@ -374,6 +374,7 @@ struct disp_hw_ctx {
 	struct disp_timing disp_timing;
 	bool disp_vgop_status[CVITEK_MAX_PLANE];
 	spinlock_t disp_mask_spinlock;
+	bool primary_formats_xr24;
 };
 
 struct cvitek_crtc {

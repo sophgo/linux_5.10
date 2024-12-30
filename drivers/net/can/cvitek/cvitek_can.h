@@ -30,12 +30,20 @@
 
 #define SD1_D1_PINMUX 0x28104b40
 #define PULL_DOWN_EN 0x8
+/* CAN STD mode */
+#define CAN_CTRLMODE_STD 0x100
+
 struct sdvt_can_classdev;
 struct sdvt_can_command;
 struct sdvt_can_config;
 struct sdvt_can_ops {
 	u32 (*read_reg)(struct sdvt_can_classdev *cdev, int reg);
 	int (*write_reg)(struct sdvt_can_classdev *cdev, int reg, int val);
+};
+
+struct sdvt_can_plat_priv {
+	void __iomem *base;
+	void __iomem *mem_base;
 };
 
 struct sdvt_can_command {
@@ -51,8 +59,11 @@ struct sdvt_can_command {
 	u8 irq_status1_8b      ; // IRQ status 1
 	u8 irq_status2_8b      ; // IRQ status 2
 	u8 irq_status3_8b      ; // IRQ status 3
+	u8 irq_status4_8b      ; // IRQ status 3
+	u8 irq_status5_8b      ; // IRQ status 3
 	u8 data_len_code_4b    ; // data length
 	u8 remote_resp_en_b    ; // Remote enable mode
+	u8 tx_done;              // tx done
 };
 
 struct sdvt_can_config {
@@ -90,6 +101,8 @@ struct sdvt_can_config {
 	u8 irq_enable1_8b               ; // IRQ enable 1
 	u8 irq_enable2_8b               ; // IRQ enable 2
 	u8 irq_enable3_8b               ; // IRQ enable 3
+	u8 irq_enable4_8b               ; // IRQ enable 4
+	u8 irq_enable5_8b               ; // IRQ enable 5
 	u8 tx_b                         ; // Tx operation
 	u8 cfg_fd_brs_b                 ; // CAN FD - Enable BRS
 	u8 mode_reset_8b                ; // mode reset
@@ -128,7 +141,7 @@ struct sdvt_can_classdev {
 	struct sdvt_can_command cmd_o;
 	struct sdvt_can_config cfg_o;
 
-	void *device_data;
+	struct sdvt_can_plat_priv *device_data;
 
 	int version;
 	int freq;

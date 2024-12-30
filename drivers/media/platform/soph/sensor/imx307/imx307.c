@@ -66,6 +66,7 @@ struct imx307_mode {
 	u32 exp_def;
 	u32 mipi_wdr_mode;
 	struct v4l2_fract max_fps;
+	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t imx307_sync_info;
 	struct imx307_reg_list reg_list;
 	struct imx307_reg_list wdr_reg_list;
@@ -84,6 +85,10 @@ static struct imx307_mode supported_modes[] = {
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 300000,
+		},
+		.wdr_max_fps = {
+			.numerator = 10000,
+			.denominator = 250000,
 		},
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_linear_1920x1080_12bit_regs),
@@ -276,9 +281,13 @@ static int enum_frame_interval(struct v4l2_subdev *sd,
 	fie->width  = imx307->cur_mode->width;
 	fie->height = imx307->cur_mode->height;
 
-	fie->interval.numerator   = imx307->cur_mode->max_fps.numerator;
-	fie->interval.denominator = imx307->cur_mode->max_fps.denominator;
-
+	if (imx307->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {
+		fie->interval.numerator   = imx307->cur_mode->max_fps.numerator;
+		fie->interval.denominator = imx307->cur_mode->max_fps.denominator;
+	} else {
+		fie->interval.numerator   = imx307->cur_mode->wdr_max_fps.numerator;
+		fie->interval.denominator = imx307->cur_mode->wdr_max_fps.denominator;
+	}
 	return 0;
 }
 

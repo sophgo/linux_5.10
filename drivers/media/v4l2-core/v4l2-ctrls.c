@@ -3128,8 +3128,11 @@ int __v4l2_ctrl_handler_setup(struct v4l2_ctrl_handler *hdl)
 		ctrl->done = false;
 
 	list_for_each_entry(ctrl, &hdl->ctrls, node) {
-		struct v4l2_ctrl *master = ctrl->cluster[0];
+		struct v4l2_ctrl *master;
 		int i;
+
+		if(ctrl->cluster)
+			master = ctrl->cluster[0];
 
 		/* Skip if this control was already handled by a cluster. */
 		/* Skip button controls and read-only controls. */

@@ -80,7 +80,7 @@ static struct ar2020_mode supported_modes[] = {
 		.height = 3840,
 		.max_fps = {
 			.numerator = 10000,
-			.denominator = 300000,
+			.denominator = 250000,
 		},
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_5120x3840_regs),
@@ -259,6 +259,21 @@ static int enum_mbus_code(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static int enum_frame_interval(struct v4l2_subdev *sd,
+			      struct v4l2_subdev_pad_config *cfg,
+			      struct v4l2_subdev_frame_interval_enum *fie)
+{
+	struct ar2020 *ar2020 = to_ar2020(sd);
+
+	fie->width  = ar2020->cur_mode->width;
+	fie->height = ar2020->cur_mode->height;
+
+	fie->interval.numerator   = ar2020->cur_mode->max_fps.numerator;
+	fie->interval.denominator = ar2020->cur_mode->max_fps.denominator;
+
+	return 0;
+}
+
 static int enum_frame_size(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_pad_config *cfg,
 			   struct v4l2_subdev_frame_size_enum *fse)
@@ -338,10 +353,10 @@ static void ar2020_standby(struct ar2020 *ar2020)
 	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x00);
 }
 
-static void ar2020_restart(struct ar2020 *ar2020)
-{
-	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x01);
-}
+//static void ar2020_restart(struct ar2020 *ar2020)
+//{
+//	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x01);
+//}
 
 /* Start streaming */
 static int start_streaming(struct ar2020 *ar2020)
@@ -475,7 +490,7 @@ static int ar2020_identify_module(struct ar2020 *ar2020)
 	int ret;
 	int val1, val2;
 	int read_data = 0;
-	struct i2c_client *client = v4l2_get_subdevdata(&ar2020->sd);
+	//struct i2c_client *client = v4l2_get_subdevdata(&ar2020->sd);
 
 	ret = ar2020_read_reg(ar2020, AR2020_CHIP_ID_ADDR_L,
 			       REG_VALUE_16BIT, &val1);
@@ -633,6 +648,7 @@ static const struct v4l2_subdev_pad_ops ar2020_pad_ops = {
 	.get_fmt = get_pad_format,
 	.set_fmt = set_pad_format,
 	.enum_frame_size = enum_frame_size,
+	.enum_frame_interval = enum_frame_interval,
 	.get_mbus_config = g_mbus_config,
 };
 

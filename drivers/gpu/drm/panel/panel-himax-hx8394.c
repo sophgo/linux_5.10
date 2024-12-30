@@ -81,32 +81,32 @@ static u8 cmd_hx8394_16[] = { 0xbd, 0x00 };
 static u8 cmd_hx8394_17[] = { 0xbf, 0x40, 0x81, 0x50, 0x00, 0x1a, 0xfc, 0x01 };
 static u8 cmd_hx8394_18[] = { 0xc6, 0xef };
 static u8 cmd_hx8394_19[] = { 0x36, 0x02 };// h-flip
-static u8 cmd_hx8394_20[] = { 0x11 };
-static u8 cmd_hx8394_21[] = { 0x29 };
+// static u8 cmd_hx8394_20[] = { 0x11 };
+// static u8 cmd_hx8394_21[] = { 0x29 };
 
 const struct dcs_cmd init_cmds_hx8394_720x1280[] = {
-	{.delay = 0,   .size = 4, 	.cmd = cmd_hx8394_0 },
-	{.delay = 0,   .size = 15, 	.cmd = cmd_hx8394_1 },
-	{.delay = 0,   .size = 7, 	.cmd = cmd_hx8394_2 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_3 },
-	{.delay = 0,   .size = 6, 	.cmd = cmd_hx8394_4 },
-	{.delay = 0,   .size = 22, 	.cmd = cmd_hx8394_5 },
-	{.delay = 0,   .size = 34, 	.cmd = cmd_hx8394_6 },
-	{.delay = 0,   .size = 45, 	.cmd = cmd_hx8394_7 },
-	{.delay = 0,   .size = 45, 	.cmd = cmd_hx8394_8 },
-	{.delay = 0,   .size = 59, 	.cmd = cmd_hx8394_9 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_10 },
-	{.delay = 0,   .size = 3, 	.cmd = cmd_hx8394_11 },
-	{.delay = 0,   .size = 3, 	.cmd = cmd_hx8394_12 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_13 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_14 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_15 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_16 },
-	{.delay = 0,   .size = 8, 	.cmd = cmd_hx8394_17 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_18 },
-	{.delay = 0,   .size = 2, 	.cmd = cmd_hx8394_19 },
-	// {.delay = 120, .size = 1, 	.cmd = cmd_hx8394_20 },
-	// {.delay = 20,  .size = 1, 	.cmd = cmd_hx8394_21 }
+	{.delay = 0,   .size = 4,   .cmd = cmd_hx8394_0 },
+	{.delay = 0,   .size = 15,  .cmd = cmd_hx8394_1 },
+	{.delay = 0,   .size = 7,   .cmd = cmd_hx8394_2 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_3 },
+	{.delay = 0,   .size = 6,   .cmd = cmd_hx8394_4 },
+	{.delay = 0,   .size = 22,  .cmd = cmd_hx8394_5 },
+	{.delay = 0,   .size = 34,  .cmd = cmd_hx8394_6 },
+	{.delay = 0,   .size = 45,  .cmd = cmd_hx8394_7 },
+	{.delay = 0,   .size = 45,  .cmd = cmd_hx8394_8 },
+	{.delay = 0,   .size = 59,  .cmd = cmd_hx8394_9 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_10 },
+	{.delay = 0,   .size = 3,   .cmd = cmd_hx8394_11 },
+	{.delay = 0,   .size = 3,   .cmd = cmd_hx8394_12 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_13 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_14 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_15 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_16 },
+	{.delay = 0,   .size = 8,   .cmd = cmd_hx8394_17 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_18 },
+	{.delay = 0,   .size = 2,   .cmd = cmd_hx8394_19 },
+	// {.delay = 120, .size = 1,   .cmd = cmd_hx8394_20 },
+	// {.delay = 20,  .size = 1,   .cmd = cmd_hx8394_21 }
 };
 
 #define DRV_NAME "panel-himax-hx8394"
@@ -141,7 +141,7 @@ static int hx8394_init_sequence(struct hx8394 *ctx)
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
 	int ret, i;
 
-	for(i = 0; i < ARRAY_SIZE(init_cmds_hx8394_720x1280); i++) {
+	for (i = 0; i < ARRAY_SIZE(init_cmds_hx8394_720x1280); i++) {
 		ret = mipi_dsi_dcs_write_buffer(dsi, init_cmds_hx8394_720x1280[i].cmd, init_cmds_hx8394_720x1280[i].size);
 		if (ret < 0)
 			return ret;
@@ -179,9 +179,30 @@ static int hx8394_enable(struct drm_panel *panel)
 	struct hx8394 *ctx = panel_to_hx8394(panel);
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
 	int ret;
+	u8 cmd = 0xda;
+	u8 data;
+	u8 len = 1;
 
 	if (ctx->enabled)
 		return 0;
+
+	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
+	if (ret || data != 0x83)
+		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
+
+	msleep(20);
+
+	cmd = 0xdb;
+	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
+	if (ret || data != 0x94)
+		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
+
+	msleep(20);
+
+	cmd = 0xdc;
+	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
+	if (ret || data != 0xf)
+		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
 
 	ret = ctx->desc->init_sequence(ctx);
 	if (ret) {

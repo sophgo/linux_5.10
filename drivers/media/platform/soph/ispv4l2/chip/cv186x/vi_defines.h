@@ -83,7 +83,7 @@ struct sop_vi_dev {
 	int				irq_num;
 	struct clk			*clk_sys[6];
 	struct clk			*clk_isp[3];
-	struct clk			*clk_mac[8];
+	struct clk			*clk_mac[6];
 	void				*shared_mem;
 	struct isp_ctx			ctx;
 	struct sop_isp_mbus_framefmt	usr_fmt;
@@ -152,6 +152,7 @@ struct sop_vi_dev {
 	struct mutex			stream_lock;
 	struct mutex			v4l2_vb_lock;
 	struct mutex			ai_isp_lock;
+	struct vi_thread_attr		vi_event_th[ISP_PRERAW_MAX];
 	struct vi_thread_attr		vi_th[E_VI_TH_MAX];
 };
 

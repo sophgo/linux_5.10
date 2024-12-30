@@ -11,6 +11,7 @@
 #include <linux/phy.h>
 #include <linux/module.h>
 #include <linux/delay.h>
+#include <asm/io.h>
 
 #define RTL821x_PHYSR				0x11
 #define RTL821x_PHYSR_DUPLEX			BIT(13)
@@ -184,7 +185,7 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	u16 val_txdly, val_rxdly;
 	u16 val;
 	int ret;
-#if IS_ENABLED(CONFIG_ARCH_ATHENA2)
+#if IS_ENABLED(CONFIG_ARCH_CV186X)
 	phy_modify_paged_changed(phydev, 0xa43, 0x19, 0x21, 0x0);
 	phy_modify_paged_changed(phydev, 0x0, 0x0, 0x0, 0x8000);	
 #endif
@@ -251,7 +252,11 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	phydev->duplex = DUPLEX_FULL;
 #endif
 #if IS_ENABLED(CONFIG_ARCH_CV186X)
-	ret = phy_modify_paged_changed(phydev, 0xd04, 0x10, 0xffff, 0x820B);
+	//printk("phy_led_flag = %x\n", phydev->phy_led_flag);
+	if (phydev->phy_led_flag == 0x1)
+		ret = phy_modify_paged_changed(phydev, 0xd04, 0x10, 0xffff, 0xC00B);
+	else
+		ret = phy_modify_paged_changed(phydev, 0xd04, 0x10, 0xffff, 0x820B);
 #endif
 	return 0;
 }
@@ -557,6 +562,25 @@ static int rtlgen_resume(struct phy_device *phydev)
 	return ret;
 }
 
+static int rtl8211f_probe(struct phy_device *phydev)
+{
+#if IS_ENABLED(CONFIG_ARCH_CV186X)
+	u32 sram_oem;
+	void __iomem *oem_addess;
+
+	oem_addess = ioremap(0x5207F80, 4);
+	if (!oem_addess) {
+		pr_err("ioremap failed!!!");
+	} else {
+		sram_oem = readl(oem_addess);
+		phydev->phy_led_flag = (char)((sram_oem >> 24) & 0xff);
+		//printk("sram_oem = %x, phy_led_flag = %x\n", sram_oem, phydev->phy_led_flag);
+		iounmap(oem_addess);
+	}
+#endif
+	return 0;
+}
+
 static struct phy_driver realtek_drvs[] = {
 	{
 		PHY_ID_MATCH_EXACT(0x00008201),
@@ -630,6 +654,7 @@ static struct phy_driver realtek_drvs[] = {
 	}, {
 		PHY_ID_MATCH_EXACT(0x001cc916),
 		.name		= "RTL8211F Gigabit Ethernet",
+		.probe      = rtl8211f_probe,
 		.config_init	= &rtl8211f_config_init,
 		.ack_interrupt	= &rtl8211f_ack_interrupt,
 		.config_intr	= &rtl8211f_config_intr,
