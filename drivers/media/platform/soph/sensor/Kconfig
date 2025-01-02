@@ -36,6 +36,13 @@ config SENSOR_V4L2_IMX412
 	help
 	  Support for Sensor on the CV186X SoC.
 
+config SENSOR_V4L2_IMX900
+	depends on VIDEO_V4L2 && I2C
+	tristate "imx900 support"
+	default n
+	help
+	  Support for Sensor on the CV186X SoC.
+
 config SENSOR_V4L2_LT6911
 	depends on VIDEO_V4L2 && I2C
 	tristate "lt6911 support"

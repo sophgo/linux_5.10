@@ -2,10 +2,11 @@
 ifneq ($(KERNELRELEASE),)
 PWD = $(srctree)/drivers/media/platform/soph/
 
-obj-$(CONFIG_SENSOR_V4L2_IMX585) += imx585/
 obj-$(CONFIG_SENSOR_V4L2_IMX307) += imx307/
 obj-$(CONFIG_SENSOR_V4L2_IMX327) += imx327/
 obj-$(CONFIG_SENSOR_V4L2_IMX412) += imx412/
+obj-$(CONFIG_SENSOR_V4L2_IMX585) += imx585/
+obj-$(CONFIG_SENSOR_V4L2_IMX900) += imx900/
 obj-$(CONFIG_SENSOR_V4L2_OS04A10) += os04a10/
 obj-$(CONFIG_SENSOR_V4L2_OS04A10) += os04a10_sync/
 obj-$(CONFIG_SENSOR_V4L2_OS04E10) += os04e10/
