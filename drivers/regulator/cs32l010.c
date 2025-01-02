@@ -18,6 +18,10 @@
 #include <linux/of_gpio.h>
 #include <linux/gpio/consumer.h>
 #include <linux/delay.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/notifier.h>
+#include <linux/reboot.h>
 
 struct cs32l010 {
 	struct device			*dev;
@@ -44,6 +48,25 @@ static void cs32l010_power_off(void)
 			return;
 		}
 	}
+}
+
+static int reboot_notifier_callback(struct notifier_block *nb, unsigned long action, void *data) {
+    switch (action) {
+        case SYS_RESTART:
+            i2c_smbus_write_byte_data(cs32l010_pm_off->i2c_gen, 0xAA,0xDD);
+            printk("System is rebooting.MCU disable WD\n");
+            break;
+        case SYS_POWER_OFF:
+            printk("System is powering off.\n");
+            break;
+        case SYS_HALT:
+            printk("System is halting.\n");
+            break;
+        default:
+            printk("Unknown system shutdown action: %lu\n", action);
+            break;
+    }
+    return NOTIFY_DONE;
 }
 
 static void cpu_feedwdg_cs32l010_work(struct work_struct *work)
@@ -170,6 +193,10 @@ static struct i2c_driver cs32l010_i2c_driver = {
 	.id_table = cs32l010_i2c_id,
 };
 
+static struct notifier_block reboot_notifier = {
+    .notifier_call = reboot_notifier_callback,
+};
+
 static int __init cs32l010_i2c_init(void)
 {
 	int ret = -ENODEV;
@@ -177,7 +204,8 @@ static int __init cs32l010_i2c_init(void)
 	ret = i2c_add_driver(&cs32l010_i2c_driver);
 	if (ret != 0)
 		pr_err("Failed to register I2C driver: %d\n", ret);
-
+	register_reboot_notifier(&reboot_notifier);
+	pr_info("Registering reboot notifier.\n");
 	return ret;
 }
 subsys_initcall(cs32l010_i2c_init);
@@ -185,6 +213,8 @@ subsys_initcall(cs32l010_i2c_init);
 static void __exit cs32l010_i2c_exit(void)
 {
 	i2c_del_driver(&cs32l010_i2c_driver);
+	pr_info("Unregistering reboot notifier.\n");
+    	unregister_reboot_notifier(&reboot_notifier);
 }
 module_exit(cs32l010_i2c_exit);
 
