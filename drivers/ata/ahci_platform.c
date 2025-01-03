@@ -164,7 +164,7 @@ static int ahci_probe(struct platform_device *pdev)
 
 	rc = sophgo_phy_init();
 	if (rc)
-		return rc;
+		goto disable_resources;
 
 	rc = ahci_platform_init_host(pdev, hpriv, port,
 				     &ahci_platform_sht);
