@@ -69,6 +69,10 @@ static int reboot_notifier_callback(struct notifier_block *nb, unsigned long act
     return NOTIFY_DONE;
 }
 
+static struct notifier_block reboot_notifier = {
+    .notifier_call = reboot_notifier_callback,
+};
+
 static void cpu_feedwdg_cs32l010_work(struct work_struct *work)
 {
 	i2c_smbus_write_byte_data(cs32l010_pm_off->i2c_gen, 0xAA,0xEE);
@@ -152,7 +156,9 @@ static int cs32l010_i2c_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK(&cs32l010->watchdog_work,cpu_feedwdg_cs32l010_work);
 	schedule_delayed_work(&cs32l010->watchdog_work, msecs_to_jiffies(30000));
 	i2c_smbus_write_byte_data(cs32l010->i2c_gen, 0xAA,0xCC);
-
+	
+	register_reboot_notifier(&reboot_notifier);
+	pr_info("Registering reboot notifier.\n");
 	printk("%s end!\n",__func__);
 	return 0;
 
@@ -165,7 +171,7 @@ static int cs32l010_i2c_remove(struct i2c_client *i2c)
 	struct cs32l010 *cs32l010 = i2c_get_clientdata(i2c);
 
 	i2c_unregister_device(cs32l010->i2c_gen);
-
+	unregister_reboot_notifier(&reboot_notifier);	
 	return 0;
 }
 
@@ -193,10 +199,6 @@ static struct i2c_driver cs32l010_i2c_driver = {
 	.id_table = cs32l010_i2c_id,
 };
 
-static struct notifier_block reboot_notifier = {
-    .notifier_call = reboot_notifier_callback,
-};
-
 static int __init cs32l010_i2c_init(void)
 {
 	int ret = -ENODEV;
@@ -204,8 +206,6 @@ static int __init cs32l010_i2c_init(void)
 	ret = i2c_add_driver(&cs32l010_i2c_driver);
 	if (ret != 0)
 		pr_err("Failed to register I2C driver: %d\n", ret);
-	register_reboot_notifier(&reboot_notifier);
-	pr_info("Registering reboot notifier.\n");
 	return ret;
 }
 subsys_initcall(cs32l010_i2c_init);
@@ -214,7 +214,6 @@ static void __exit cs32l010_i2c_exit(void)
 {
 	i2c_del_driver(&cs32l010_i2c_driver);
 	pr_info("Unregistering reboot notifier.\n");
-    	unregister_reboot_notifier(&reboot_notifier);
 }
 module_exit(cs32l010_i2c_exit);
 
