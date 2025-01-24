@@ -670,16 +670,19 @@ static int i2cdev_attach_adapter(struct device *dev, void *dummy)
 	i2c_dev->dev.release = i2cdev_dev_release;
 
 #if defined(CONFIG_ARCH_CVITEK)
-	if (!strcmp(adap->dev.of_node->full_name, I2C0))
+	if (!strcmp(adap->dev.of_node->full_name, I2C0)) {
 		adap->i2c_idx = 0;
-	if (!strcmp(adap->dev.of_node->full_name, I2C1))
+	} else if (!strcmp(adap->dev.of_node->full_name, I2C1)) {
 		adap->i2c_idx = 1;
-	if (!strcmp(adap->dev.of_node->full_name, I2C2))
+	} else if (!strcmp(adap->dev.of_node->full_name, I2C2)) {
 		adap->i2c_idx = 2;
-	if (!strcmp(adap->dev.of_node->full_name, I2C3))
+	} else if (!strcmp(adap->dev.of_node->full_name, I2C3)) {
 		adap->i2c_idx = 3;
-	if (!strcmp(adap->dev.of_node->full_name, I2C4))
+	} else if (!strcmp(adap->dev.of_node->full_name, I2C4)) {
 		adap->i2c_idx = 4;
+	} else {
+		adap->i2c_idx = adap->nr;
+	}
 
 	dev_set_name(&i2c_dev->dev, "i2c-%d", adap->i2c_idx);
 #else

@@ -1370,84 +1370,18 @@ static int sdhci_cvi_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM_SLEEP
-#ifdef CONFIG_ARCH_CV181X_ASIC
-
-static int save_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	void __iomem *topbase;
-	void __iomem *rtcbase;
-
-	topbase = ioremap(TOP_BASE, 0x250);
-	rtcbase = ioremap(RTC_CTRL_BASE, 0x80);
-
-	if (!cvi_host->rtc_reg_ctx) {
-		cvi_host->rtc_reg_ctx = devm_kzalloc(&cvi_host->pdev->dev,
-								sizeof(struct cvi_rtc_sdhci_reg_context), GFP_KERNEL);
-		if (!cvi_host->rtc_reg_ctx)
-			return -ENOMEM;
-	}
-	cvi_host->rtc_reg_ctx->rtcsys_clkmux = readl(rtcbase + RTCSYS_CLKMUX);
-	cvi_host->rtc_reg_ctx->rtcsys_clkbyp = readl(rtcbase + RTCSYS_CLKBYP);
-	cvi_host->rtc_reg_ctx->rtcsys_mcu51_ictrl1 = readl(rtcbase + RTCSYS_MCU51_ICTRL1);
-	cvi_host->rtc_reg_ctx->rtcsys_ctrl = readl(topbase + RTCSYS_CTRL);
-
-	iounmap(topbase);
-	iounmap(rtcbase);
-
-	return 0;
-}
-
-static void restore_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	void __iomem *topbase;
-	void __iomem *rtcbase;
-
-	topbase = ioremap(TOP_BASE, 0x250);
-	rtcbase = ioremap(RTC_CTRL_BASE, 0x80);
-
-	writel(cvi_host->rtc_reg_ctx->rtcsys_clkmux, rtcbase + RTCSYS_CLKMUX);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_clkbyp, rtcbase + RTCSYS_CLKBYP);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_mcu51_ictrl1, rtcbase + RTCSYS_MCU51_ICTRL1);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_ctrl, topbase + RTCSYS_CTRL);
-
-	iounmap(topbase);
-	iounmap(rtcbase);
-}
-#else
-static int save_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	return 0;
-}
-static void restore_rtc_reg(struct sdhci_cvi_host *cvi_host) {}
-#endif
-
-static void save_reg(struct sdhci_host *host, struct sdhci_cvi_host *cvi_host)
-{
-	save_rtc_reg(cvi_host);
-	cvi_host->reg_ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
-	cvi_host->reg_clk_ctrl = sdhci_readl(host, SDHCI_CLOCK_CONTROL);
-	cvi_host->reg_host_ctrl = sdhci_readl(host, SDHCI_HOST_CONTROL);
-}
-
-static void restore_reg(struct sdhci_host *host, struct sdhci_cvi_host *cvi_host)
-{
-	restore_rtc_reg(cvi_host);
-	sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
-	sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
-	sdhci_writew(host, cvi_host->reg_ctrl2, SDHCI_HOST_CONTROL2);
-	sdhci_writel(host, cvi_host->reg_clk_ctrl, SDHCI_CLOCK_CONTROL);
-	sdhci_writel(host, cvi_host->reg_host_ctrl, SDHCI_HOST_CONTROL);
-}
-
 static int sdhci_cvi_suspend(struct device *dev)
 {
 	struct sdhci_cvi_host *cvi_host = dev_get_drvdata(dev);
 	struct sdhci_host *host = cvi_host->host;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	int ret;
 
-	if (!host)
-		return 0;
+	ret = sdhci_suspend_host(host);
+	if (ret)
+		return ret;
 
-	save_reg(host, cvi_host);
+	clk_disable_unprepare(pltfm_host->clk);
 
 	return 0;
 }
@@ -1456,20 +1390,31 @@ static int sdhci_cvi_resume(struct device *dev)
 {
 	struct sdhci_cvi_host *cvi_host = dev_get_drvdata(dev);
 	struct sdhci_host *host = cvi_host->host;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	int ret;
 
-	if (!host)
-		return 0;
+	ret = clk_prepare_enable(pltfm_host->clk);
+	if (ret)
+		return ret;
 
-	restore_reg(host, cvi_host);
+	ret = sdhci_resume_host(host);
+	if (ret)
+		goto disable_clk;
 
 	return 0;
-}
 
-#endif
+disable_clk:
+	clk_disable_unprepare(pltfm_host->clk);
+
+	return ret;
+}
 
 static const struct dev_pm_ops sdhci_cvi_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(sdhci_cvi_suspend, sdhci_cvi_resume)
 };
+#else
+static const struct dev_pm_ops sdhci_cvi_pm_ops = {};
+#endif
 
 static struct platform_driver sdhci_cvi_driver = {
 	.probe = sdhci_cvi_probe,
