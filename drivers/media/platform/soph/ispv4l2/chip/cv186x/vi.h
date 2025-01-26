@@ -239,7 +239,7 @@ struct overflow_info {
 static u8 RGBMAP_BUF_IDX	= 2;
 
 static spinlock_t raw_num_lock;
-static spinlock_t dq_lock[ISP_PRERAW_MAX];
+static spinlock_t dq_lock[VI_MAX_CHN_NUM];
 static spinlock_t snr_node_lock[ISP_PRERAW_MAX];
 
 static spinlock_t event_lock;

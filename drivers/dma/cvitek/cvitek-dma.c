@@ -552,7 +552,7 @@ static int dwc_pause(struct dma_chan *chan)
 
 	dma_set_bit(dw, CH_EN,
 		    (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET))
-		    | (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_EN_OFFSET)));
+		    | (1ULL << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_EN_OFFSET)));
 
 	while (!(dma_readq(dw, CH_EN)
 		 & (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET)))
