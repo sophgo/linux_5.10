@@ -367,6 +367,78 @@ static void sdhci_cv181x_sd_setup_io(struct sdhci_host *host, bool reset)
 		cvi_host->pinmuxbase + 0xA14);
 }
 
+#ifdef CONFIG_ENABLE_EMMC_HW_RESET_QFN
+
+#define GPIO_SWPORTA_DDR 0x004
+#define GPIO_SWPORTA_DR 0x000
+#define GPIO0_BASE 0x03020000
+#define GPIO_NUM 19
+
+static void sdhci_cvi_emmc_hw_reset(struct sdhci_host *host)
+{
+	pr_debug("%s use qfn\n", __func__);
+
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
+
+	writeb(0x3, cvi_host->pinmuxbase + 0x64);
+	pr_debug("qfn reset pinmux:%x\n", readb(cvi_host->pinmuxbase + 0x64));
+
+	void __iomem *base = ioremap(GPIO0_BASE, 0x100);
+
+	if (!base) {
+		pr_err("ioremap failed for GPIO0_BASE\n");
+		return;
+	}
+
+	void __iomem *dir_reg_base = base + GPIO_SWPORTA_DDR;
+	void __iomem *val_reg_base = base + GPIO_SWPORTA_DR;
+
+	uint32_t dir_reg = readl(dir_reg_base);
+	uint32_t val_reg = readl(val_reg_base);
+
+	/* Set direction to output */
+	dir_reg &=  ~BIT(GPIO_NUM);
+	dir_reg |= BIT(GPIO_NUM);
+	writel(dir_reg, dir_reg_base);
+	udelay(100);
+	pr_debug("qfn reset 0, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+	/* Set Value to 0, reset */
+	val_reg	&=  ~BIT(GPIO_NUM);
+	writel(val_reg, val_reg_base);
+	udelay(500);
+	pr_debug("qfn reset 1, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+	/* Set value to 1 */
+	val_reg	&=  ~BIT(GPIO_NUM);
+	val_reg |= BIT(GPIO_NUM);
+	writel(val_reg, val_reg_base);
+	udelay(500);
+	pr_debug("qfn reset 2, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+ 	iounmap(base);
+}
+#else
+static void sdhci_cvi_emmc_hw_reset(struct sdhci_host *host)
+{
+	pr_debug("%s use bga\n", __func__);
+	/*clear bit 8; pull down hw reset pin*/
+	pr_debug("eMMC RST_n0: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	sdhci_writel(host,
+		sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R) & (~(BIT(8))),
+		CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R);
+	pr_debug("eMMC RST_n1: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	mdelay(1);
+	/*set bit 8; pull up hw reset pin*/
+	sdhci_writel(host,
+		sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R) | (BIT(8)),
+		CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R);
+	pr_debug("eMMC RST_n2: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	mdelay(1);
+}
+#endif
+
 static void sdhci_cvi_reset_helper(struct sdhci_host *host, u8 mask)
 {
 	// disable Intr before reset
@@ -1071,6 +1143,7 @@ static void cvi_adma_write_desc(struct sdhci_host *host, void **desc,
 
 static const struct sdhci_ops sdhci_cv181x_emmc_ops = {
 	.reset = sdhci_cv181x_emmc_reset,
+	.hw_reset = sdhci_cvi_emmc_hw_reset,
 	.set_clock = sdhci_set_clock,
 	.set_bus_width = sdhci_set_bus_width,
 	.get_max_clock = sdhci_cvi_general_get_max_clock,
@@ -1278,14 +1351,6 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 		goto pltfm_free;
 
 	sdhci_get_of_property(pdev);
-
-	if (pdata->ops->hw_reset) {
-		cvi_host->reset = devm_reset_control_get(&pdev->dev, "sdio");
-		if (IS_ERR(cvi_host->reset)) {
-			ret = PTR_ERR(cvi_host->reset);
-			goto pltfm_free;
-		}
-	}
 
 	if (pdev->dev.of_node) {
 		gpio_cd = of_get_named_gpio(pdev->dev.of_node, "cvi-cd-gpios", 0);
