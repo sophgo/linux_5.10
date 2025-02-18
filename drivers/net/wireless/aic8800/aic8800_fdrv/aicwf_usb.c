@@ -15,6 +15,7 @@
 #include "rwnx_defs.h"
 #include "usb_host.h"
 #include "rwnx_platform.h"
+#include <linux/reboot.h>
 
 #ifdef CONFIG_GPIO_WAKEUP
 #ifdef CONFIG_PLATFORM_ROCKCHIP
@@ -2361,6 +2362,16 @@ static int aicwf_usb_chipmatch(struct aic_usb_dev *usb_dev, u16_l vid, u16_l pid
 }
 
 
+int wf_reboot_notify(struct notifier_block *notifier, ulong pm_event,
+		     void *unused)
+{
+    struct aic_usb_dev *usb_dev;
+	usb_dev = container_of(notifier, struct aic_usb_dev, reboot_notifier);
+    aicwf_bus_deinit(usb_dev->dev);
+    aicwf_usb_deinit(usb_dev);
+	return NOTIFY_DONE;
+}
+
 static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
     int ret = 0;
@@ -2495,6 +2506,9 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
 #ifdef CONFIG_GPIO_WAKEUP
 	rwnx_register_hostwake_irq(usb_dev->dev);
 #endif
+
+	usb_dev->reboot_notifier.notifier_call = wf_reboot_notify;
+	register_reboot_notifier(&usb_dev->reboot_notifier);
 
     return 0;
 

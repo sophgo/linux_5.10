@@ -112,6 +112,8 @@ struct aic_usb_dev {
     enum aicwf_usb_state state;
     struct rwnx_cmd_mgr cmd_mgr;
 
+	struct notifier_block reboot_notifier;
+
 #ifdef CONFIG_USB_TX_AGGR
     struct aicwf_tx_priv *tx_priv;
 #endif

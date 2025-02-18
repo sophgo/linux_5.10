@@ -83,6 +83,8 @@ struct btusb_data {
 	struct usb_interface *intf;
 	struct usb_interface *isoc;
 
+	ulong pm_event;
+
 	spinlock_t lock;
 
 	unsigned long flags;
@@ -4135,6 +4137,8 @@ int bt_reboot_notify(struct notifier_block *notifier, ulong pm_event,
 	fw_info = data->fw_info;
 	udev = fw_info->udev;
 
+	data->pm_event = pm_event;
+
 	switch (pm_event) {
 	case SYS_DOWN:
 		AICBT_DBG("%s:system down or restart", __func__);
@@ -4159,6 +4163,8 @@ int bt_reboot_notify(struct notifier_block *notifier, ulong pm_event,
 #ifdef SET_WAKEUP_DEVICE
 		set_wakeup_device_from_conf(fw_info_4_suspend);
 #endif
+
+		usb_deregister(&btusb_driver);
 		AICBT_DBG("%s:system halt or power off", __func__);
 		break;
 
@@ -4875,8 +4881,11 @@ static void btusb_disconnect(struct usb_interface *intf)
 #if 0
     unregister_early_suspend(&data->early_suspend);
 #else
-	unregister_pm_notifier(&data->pm_notifier);
-	unregister_reboot_notifier(&data->reboot_notifier);
+	if (data->pm_event != SYS_HALT && data->pm_event != SYS_POWER_OFF) {
+		unregister_pm_notifier(&data->pm_notifier);
+		unregister_reboot_notifier(&data->reboot_notifier);
+	}
+	data->pm_event = 0;
 #endif
 
 	firmware_info_destroy(intf);
