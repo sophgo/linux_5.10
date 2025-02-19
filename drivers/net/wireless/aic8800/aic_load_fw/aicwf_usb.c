@@ -666,11 +666,14 @@ static void aicwf_usb_bus_stop(struct device *dev)
 
 static void aicwf_usb_deinit(struct aic_usb_dev *usbdev)
 {
-    cancel_work_sync(&usbdev->rx_urb_work);
-    aicwf_usb_free_urb(&usbdev->rx_free_list, &usbdev->rx_free_lock);
-    aicwf_usb_free_urb(&usbdev->tx_free_list, &usbdev->tx_free_lock);
+	if (!usbdev)
+		return;
+
+	cancel_work_sync(&usbdev->rx_urb_work);
+	aicwf_usb_free_urb(&usbdev->rx_free_list, &usbdev->rx_free_lock);
+	aicwf_usb_free_urb(&usbdev->tx_free_list, &usbdev->tx_free_lock);
 	aicwf_usb_free_urb(&usbdev->tx_post_list, &usbdev->tx_post_lock);
-    usb_free_urb(usbdev->msg_out_urb);
+	usb_free_urb(usbdev->msg_out_urb);
 }
 
 static void aicwf_usb_rx_urb_work(struct work_struct *work)
