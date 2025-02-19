@@ -2,7 +2,7 @@
 VERSION = 5
 PATCHLEVEL = 10
 SUBLEVEL = 4
-EXTRAVERSION = -$(shell git rev-parse --short HEAD)
+EXTRAVERSION =
 NAME = Kleptomaniac Octopus
 
 # *DOCUMENTATION*
