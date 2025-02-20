@@ -221,22 +221,12 @@ void cv1835_set_mclk(u32 freq)
 		dev_info(dev->dev, "Unrecognised freq\n");
 		break;
 	}
-	dev->src_clk_freq[1] = freq;
-	dev->src_clk_freq[2] = freq;
-	dev->src_clk_freq[3] = freq;
-	dev->src_clk_freq[4] = freq;
-	dev->src_clk_freq[5] = freq;
-	dev->src_clk_freq[6] = freq;
 
 #ifdef CONFIG_ARCH_CV183X_ASIC
 	iounmap(gp_reg3);
 #endif
 }
 
-u32 cv1835_get_mclk(u32 id)
-{
-	return dev->src_clk_freq[id + 1];
-}
 void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1)
 {
 	if (subsys_reg) {

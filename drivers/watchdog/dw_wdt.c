@@ -243,10 +243,6 @@ static int dw_wdt_set_timeout(struct watchdog_device *wdd, unsigned int top_s)
 	int i;
 	u32 toc;
 
-	// BugFix: Athena2 wdt will reset SOC directly if set timeout after start
-	if (watchdog_active(wdd))
-		return -EOPNOTSUPP;
-
 	/*
 	 * Note IRQ mode being enabled means having a non-zero pre-timeout
 	 * setup. In this case we try to find a TOP as close to the half of the

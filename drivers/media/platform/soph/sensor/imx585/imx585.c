@@ -372,11 +372,11 @@ static void imx585_standby(struct imx585 *imx585)
 	imx585_write_reg(imx585, 0x3002, REG_VALUE_08BIT, 0x01);
 }
 
-static void imx585_restart(struct imx585 *imx585)
-{
-	imx585_write_reg(imx585, 0x3000, REG_VALUE_08BIT, 0x00);
-	imx585_write_reg(imx585, 0x3002, REG_VALUE_08BIT, 0x00);
-}
+//static void imx585_restart(struct imx585 *imx585)
+//{
+//	imx585_write_reg(imx585, 0x3000, REG_VALUE_08BIT, 0x00);
+//	imx585_write_reg(imx585, 0x3002, REG_VALUE_08BIT, 0x00);
+//}
 
 /* Start streaming */
 static int start_streaming(struct imx585 *imx585)

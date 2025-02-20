@@ -122,6 +122,7 @@ typedef enum {
 } color_depth_t;
 
 struct phy_config {
+	u32			index;
 	pixel_repetition_t	pixel;
 	color_depth_t		color;
 	operation_mode_t	opmode;

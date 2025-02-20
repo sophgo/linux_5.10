@@ -77,7 +77,7 @@ int bm_ion_alloc(int heap_id, size_t len, bool mmap_cache)
 	struct rlimit new_limit = {.rlim_max = 40960, .rlim_cur = 40960};
 	struct rlimit old_limit = {0};
 	struct ion_heap_query query;
-	int ret = 0, index;
+	int ret = 0;
 	struct ion_heap_data *heap_data;
 	struct ion_buffer *buf;
 #if defined(__arm__) || defined(__aarch64__)
@@ -88,7 +88,7 @@ int bm_ion_alloc(int heap_id, size_t len, bool mmap_cache)
 	heap_data = vzalloc(sizeof(*heap_data) * HEAP_QUERY_CNT);
 	query.heaps = (unsigned long)heap_data;
 	if (!query.heaps) {
-		pr_err("vzalloc(%d) failed\n", sizeof(*heap_data) * HEAP_QUERY_CNT);
+		pr_err("vzalloc(%lu) failed\n", sizeof(*heap_data) * HEAP_QUERY_CNT);
 		return -ENOMEM;
 	}
 
@@ -126,7 +126,7 @@ int bm_ion_alloc(int heap_id, size_t len, bool mmap_cache)
 	ret = ion_alloc(len, 1 << heap_id,
 			((mmap_cache) ? 1 : 0), &buf);
 	if (ret < 0)
-		pr_err("[%s] pid=%d,name=%s, ret = %d, rlim_cur = %d(%d)\n"
+		pr_err("[%s] pid=%d,name=%s, ret = %d, rlim_cur = %lu(%x)\n"
 			, __func__, current->pid, current->comm, ret, old_limit.rlim_cur, INR_OPEN_CUR);
 
 	return ret;

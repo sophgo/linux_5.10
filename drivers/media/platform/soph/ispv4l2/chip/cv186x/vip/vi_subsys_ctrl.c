@@ -457,6 +457,7 @@ void ispblk_isptop_config(struct isp_ctx *ctx)
 	u8 post_trig_by_hw = 0;
 	u8 first_raw_num = vi_get_first_raw_num(ctx);
 	enum sop_isp_raw raw_num = ISP_PRERAW0;
+	u8 i;
 
 	union reg_isp_top_int_event0_en ev0_en;
 	union reg_isp_top_int_event1_en ev1_en;
@@ -476,10 +477,10 @@ void ispblk_isptop_config(struct isp_ctx *ctx)
 	trig_sel0_fe345.raw = trig_sel1_fe345.raw = 0;
 	scene_ctrl.raw = 0;
 
-	for (raw_num = ISP_PRERAW0; raw_num < ISP_PRERAW_MAX; raw_num++) {
-		if (!ctx->isp_pipe_enable[raw_num])
+	for (i = 0; i < VI_MAX_CHN_NUM; i++) {
+		if (!ctx->isp_pipe_enable[i])
 			continue;
-
+		raw_num = ctx->isp_bind_info[i].bind_fe_num;
 		if (ctx->isp_pipe_cfg[raw_num].is_raw_replay_be) { //RAW replay
 			pre_fe_trig_by_hw[raw_num] = 0x0;
 		} else if (!ctx->isp_pipe_cfg[raw_num].is_yuv_sensor) { //RGB sensor
@@ -488,19 +489,19 @@ void ispblk_isptop_config(struct isp_ctx *ctx)
 			else
 				pre_fe_trig_by_hw[raw_num] = 0x3;
 		} else { //YUV sensor
-			u8 actual_raw = ctx->isp_bind_info[raw_num].bind_fe_num;
-			switch (ctx->isp_pipe_cfg[actual_raw].mux_mode) {
+
+			switch (ctx->isp_pipe_cfg[raw_num].mux_mode) {
 			case VI_WORK_MODE_1MULTIPLEX:
-				pre_fe_trig_by_hw[actual_raw] = 0x1;
+				pre_fe_trig_by_hw[raw_num] = 0x1;
 				break;
 			case VI_WORK_MODE_2MULTIPLEX:
-				pre_fe_trig_by_hw[actual_raw] = 0x3;
+				pre_fe_trig_by_hw[raw_num] = 0x3;
 				break;
 			case VI_WORK_MODE_3MULTIPLEX:
-				pre_fe_trig_by_hw[actual_raw] = 0x7;
+				pre_fe_trig_by_hw[raw_num] = 0x7;
 				break;
 			case VI_WORK_MODE_4MULTIPLEX:
-				pre_fe_trig_by_hw[actual_raw] = 0xF;
+				pre_fe_trig_by_hw[raw_num] = 0xF;
 				break;
 			default:
 				break;

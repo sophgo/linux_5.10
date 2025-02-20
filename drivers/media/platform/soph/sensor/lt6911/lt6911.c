@@ -468,11 +468,12 @@ static void lt6911uxe_reset(struct lt6911 *lt6911)
 /* Start streaming */
 static int start_streaming(struct lt6911 *lt6911)
 {
-	lt6911uxe_reset(lt6911);
-	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
-	const struct lt6911_reg_list *reg_list;
 	const sns_sync_info_t *sync_info;
+	const struct lt6911_reg_list *reg_list;
 	int ret;
+	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
+	
+	lt6911uxe_reset(lt6911);
 
 	if (lt6911->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
 		reg_list = &lt6911->cur_mode->reg_list;

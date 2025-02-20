@@ -353,10 +353,10 @@ static void ar2020_standby(struct ar2020 *ar2020)
 	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x00);
 }
 
-static void ar2020_restart(struct ar2020 *ar2020)
-{
-	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x01);
-}
+//static void ar2020_restart(struct ar2020 *ar2020)
+//{
+//	ar2020_write_reg(ar2020, 0x0100, REG_VALUE_16BIT, 0x01);
+//}
 
 /* Start streaming */
 static int start_streaming(struct ar2020 *ar2020)
@@ -490,7 +490,7 @@ static int ar2020_identify_module(struct ar2020 *ar2020)
 	int ret;
 	int val1, val2;
 	int read_data = 0;
-	struct i2c_client *client = v4l2_get_subdevdata(&ar2020->sd);
+	//struct i2c_client *client = v4l2_get_subdevdata(&ar2020->sd);
 
 	ret = ar2020_read_reg(ar2020, AR2020_CHIP_ID_ADDR_L,
 			       REG_VALUE_16BIT, &val1);

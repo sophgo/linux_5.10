@@ -609,12 +609,22 @@ struct rwnx_phy_info {
 };
 
 /* rwnx driver status */
+void rwnx_set_conn_state(atomic_t *drv_conn_state, int state);
 
 enum rwnx_drv_connect_status { 
 	RWNX_DRV_STATUS_DISCONNECTED = 0,
 	RWNX_DRV_STATUS_DISCONNECTING, 
 	RWNX_DRV_STATUS_CONNECTING, 
 	RWNX_DRV_STATUS_CONNECTED, 
+	RWNX_DRV_STATUS_ROAMING,
+};
+
+static const char *const s_conn_state[] = {
+    "RWNX_DRV_STATUS_DISCONNECTED",
+    "RWNX_DRV_STATUS_DISCONNECTING",
+    "RWNX_DRV_STATUS_CONNECTING",
+    "RWNX_DRV_STATUS_CONNECTED",
+    "RWNX_DRV_STATUS_ROAMING",
 };
 
 
@@ -720,11 +730,19 @@ struct rwnx_hw {
     atomic_t p2p_alive_timer_count;
     bool band_5g_support;
     bool fwlog_en;
+    bool scanning;
+    bool p2p_working;
 
-	struct work_struct apmStalossWork;
+    struct work_struct apmStalossWork;
     struct workqueue_struct *apmStaloss_wq;
     u8 apm_vif_idx;
     u8 sta_mac_addr[6];
+    
+    struct wakeup_source *ws_rx;
+    struct wakeup_source *ws_irqrx;
+    struct wakeup_source *ws_tx;
+    struct wakeup_source *ws_pwrctrl;
+
 #ifdef CONFIG_SCHED_SCAN
         bool is_sched_scan;
 #endif//CONFIG_SCHED_SCAN 
@@ -746,7 +764,7 @@ struct rwnx_hw {
 	bool wext_scan;
 	struct completion wext_scan_com;
 	struct list_head wext_scanre_list;
-	char wext_essid[32];
+	char wext_essid[33];
 	int support_freqs[SCAN_CHANNEL_MAX];
 	int support_freqs_number;
 #endif

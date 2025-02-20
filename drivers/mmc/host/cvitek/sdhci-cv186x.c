@@ -323,7 +323,8 @@ static void sdhci_cv186x_sd1_setup_pad(struct sdhci_host *host)
 	iounmap(sd1_pin_mux_base);
 }
 
-static void sdhci_cv186x_sd_setup_io(struct sdhci_host *host, bool reset)
+//static void sdhci_cv186x_sd_setup_io(struct sdhci_host *host, bool reset)
+void sdhci_cv186x_sd_setup_io(struct sdhci_host *host, bool reset)
 {
 	void __iomem *g8_pinmux_base = NULL;
 	uint32_t reg = 0;
@@ -350,7 +351,8 @@ static void sdhci_cv186x_sd_setup_io(struct sdhci_host *host, bool reset)
 	iounmap(g8_pinmux_base);
 }
 
-static void sdhci_cv186x_sd1_setup_io(struct sdhci_host *host, bool reset)
+//static void sdhci_cv186x_sd1_setup_io(struct sdhci_host *host, bool reset)
+void sdhci_cv186x_sd1_setup_io(struct sdhci_host *host, bool reset)
 {
 	void __iomem *g11_pinmux_base = NULL;
 	uint32_t reg = 0;
@@ -1252,10 +1254,14 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, cvi_host);
 
-	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd"))
+	// if wifi-sd is enabled, prior to use wifi-sd, else use sd1.
+	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd")) {
 		wifi_mmc = host->mmc;
-	else
+		// Fixme: Some sd card can't switch voltage automatically.
+		sdhci_cv186x_sd1_voltage_switch(host);
+	} else {
 		wifi_mmc = NULL;
+	}
 
 	/* device proc entry */
 	if ((!proc_cvi_dir) &&

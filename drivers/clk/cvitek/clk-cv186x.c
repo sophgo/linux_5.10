@@ -176,6 +176,16 @@
 #define REG_DIV_PERI_PWM_CLK		0x160
 #define REG_DIV_PERI_CLK_XTAL_MISC	0x164
 
+#define REG_CLK_EN_START		REG_CLK_EN_0
+#define REG_CLK_SEL_START		REG_CLK_SEL_0
+#define REG_CLK_BYP_START		REG_CLK_BYP_0
+#define REG_CLK_DIV_START		REG_DIV_TOP_CLK_FAB0
+
+#define REG_CLK_EN_NUM (REG_CLK_EN_10 / 4 - REG_CLK_EN_0 / 4 + 1)
+#define REG_CLK_SEL_NUM (REG_CLK_SEL_0 / 4 - REG_CLK_SEL_0 / 4 + 1)
+#define REG_CLK_BYP_NUM (REG_CLK_BYP_4 / 4 - REG_CLK_BYP_0 / 4 + 1)
+#define REG_CLK_DIV_NUM (REG_DIV_PERI_CLK_XTAL_MISC / 4 - REG_DIV_TOP_CLK_FAB0 / 4 + 1)
+
 #define CV186X_PLL_LOCK_TIMEOUT_MS	200
 
 /* PLL status register offset */
@@ -198,6 +208,19 @@ static DEFINE_SPINLOCK(cv186x_clk_lock);
 struct cv186x_clock_data {
 	void __iomem *base;
 	spinlock_t *lock;
+#ifdef CONFIG_PM_SLEEP
+	uint32_t clken_saved_regs[REG_CLK_EN_NUM];
+	uint32_t clksel_saved_regs[REG_CLK_SEL_NUM];
+	uint32_t clkbyp_saved_regs[REG_CLK_BYP_NUM];
+	uint32_t clkdiv_saved_regs[REG_CLK_DIV_NUM];
+	//uint32_t g2_clkdiv_saved_regs[REG_CLK_G2_DIV_NUM];
+	//uint32_t pll_g2_csr_saved_regs[REG_PLL_G2_CSR_NUM];
+	//uint32_t a0pll_ssc_syn_set_saved_reg;
+	//uint32_t disppll_ssc_syn_set_saved_reg;
+	//uint32_t cam0pll_ssc_syn_set_saved_reg;
+	//uint32_t cam1pll_ssc_syn_set_saved_reg;
+	//uint32_t pll_g6_csr_saved_regs[REG_PLL_G6_CSR_NUM];
+#endif /* CONFIG_PM_SLEEP */
 	struct clk_hw_onecell_data hw_data;
 };
 
@@ -2529,6 +2552,78 @@ err_clk:
 	return PTR_ERR(hw);
 }
 
+#ifdef CONFIG_PM_SLEEP
+static void cv186x_clk_readl(volatile void __iomem *from, const void *to, size_t count)
+{
+        while (count--) {
+                *(u32 *)to = __raw_readl(from);
+                from += 4;
+                to += 4;
+        }
+}
+
+static void cv186x_clk_writel(volatile void __iomem *to, const void *from, size_t count)
+{
+        while (count--) {
+                __raw_writel(*(u32 *)from, to);
+                from += 4;
+                to += 4;
+        }
+}
+
+static int cv186x_clk_suspend(void)
+{
+	cv186x_clk_readl(clk_data->base + REG_CLK_EN_START,
+		clk_data->clken_saved_regs,
+		REG_CLK_EN_NUM);
+
+	cv186x_clk_readl(clk_data->base + REG_CLK_SEL_START,
+		clk_data->clksel_saved_regs,
+		REG_CLK_SEL_NUM);
+
+	cv186x_clk_readl(clk_data->base + REG_CLK_BYP_START,
+			clk_data->clkbyp_saved_regs,
+			REG_CLK_BYP_NUM);
+
+	cv186x_clk_readl(clk_data->base + REG_CLK_DIV_START,
+			clk_data->clkdiv_saved_regs,
+			REG_CLK_DIV_NUM);
+
+	return 0;
+}
+
+static void cv186x_clk_resume(void)
+{
+	/* switch clock to xtal */
+	writel(0xffffffff, clk_data->base + REG_CLK_BYP_0);
+	writel(0xffffffff, clk_data->base + REG_CLK_BYP_1);
+	writel(0xffffffff, clk_data->base + REG_CLK_BYP_2);
+	writel(0xffffffff, clk_data->base + REG_CLK_BYP_3);
+	writel(0xffffffff, clk_data->base + REG_CLK_BYP_4);
+
+	cv186x_clk_writel(clk_data->base + REG_CLK_EN_START,
+			clk_data->clken_saved_regs,
+			REG_CLK_EN_NUM);
+
+	cv186x_clk_writel(clk_data->base + REG_CLK_SEL_START,
+			clk_data->clksel_saved_regs,
+			REG_CLK_SEL_NUM);
+
+	cv186x_clk_writel(clk_data->base + REG_CLK_DIV_START,
+			clk_data->clkdiv_saved_regs,
+			REG_CLK_DIV_NUM);
+
+	cv186x_clk_writel(clk_data->base + REG_CLK_BYP_START,
+			clk_data->clkbyp_saved_regs,
+			REG_CLK_BYP_NUM);
+}
+
+static struct syscore_ops cv186x_clk_syscore_ops = {
+	.suspend = cv186x_clk_suspend,
+	.resume = cv186x_clk_resume,
+};
+#endif /* CONFIG_PM_SLEEP */
+
 static const struct of_device_id cvi_clk_match_ids_tables[] = {
 	{
 		.compatible = "cvitek,cv186x-clk",
@@ -2592,7 +2687,11 @@ static void __init cvi_clk_init(struct device_node *node)
 	// clk_prepare_enable(clk_data->hw_data.hws[CV186X_CLK_DSI_MAC_VIP]->clk);
 	// clk_prepare_enable(clk_data->hw_data.hws[CV186X_CLK_DISP_VIP]->clk);
 	// clk_prepare_enable(clk_data->hw_data.hws[CV186X_CLK_BT_VIP]->clk);
-	// clk_prepare_enable(clk_data->hw_data.hws[CV186X_CLK_SC_TOP_VIP]->clk);
+	clk_prepare_enable(clk_data->hw_data.hws[CV186X_TPU_CLK_TPU]->clk);
+
+#ifdef CONFIG_PM_SLEEP
+	register_syscore_ops(&cv186x_clk_syscore_ops);
+#endif
 
 	if (!ret)
 		return;

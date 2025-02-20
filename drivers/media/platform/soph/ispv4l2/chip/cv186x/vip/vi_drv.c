@@ -77,13 +77,13 @@ int vi_get_dev_num_by_raw(struct isp_ctx *ctx, u8 raw_num)
 {
 	int dev_num = ISP_PRERAW_MAX;
 
-	if (raw_num < ISP_PRERAW_MAX) {
+	if (raw_num < VI_MAX_CHN_NUM) {
 		if (ctx->isp_bind_info[raw_num].is_bind)
 			dev_num = ctx->isp_bind_info[raw_num].bind_dev_num;
 	}
 
-	if (dev_num == ISP_PRERAW_MAX)
-		dev_num = ISP_PRERAW0;
+	if (dev_num >= VI_MAX_CHN_NUM)
+		dev_num = 0;
 
 	return dev_num;
 }
@@ -92,15 +92,16 @@ int vi_get_raw_num_by_dev(struct isp_ctx *ctx, u8 dev_num)
 {
 	int raw_num = ISP_PRERAW_MAX;
 	int i = ISP_PRERAW0;
+	raw_num = ctx->isp_bind_info[dev_num].bind_fe_num;
 
-	if (ctx->isp_pipe_cfg[dev_num].is_yuv_sensor)
+	if (ctx->isp_pipe_cfg[raw_num].is_yuv_sensor)
 		return dev_num;
 
 	if (dev_num < ISP_PRERAW_MAX) {
 		for (i = ISP_PRERAW0; i < ISP_PRERAW_MAX; i++) {
 			if ((ctx->isp_bind_info[i].is_bind) &&
 			    (ctx->isp_bind_info[i].bind_dev_num == dev_num)) {
-				raw_num = i;
+				raw_num = ctx->isp_bind_info[i].bind_fe_num;
 				break;
 			}
 		}

@@ -16,10 +16,6 @@
 #include <linux/platform_device.h>
 #include "cvitek_can.h"
 extern int sdvt_can_set_mode(struct net_device *dev, enum can_mode mode);
-struct sdvt_can_plat_priv {
-	void __iomem *base;
-	void __iomem *mem_base;
-};
 
 
 static u32 iomap_read_reg(struct sdvt_can_classdev *cdev, int reg)
@@ -160,10 +156,10 @@ static int __maybe_unused sdvt_can_runtime_resume(struct device *dev)
 	struct sdvt_can_classdev *sdvt_can_class = netdev_priv(ndev);
 	int err;
 
-	if (err)
-		return err;
 
 	err = clk_prepare_enable(sdvt_can_class->cclk);
+	if (err)
+		return err;
 
 	return err;
 }

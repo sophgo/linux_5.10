@@ -229,15 +229,15 @@ static void disp_set_csc(u8 disp_id, struct disp_csc_matrix *cfg)
 
 static void disp_set_in_csc(struct disp_hw_ctx *ctx, enum disp_csc csc)
 {
-	if (csc == DISP_CSC_NONE) {
+	if (csc == DISP_CSC_NONE)
 		_reg_write(REG_DISP_IN_CSC0(ctx->disp_id), 0);
-	} else if (csc < DISP_CSC_MAX) {
+	else if (csc < DISP_CSC_MAX)
 		disp_set_csc(ctx->disp_id, &csc_mtrx[csc]);
-	}
 
 	ctx->disp_cfg.in_csc = csc;
 }
 
+#if 0
 static void disp_set_out_csc(struct disp_hw_ctx *ctx, enum disp_csc csc)
 {
 	if (csc == DISP_CSC_NONE) {
@@ -305,6 +305,7 @@ static void disp_set_pattern(u8 disp_id, enum disp_pat_type type,
 		break;
 	}
 }
+#endif
 
 static void drm_timing_to_cvi_timing(u8 disp_id, struct disp_timing *timing, struct drm_display_mode *mode)
 {
@@ -428,6 +429,7 @@ static union disp_dbg_status disp_dbg_status(u8 disp_id)
 static union disp_intr disp_intr_status(u8 disp_id)
 {
 	union disp_intr status;
+
 	status.raw = _reg_read(REG_DISP_DEBUG_STATUS(disp_id));
 	return status;
 }
@@ -436,16 +438,16 @@ static void disp_intr_clr(u8 disp_id, union disp_intr intr_clr)
 {
 	u32 tmp = 0;
 
-	if(intr_clr.b.disp_frame_done)
+	if (intr_clr.b.disp_frame_done)
 		tmp |= BIT(0);
-	if(intr_clr.b.up_1t)
+	if (intr_clr.b.up_1t)
 		tmp |= BIT(1);
-	if(intr_clr.b.up_1t_lite)
+	if (intr_clr.b.up_1t_lite)
 		tmp |= BIT(2);
 
 	_reg_write_mask(REG_DISP_INTER_CLR(disp_id), 0x7, tmp);
 
-	if(intr_clr.b.fifo_full_error)
+	if (intr_clr.b.fifo_full_error)
 		_reg_write_mask(REG_DISP_ODMA_FIFO_CFG(disp_id), BIT(9), BIT(9));
 }
 
@@ -522,7 +524,7 @@ static void ddr_retrain(int disp_id, union disp_intr intr_status)
 			DRM_DEBUG("disp%d fps:%d\n", disp_id, disp_fps[disp_id]);
 		}
 
-		if ((disp_frame_end_time_us[disp_id] > disp_frame_end_time_us[!disp_id])) {
+		if (disp_frame_end_time_us[disp_id] > disp_frame_end_time_us[!disp_id]) {
 			if ((disp_margin_time[disp_id] == 0) && (disp_fps[!disp_id] != 0)) {
 				for (i = 0; i < DISP_FPS_TABLE_CNT; i++) {
 					if ((disp_fps[!disp_id] <= disp_fps_table[i])
@@ -563,18 +565,20 @@ static irqreturn_t disp_irq_handler(int irq, void *data)
 	union disp_dbg_status dbg_status = disp_dbg_status(ctx->disp_id);
 	union disp_intr intr_status = disp_intr_status(ctx->disp_id);
 
-	if (dbg_status.b.bw_fail)
-		DRM_DEBUG_DRIVER(" disp bw failed !!!\n");
+	if (dbg_status.b.bw_fail) {
+		if (!ctx->primary_formats_xr24)
+			DRM_DEBUG_DRIVER(" disp bw failed !!!\n");
+	}
+
 	if (dbg_status.b.osd_bw_fail)
 		DRM_DEBUG_DRIVER(" osd bw failed !!!\n");
 
-	// /* IC bug need clear twice */
+	/* IC bug need clear twice */
 	disp_intr_clr(ctx->disp_id, intr_status);
 	disp_intr_clr(ctx->disp_id, intr_status);
 
-	if (intr_status.b.disp_frame_done) {
+	if (intr_status.b.disp_frame_done)
 		ddr_retrain(ctx->disp_id, intr_status);
-	}
 
 	/* vblank irq */
 	if (intr_status.b.up_1t) {
@@ -587,9 +591,10 @@ static irqreturn_t disp_irq_handler(int irq, void *data)
 
 static int disp_crtc_enable_vblank(struct drm_crtc *crtc)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_enable_vblank.\n");
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
+
+	DRM_DEBUG_DRIVER("---- enter disp crtc enable vblank. ----\n");
 
 	disp_set_framedone_interrupt(ctx->disp_id, true);
 
@@ -598,9 +603,10 @@ static int disp_crtc_enable_vblank(struct drm_crtc *crtc)
 
 static void disp_crtc_disable_vblank(struct drm_crtc *crtc)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_disable_vblank.\n");
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
+
+	DRM_DEBUG_DRIVER("---- enter disp crtc disable vblank. ----\n");
 
 	disp_set_framedone_interrupt(ctx->disp_id, false);
 }
@@ -609,13 +615,12 @@ static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc
 			       struct drm_crtc_state *old_state)
 {
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
-	struct drm_crtc_state *state = crtc->state;
 	struct drm_color_lut *lut = NULL;
 	uint32_t i, r, g, b, word;
 
 	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x03);
 
-	if(!crtc->state->gamma_lut){
+	if (!crtc->state->gamma_lut) {
 		_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x00);
 		return;
 	}
@@ -639,22 +644,21 @@ static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc
 static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
 				   struct drm_crtc_state *old_state)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_atomic_enable.\n");
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
 	bool is_enable;
 
+	DRM_DEBUG_DRIVER("---- enter disp crtc atomic enable. ----\n");
+
 	disp_enable_window_bgcolor(ctx->disp_id, false);
 
 	is_enable = disp_tgen_enable(ctx->disp_id, true);
-	while(is_enable != true) {
+	while (is_enable != true)
 		is_enable = disp_tgen_enable(ctx->disp_id, true);
-	}
 
 	// if the state have a GAMMA LUT, need to update
-	if (crtc->state->gamma_lut) {
+	if (crtc->state->gamma_lut)
 		disp_crtc_write_gamma_lut(ccrtc, crtc, old_state);
-	}
 
 	drm_crtc_vblank_on(crtc);
 }
@@ -662,18 +666,18 @@ static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
 static void disp_crtc_atomic_disable(struct drm_crtc *crtc,
 				    struct drm_crtc_state *old_state)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_atomic_disable.\n");
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct drm_device *drm = crtc->dev;
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
 	bool is_enable;
 
+	DRM_DEBUG_DRIVER("---- enter disp crtc atomic disable. ----\n");
+
 	drm_crtc_vblank_off(crtc);
 
 	is_enable = disp_tgen_enable(ctx->disp_id, false);
-	while(is_enable != false){
+	while (is_enable != false)
 		is_enable = disp_tgen_enable(ctx->disp_id, false);
-	}
 
 	disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 	disp_enable_window_bgcolor(ctx->disp_id, true);
@@ -688,11 +692,11 @@ static void disp_crtc_atomic_disable(struct drm_crtc *crtc,
 
 static void disp_crtc_mode_set_nofb(struct drm_crtc *crtc)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_mode_set_nofb.\n");
-
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
 	struct drm_display_mode *adj_mode = &crtc->state->adjusted_mode;
+
+	DRM_DEBUG_DRIVER("---- enter disp crtc mode set nofb. ----\n");
 
 	disp_reg_shadow_sel(ctx->disp_id, false);
 	disp_set_mode_timing(ctx, adj_mode);
@@ -701,10 +705,9 @@ static void disp_crtc_mode_set_nofb(struct drm_crtc *crtc)
 static void disp_crtc_atomic_flush(struct drm_crtc *crtc,
 				  struct drm_crtc_state *old_state)
 {
-	DRM_DEBUG_DRIVER("----disp_crtc_atomic_flush.\n");
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
-	struct drm_device *drm = crtc->dev;
-	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
+
+	DRM_DEBUG_DRIVER("---- enter disp crtc atomic flush. ----\n");
 
 	// force update
 	// _reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x10000, 1 << 16);
@@ -800,19 +803,19 @@ void disp_gop_ow_set_cfg(struct disp_hw_ctx *ctx, u8 layer, u8 window, struct di
 	disp_reg_set_shadow_mask(ctx, true);
 
 	_reg_write(REG_DISP_GOP_FMT(ctx->disp_id, layer, window),
-	           ow_cfg->fmt);
+			   ow_cfg->fmt);
 	_reg_write(REG_DISP_GOP_H_RANGE(ctx->disp_id, layer, window),
-	           (ow_cfg->end.x << 16) | ow_cfg->start.x);
+			   (ow_cfg->end.x << 16) | ow_cfg->start.x);
 	_reg_write(REG_DISP_GOP_V_RANGE(ctx->disp_id, layer, window),
-	           (ow_cfg->end.y << 16) | ow_cfg->start.y);
+			   (ow_cfg->end.y << 16) | ow_cfg->start.y);
 	_reg_write(REG_DISP_GOP_ADDR_L(ctx->disp_id, layer, window),
-	           ow_cfg->addr & 0xFFFFFFFF);
+			   ow_cfg->addr & 0xFFFFFFFF);
 	_reg_write(REG_DISP_GOP_ADDR_H(ctx->disp_id, layer, window),
-	           ow_cfg->addr >> 32);
+			   ow_cfg->addr >> 32);
 	_reg_write(REG_DISP_GOP_CROP_PITCH(ctx->disp_id, layer, window),
-	           (ow_cfg->crop_pixels << 16) | ow_cfg->pitch);
+			   (ow_cfg->crop_pixels << 16) | ow_cfg->pitch);
 	_reg_write(REG_DISP_GOP_SIZE(ctx->disp_id, layer, window),
-	           (ow_cfg->mem_size.h << 16) | ow_cfg->mem_size.w);
+			   (ow_cfg->mem_size.h << 16) | ow_cfg->mem_size.w);
 
 	disp_reg_set_shadow_mask(ctx, false);
 }
@@ -829,8 +832,6 @@ void disp_gop_set_cfg(struct disp_hw_ctx *ctx, u8 layer, struct disp_gop_cfg *cf
 static int disp_plane_atomic_check(struct drm_plane *plane,
 				  struct drm_plane_state *state)
 {
-	DRM_DEBUG_DRIVER("----disp_plane_atomic_check.\n");
-
 	struct drm_framebuffer *fb = state->fb;
 	struct drm_crtc *crtc = state->crtc;
 	struct drm_crtc_state *crtc_state;
@@ -844,13 +845,14 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 	u32 crtc_h = state->crtc_h;
 	u32 fmt;
 
+	DRM_DEBUG_DRIVER("---- enter disp plane atomic check. ----\n");
+
 	if (!crtc || !fb)
 		return 0;
 
 	if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
 		fmt = disp_get_format(fb->format->format);
-		if (fmt == DISP_FORMAT_UNSUPPORT)
-		{
+		if (fmt == DISP_FORMAT_UNSUPPORT) {
 			DRM_ERROR("Display not support fmt\n");
 			return -EINVAL;
 		}
@@ -861,8 +863,7 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 		}
 
 		if (src_x + src_w > fb->width ||
-			src_y + src_h > fb->height)
-		{
+			src_y + src_h > fb->height) {
 			DRM_ERROR("out of range : src_x + src_w > fb->width || src_y + src_h > fb->height\n");
 			return -EINVAL;
 		}
@@ -872,16 +873,18 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 			return PTR_ERR(crtc_state);
 
 		if (crtc_x + crtc_w > crtc_state->adjusted_mode.hdisplay ||
-			crtc_y + crtc_h > crtc_state->adjusted_mode.vdisplay)
-		{
-			DRM_ERROR("out of range : crtc_x + crtc_w > crtc_state->adjusted_mode.hdisplay \
-			|| crtc_y + crtc_h > crtc_state->adjusted_mode.vdisplay\n");
+			crtc_y + crtc_h > crtc_state->adjusted_mode.vdisplay) {
+			DRM_ERROR("out of range :\n");
+			DRM_ERROR("\tcrtc_x(%d) + crtc_w(%d) > crtc_state->adjusted_mode.hdisplay(%d)\n",
+						crtc_x, crtc_w, crtc_state->adjusted_mode.hdisplay);
+			DRM_ERROR("\tcrtc_y(%d) + crtc_h(%d) > crtc_state->adjusted_mode.vdisplay(%d)\n",
+						crtc_y, crtc_h, crtc_state->adjusted_mode.vdisplay);
+
 			return -EINVAL;
 		}
 	} else {
 		fmt = vgop_get_format(fb->format->format);
-		if (fmt == VGOP_FORMAT_UNSUPPORT)
-		{
+		if (fmt == VGOP_FORMAT_UNSUPPORT) {
 			DRM_ERROR("VGOP not support fmt\n");
 			return -EINVAL;
 		}
@@ -908,21 +911,28 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 // To avoid bw fail
 static void disp_set_bw_cfg(u32 fmt, unsigned int crtc_w, u32 disp_id)
 {
-	if (fmt == DISP_FORMAT_RGB_888 || fmt == DISP_FORMAT_BGR_888) {
-		_reg_write(REG_DISP_LINE_BUFFER(disp_id), 0x1);
-		_reg_write(REG_DISP_RD_TH(disp_id), 0x1);
-		_reg_write(REG_DISP_FIFO(disp_id), 0x78);
-	} else {
+	if (fmt == DISP_FORMAT_XRGB_8888) {
 		_reg_write(REG_DISP_LINE_BUFFER(disp_id), 0x0);
 		_reg_write(REG_DISP_RD_TH(disp_id), 0x0);
-		if(fmt == DISP_FORMAT_YUV_PLANAR_420 || fmt == DISP_FORMAT_YUV_PLANAR_422) {
-			_reg_write(REG_DISP_FIFO(disp_id), 0x4400480);
+		_reg_write(REG_DISP_FIFO(disp_id), 0x0);
+		_reg_write_mask(REG_DISP_PITCH_Y(disp_id), 0xff000000, 0x0 << 24);
+	} else {
+		if (fmt == DISP_FORMAT_RGB_888 || fmt == DISP_FORMAT_BGR_888) {
+			_reg_write(REG_DISP_LINE_BUFFER(disp_id), 0x1);
+			_reg_write(REG_DISP_RD_TH(disp_id), 0x1);
+			_reg_write(REG_DISP_FIFO(disp_id), 0x78);
 		} else {
-			_reg_write(REG_DISP_FIFO(disp_id), 0x4800480);
-		}
-	}
+			_reg_write(REG_DISP_LINE_BUFFER(disp_id), 0x0);
+			_reg_write(REG_DISP_RD_TH(disp_id), 0x0);
 
-	_reg_write_mask(REG_DISP_PITCH_Y(disp_id), 0xff000000, 0xff << 24);
+			if (fmt == DISP_FORMAT_YUV_PLANAR_420 || fmt == DISP_FORMAT_YUV_PLANAR_422)
+				_reg_write(REG_DISP_FIFO(disp_id), 0x4400480);
+			else
+				_reg_write(REG_DISP_FIFO(disp_id), 0x4800480);
+		}
+
+		_reg_write_mask(REG_DISP_PITCH_Y(disp_id), 0xff000000, 0xff << 24);
+	}
 }
 
 static void disp_update_channel(struct cvitek_plane *cplane,
@@ -950,7 +960,7 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			_reg_write_mask(REG_DISP_CFG(disp_id), 0xf000,
 							DISP_FORMAT_YUV_PLANAR_420 << 12);
 			disp_set_in_csc(ctx, DISP_CSC_NONE);
-			disp_set_bw_cfg(DISP_FORMAT_YUV_PLANAR_420, crtc_w, disp_id);
+			disp_set_bw_cfg(DISP_FORMAT_XRGB_8888, crtc_w, disp_id);
 
 			rect.x = crtc_x;
 			rect.y = crtc_y;
@@ -960,6 +970,8 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			disp_set_rect(ctx, rect);
 
 			memset(&ctx->disp_cfg.mem, 0, sizeof(ctx->disp_cfg.mem));
+			ctx->disp_cfg.mem.height = 1;
+			ctx->disp_cfg.mem.width = 1;
 			disp_set_mem(ctx, &ctx->disp_cfg.mem);
 
 			//now only support ow_0
@@ -1112,10 +1124,18 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 static void disp_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_plane_state *old_state)
 {
-	DRM_DEBUG_DRIVER("----disp_plane_atomic_update.\n");
 	struct drm_plane_state *state = plane->state;
 	struct cvitek_plane *cplane = to_cvitek_plane(plane);
 	struct disp_hw_ctx *ctx = cplane->hw_ctx;
+
+	DRM_DEBUG_DRIVER("---- enter disp plane atomic update. ----\n");
+
+	if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+		if (disp_get_format(state->fb->format->format) == DISP_FORMAT_XRGB_8888)
+			ctx->primary_formats_xr24 = true;
+		else
+			ctx->primary_formats_xr24 = false;
+	}
 
 	disp_update_channel(cplane, plane->type, state->fb, state->crtc_x, state->crtc_y,
 			   state->crtc_w, state->crtc_h,
@@ -1128,19 +1148,19 @@ static void disp_plane_atomic_update(struct drm_plane *plane,
 static void disp_plane_atomic_disable(struct drm_plane *plane,
 				     struct drm_plane_state *old_state)
 {
-	DRM_DEBUG_DRIVER("----disp_plane_atomic_disable.\n");
-	struct drm_plane_state *state = plane->state;
 	struct cvitek_plane *cplane = to_cvitek_plane(plane);
 	struct disp_hw_ctx *ctx = cplane->hw_ctx;
 	u32 ch = cplane->ch;
 	int i = 0;
 
-	if(plane->type == DRM_PLANE_TYPE_PRIMARY) {
+	DRM_DEBUG_DRIVER("---- enter disp plane atomic disable. ----\n");
+
+	if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
 		disp_set_addr(ctx, 0, 0, 0);
 		disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 		disp_enable_window_bgcolor(ctx->disp_id, true);
-		for ( i = 0; i < CVITEK_MAX_PLANE - 1; i++) {
-			if(ctx->disp_vgop_status[i] == 1){
+		for (i = 0; i < CVITEK_MAX_PLANE - 1; i++) {
+			if (ctx->disp_vgop_status[i] == 1) {
 				memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
 				disp_gop_set_cfg(ctx, i, &ctx->disp_cfg.gop_cfg);
 				ctx->disp_vgop_status[i] = 0;
@@ -1225,9 +1245,7 @@ static int cvitek_drm_plane_init(struct drm_device *dev, struct drm_plane *plane
 
 static void *disp_hw_ctx_alloc(struct platform_device *pdev)
 {
-	struct resource *res;
 	struct device *dev = &pdev->dev;
-	struct cvitek_disp *cvitek_disp = dev_get_drvdata(dev);
 	struct disp_match_data *disp_data = (struct disp_match_data *)of_device_get_match_data(dev);
 	struct disp_hw_ctx *ctx = NULL;
 	int ret;
@@ -1247,20 +1265,22 @@ static void *disp_hw_ctx_alloc(struct platform_device *pdev)
 
 	DRM_DEBUG_DRIVER("disp-interrupt: %d.\n", ctx->irq);
 
-	// ctx->disp_clk = devm_clk_get(dev, "clk_disp");
-	// if (IS_ERR(ctx->disp_clk)) {
-	// 	DRM_ERROR("failed to parse clk disp\n");
-	// 	return ERR_PTR(-ENODEV);
-	// }
-	// DRM_DEBUG_DRIVER("clk_disp: %ldkhz.\n", clk_get_rate(ctx->disp_clk) / 1000);
+#if 0
+	ctx->disp_clk = devm_clk_get(dev, "clk_disp");
+	if (IS_ERR(ctx->disp_clk)) {
+		DRM_ERROR("failed to parse clk disp\n");
+		return ERR_PTR(-ENODEV);
+	}
+	DRM_DEBUG_DRIVER("clk_disp: %ldkhz.\n", clk_get_rate(ctx->disp_clk) / 1000);
+#endif
 
 	spin_lock_init(&ctx->disp_mask_spinlock);
 
 	ctx->disp_id = disp_data->crtc_id;
 
-	for(i = 0; i < CVITEK_MAX_PLANE; i++) {
+	for (i = 0; i < CVITEK_MAX_PLANE; i++)
 		ctx->disp_vgop_status[i] = 0;
-	}
+
 	/* vblank irq init */
 	ret = devm_request_irq(dev, ctx->irq, disp_irq_handler,
 			       IRQF_SHARED, dev->driver->name, dev);
@@ -1271,7 +1291,12 @@ static void *disp_hw_ctx_alloc(struct platform_device *pdev)
 
 static void disp_hw_ctx_cleanup(struct platform_device *pdev, void *hw_ctx)
 {
-	if(hw_ctx) {
+	struct disp_hw_ctx *ctx;
+
+	if (hw_ctx) {
+		ctx = hw_ctx;
+		if (ctx->irq)
+			disable_irq(ctx->irq);
 		devm_kfree(&pdev->dev, hw_ctx);
 	}
 }
@@ -1381,10 +1406,11 @@ static int cvitek_drm_kms_cleanup(struct device *disp_dev, struct drm_device *dr
 
 static int cvitek_disp_bind(struct device *disp_dev, struct device *master, void *data)
 {
-    DRM_DEBUG_DRIVER("----cvitek_disp_bind.\n");
 	struct disp_match_data *disp_data;
 	struct drm_device *drm_dev = data;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek disp bind. ----\n");
 
 	disp_data = (struct disp_match_data *)of_device_get_match_data(disp_dev);
 	if (!disp_data)
@@ -1400,8 +1426,10 @@ static int cvitek_disp_bind(struct device *disp_dev, struct device *master, void
 
 static void cvitek_disp_unbind(struct device *disp_dev, struct device *master, void *data)
 {
-    DRM_DEBUG_DRIVER("----cvitek_disp_unbind.\n");
 	struct drm_device *drm_dev = data;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek disp unbind. ----\n");
+
 	cvitek_drm_kms_cleanup(disp_dev, drm_dev);
 }
 
@@ -1460,13 +1488,15 @@ MODULE_DEVICE_TABLE(of, disp_match_table);
 
 static int cvitek_disp_probe(struct platform_device *pdev)
 {
-    DRM_DEBUG_DRIVER("----cvitek_disp_probe.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek disp probe. ----\n");
+
 	return component_add(&pdev->dev, &cvitek_disp_ops);
 }
 
 static int cvitek_disp_remove(struct platform_device *pdev)
 {
-    DRM_DEBUG_DRIVER("----cvitek_disp_remove.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek disp remove. ----\n");
+
 	component_del(&pdev->dev, &cvitek_disp_ops);
 	return 0;
 }

@@ -47,6 +47,7 @@
 
 #define CIF_MAX_CSI_NUM		8
 
+
 #define MIPI_LANE_NUM	8
 #define WDR_VC_NUM	2
 #define SYNC_CODE_NUM	4
@@ -233,6 +234,10 @@ enum cif_pads {
 	CIF_PAD_SNS5,
 	CIF_PAD_SNS6,
 	CIF_PAD_SNS7,
+	CIF_PAD_SNS8,
+	CIF_PAD_SNS9,
+	CIF_PAD_SNS10,
+	CIF_PAD_SNS11,
 	CIF_PAD_ISP, //source
 	CIF_PAD_NUM,
 };
@@ -631,7 +636,7 @@ struct cvi_cif_dev {
 	struct mutex				mutex;
 	struct cvi_link				link[MAX_LINK_NUM];
 	bool						sink_linked[CIF_PAD_NUM - 1];
-	struct cif_sensor_info		sensors[CIF_MAX_CSI_NUM];
+	struct cif_sensor_info		sensors[MAX_CHN_NUM];
 	int							num_sensors;
 	struct v4l2_subdev			*src_sd;
 	struct v4l2_async_notifier	notifier;

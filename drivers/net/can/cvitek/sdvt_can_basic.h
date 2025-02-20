@@ -63,9 +63,13 @@ void send_command ( struct sdvt_can_classdev *cdev,struct sdvt_can_command* p_cm
 //                when frame is received
 //              p_cmd_st :# Pointer to command object
 
-void receive_frame(struct sdvt_can_classdev *cdev, struct sdvt_can_command *p_cmd_st, struct sdvt_can_config *p_config_st);
+u8 receive_frame(struct sdvt_can_classdev *cdev,
+				 struct sdvt_can_command *p_cmd_st,
+				 struct sdvt_can_config *p_config_st);
 
-void receive_remote_frame(struct sdvt_can_classdev *cdev, struct sdvt_can_command *p_cmd_st, struct sdvt_can_config *p_config_st);
+u8 receive_remote_frame(struct sdvt_can_classdev *cdev,
+						struct sdvt_can_command *p_cmd_st,
+						struct sdvt_can_config *p_config_st);
 
 // detect_irq_status :# This method is used to handle the interrupts
 //              p_cmd_st :# Pointer to command object
@@ -94,6 +98,10 @@ void sdvt_unmask_irq (struct sdvt_can_classdev *cdev,struct sdvt_can_config *p_c
 
 int32_t wait_tx_done(struct sdvt_can_classdev *cdev);
 
+// abort_tx :#This method is used for abort_tx
+//             parameter :No parameter
+
+void abort_tx(struct sdvt_can_classdev *cdev);
 
 // wait_rx_valid :#This method is used for waiting for completion of request
 //             parameter :No parameter
@@ -121,7 +129,7 @@ void print_config(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_conf
 
 void print_command(struct sdvt_can_classdev *cdev, struct sdvt_can_command *p_cmd_st);
 
-#define CAN_TXRX_TIMEOUT 5000
+#define CAN_TXRX_TIMEOUT 200
 //                           SmartDV Technologies Proprietary
 //            Copyright 2007-2023 SmartDV Technologies India Private Limited
 //

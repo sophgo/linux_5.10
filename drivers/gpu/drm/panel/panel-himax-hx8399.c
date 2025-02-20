@@ -145,15 +145,15 @@ static u8 data_hx8399_15[] = {
 static u8 data_hx8399_16[] = {
 	0xcc, 0x08,
 };
-static u8 data_hx8399_17[] = {
-	0x21
-};
-static u8 data_hx8399_18[] = {
-	0x11
-};
-static u8 data_hx8399_19[] = {
-	0x29
-};
+// static u8 data_hx8399_17[] = {
+//	0x21
+// };
+// static u8 data_hx8399_18[] = {
+//	0x11
+// };
+// static u8 data_hx8399_19[] = {
+//	0x29
+// };
 
 const struct dcs_cmd init_cmds_hx8399_1080x1920[] = {
 	{.delay = 0, .size = 4, .cmd = data_hx8399_0 },
@@ -210,7 +210,7 @@ static int hx8399_init_sequence(struct hx8399 *ctx)
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
 	int ret, i;
 
-	for(i = 0; i < ARRAY_SIZE(init_cmds_hx8399_1080x1920); i++) {
+	for (i = 0; i < ARRAY_SIZE(init_cmds_hx8399_1080x1920); i++) {
 		ret = mipi_dsi_dcs_write_buffer(dsi, init_cmds_hx8399_1080x1920[i].cmd, init_cmds_hx8399_1080x1920[i].size);
 		if (ret < 0)
 			return ret;
@@ -256,24 +256,22 @@ static int hx8399_enable(struct drm_panel *panel)
 		return 0;
 
 	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
-	if (ret || data != 0x83){
+	if (ret || data != 0x83)
 		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
-	}
+
 	msleep(20);
 
 	cmd = 0xdb;
 	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
-	if (ret || data != 0x99){
+	if (ret || data != 0x99)
 		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
-	}
 
 	msleep(20);
 
 	cmd = 0xdc;
 	ret = mipi_dsi_dcs_read(dsi, cmd, &data, len);
-	if (ret || data != 0xf){
+	if (ret || data != 0xf)
 		dev_err(ctx->dev, "Panel id read failed: %d\n", ret);
-	}
 
 	/* Panel is operational 180 msec before init_sequence  */
 	msleep(180);

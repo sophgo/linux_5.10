@@ -22,6 +22,7 @@
 #include <linux/gpio/consumer.h>
 
 #include <linux/comm_cif.h>
+#include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
 
 #include "pr2100.h"
@@ -49,18 +50,30 @@ module_param_array(force_slave, int, &pr2100_count, 0644);
 
 static int pr2100_probe_index;
 
-static unsigned short pr2100_i2caddr_map[] = {0x5F, 0x5F, 0x5C, 0x5C, 0x5F, 0x5F};
-static int pr2100_bus_map[MAX_SENSOR_DEVICE] = {1, -1, -1, -1, -1, -1};
-static int pr2100_slave_map[MAX_SENSOR_DEVICE] = {0, 0, 1, 1, 0, 0};
+static unsigned short pr2100_i2caddr_map[] = {0x5F, 0x5F, 0x5C, 0x5C, 0x5F, 0x5F, 0x5c, 0x5c};
+static int pr2100_bus_map[MAX_SENSOR_DEVICE] = {1, -1, -1, -1, -1, -1, -1, -1};
+static int pr2100_slave_map[MAX_SENSOR_DEVICE] = {0, 0, 1, 1, 0, 0, 1, 1};
 static int pr2100_type_map[MAX_SENSOR_DEVICE] = {
 	V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT,
 	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
 	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
 	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
+	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
 	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
 	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
 };
 
+struct pr2100_yuv_format {
+	vi_isp_yuv_scene_e	yuv_scene_mode;
+	vi_intf_mode_e	inf_mode;
+	vi_work_mode_e	mux_mode;
+	vi_yuv_data_seq_e data_seq;
+};
 struct pr2100_reg_list {
 	u32 num_of_regs;
 	const struct pr2100_reg *regs;
@@ -79,6 +92,7 @@ struct pr2100_mode {
 	struct v4l2_fract max_fps;
 	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t pr2100_sync_info;
+	struct pr2100_yuv_format yuv_format;
 	struct pr2100_reg_list reg_list;
 	struct pr2100_reg_list wdr_reg_list;
 };
@@ -99,6 +113,27 @@ static struct pr2100_mode supported_modes[] = {
 			.regs = mode_1920x1080_regs,
 		},
 	}
+};
+
+static struct pr2100_yuv_format yuv_format[] = {
+	{
+		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
+		.inf_mode = VI_MODE_MIPI_YUV422,
+		.mux_mode = VI_WORK_MODE_1MULTIPLEX,
+		.data_seq = VI_DATA_SEQ_YUYV,
+	},
+	{
+		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
+		.inf_mode = VI_MODE_MIPI_YUV422,
+		.mux_mode = VI_WORK_MODE_2MULTIPLEX,
+		.data_seq = VI_DATA_SEQ_YUYV,
+	},
+	{
+		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
+		.inf_mode = VI_MODE_MIPI_YUV422,
+		.mux_mode = VI_WORK_MODE_4MULTIPLEX,
+		.data_seq = VI_DATA_SEQ_YUYV,
+	},
 };
 
 struct pr2100 {
@@ -218,6 +253,8 @@ static int pr2100_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	struct pr2100 *pr2100 = to_pr2100(sd);
 	struct v4l2_mbus_framefmt *try_fmt =
 			v4l2_subdev_get_try_format(sd, fh->pad, 0);
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	int module_id = pr2100->module_index;
 
 	mutex_lock(&pr2100->mutex);
 
@@ -226,6 +263,26 @@ static int pr2100_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	try_fmt->height = pr2100->cur_mode->height;
 	try_fmt->code = MEDIA_BUS_FMT_VUY8_1X24;
 	try_fmt->field = V4L2_FIELD_NONE;
+
+
+	switch (pr2100_type_map[module_id]) {
+		case V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT:
+			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[0],
+				sizeof(struct pr2100_yuv_format));
+			break;
+		case V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT:
+		case V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT:
+			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[1],
+				sizeof(struct pr2100_yuv_format));
+			break;
+		case V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT:
+			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[2],
+				sizeof(struct pr2100_yuv_format));
+			break;
+		default:
+			dev_err(&client->dev, "unknown sensor type:%d\n", pr2100_type_map[module_id]);
+			break;
+	}
 
 	/* No crop or compose */
 	mutex_unlock(&pr2100->mutex);
@@ -303,6 +360,12 @@ static void update_pad_format(const struct pr2100_mode *mode, struct v4l2_subdev
 	fmt->format.height = mode->height;
 	fmt->format.code = MEDIA_BUS_FMT_VUY8_1X24;
 	fmt->format.field = V4L2_FIELD_NONE;
+
+	//set yuv format
+	fmt->format.reserved[YUV_SCENCE_MODE] = mode->yuv_format.yuv_scene_mode;
+	fmt->format.reserved[YUV_INF_MODE] = mode->yuv_format.inf_mode;
+	fmt->format.reserved[YUV_MUX_MODE] = mode->yuv_format.mux_mode;
+	fmt->format.reserved[YUV_DATA_SEQ] = mode->yuv_format.data_seq;
 }
 
 static int get_pad_format(struct v4l2_subdev *sd,
@@ -362,10 +425,10 @@ static void pr2100_standby(struct pr2100 *pr2100)
 	pr2100_write_reg(pr2100, 0x0100, REG_VALUE_08BIT, 0x00);
 }
 
-static void pr2100_restart(struct pr2100 *pr2100)
-{
-	pr2100_write_reg(pr2100, 0x0100, REG_VALUE_08BIT, 0x01);
-}
+//static void pr2100_restart(struct pr2100 *pr2100)
+//{
+//	pr2100_write_reg(pr2100, 0x0100, REG_VALUE_08BIT, 0x01);
+//}
 
 /* Start streaming */
 static int start_streaming(struct pr2100 *pr2100)
@@ -374,6 +437,7 @@ static int start_streaming(struct pr2100 *pr2100)
 	const sns_sync_info_t *sync_info;
 	int module_id = pr2100->module_index;
 	int ret = 0;
+	u32 val;
 
 	switch (pr2100_type_map[module_id]) {
 	case V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT:
@@ -388,6 +452,13 @@ static int start_streaming(struct pr2100 *pr2100)
 		dev_info(&client->dev, "2 channal out regs start to write\n");
 		ret = pr2100_write_regs(pr2100, mode_1920x1080_2ch_regs,
 					 ARRAY_SIZE(mode_1920x1080_2ch_regs));
+		break;
+	}
+	case V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT:
+	{
+		dev_info(&client->dev, "2 channal 2 lane out regs start to write\n");
+		ret = pr2100_write_regs(pr2100, mode_1920x1080_2ch_2l_regs,
+					 ARRAY_SIZE(mode_1920x1080_2ch_2l_regs));
 		break;
 	}
 	case V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT:
@@ -730,11 +801,15 @@ static void pr2100_confirm_sensor_type(int id)
 		}
 	} else if (force_slave[id] == 0 && id > 0) {
 		if (force_slave[id - 1] != 1)
-			for (i = id - 1; i <= id; i++)
-				pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT;
+			for (i = id - 1; i <= id; i++) {
+				if (pr2100_link_cif_menu[i][SNS_CFG_TYPE_DATA_LANE3] == -1) //if 2 lane
+					pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT;
+				else
+					pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT;
+			}
 	} else {
 		pr2100_type_map[id] = V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT;
-		pr2100_link_cif_menu[id][SNS_CFG_TYPE_WDR_MODE] = MIPI_WDR_MODE_NONE;
+		pr2100_link_cif_menu[id][SNS_CFG_TYPE_WDR_MODE] = MIPI_WDR_MODE_VC;
 	}
 }
 
@@ -878,12 +953,18 @@ static int pr2100_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id pr2100_of_match[] = {
-	{ .compatible = "cvitek,sensor0" },
-	{ .compatible = "cvitek,sensor1" },
-	{ .compatible = "cvitek,sensor2" },
-	{ .compatible = "cvitek,sensor3" },
-	{ .compatible = "cvitek,sensor4" },
-	{ .compatible = "cvitek,sensor5" },
+	{ .compatible = "v4l2,sensor0" },
+	{ .compatible = "v4l2,sensor1" },
+	{ .compatible = "v4l2,sensor2" },
+	{ .compatible = "v4l2,sensor3" },
+	{ .compatible = "v4l2,sensor4" },
+	{ .compatible = "v4l2,sensor5" },
+	{ .compatible = "v4l2,sensor6" },
+	{ .compatible = "v4l2,sensor7" },
+	{ .compatible = "v4l2,sensor8" },
+	{ .compatible = "v4l2,sensor9" },
+	{ .compatible = "v4l2,sensor10" },
+	{ .compatible = "v4l2,sensor11" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, pr2100_of_match);

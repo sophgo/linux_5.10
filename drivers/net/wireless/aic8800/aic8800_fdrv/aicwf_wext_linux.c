@@ -400,7 +400,7 @@ static char *aicwf_get_iwe_stream_mac_addr(struct rwnx_hw* rwnx_hw,
 	iwe->cmd = SIOCGIWAP;
 	iwe->u.ap_addr.sa_family = ARPHRD_ETHER;
 
-	if(scan_re->bss && scan_re->bss->bssid){
+	if(scan_re->bss && &scan_re->bss->bssid[0]){
 	memcpy(iwe->u.ap_addr.sa_data, scan_re->bss->bssid, ETH_ALEN);
 	}
 
@@ -925,7 +925,6 @@ static int aicwf_get_wap(struct net_device *dev,
 }
 
 
-extern uint8_t scanning;
 static int aicwf_set_scan(struct net_device *dev, struct iw_request_info *a,
 			   union iwreq_data *wrqu, char *extra)
 {
@@ -944,7 +943,7 @@ static int aicwf_set_scan(struct net_device *dev, struct iw_request_info *a,
 
 	}
 
-    if (rwnx_hw->wext_scan || scanning) {
+    if (rwnx_hw->wext_scan || rwnx_hw->scanning) {
         AICWFDBG(LOGINFO, "is scanning, abort\n");
 	ret =  rwnx_send_scanu_cancel_req(rwnx_hw, NULL);
 	if (ret)

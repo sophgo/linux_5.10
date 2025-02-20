@@ -90,7 +90,7 @@ struct sop_vi_dev {
 	struct sop_isp_rect		usr_crop;
 	struct sop_vdev_node		vnode[VI_MAX_CHN_NUM];
 	struct sop_pipe_attr		pipe[VI_MAX_CHN_NUM];
-	struct sop_vip_fmt		*fmt[ISP_PRERAW_MAX];
+	struct sop_vip_fmt		*fmt[VI_MAX_CHN_NUM];
 	u8				num_dev;
 	u32				vid_caps;
 	u64				usr_pic_phy_addr[ISP_RAW_PATH_MAX];
@@ -112,7 +112,7 @@ struct sop_vi_dev {
 	struct tasklet_struct		job_work;
 	struct list_head		qbuf_list[VI_MAX_CHN_NUM];
 	struct list_head		dqbuf_list[VI_MAX_CHN_NUM];
-	spinlock_t			qbuf_lock[ISP_PRERAW_MAX];
+	spinlock_t			qbuf_lock[VI_MAX_CHN_NUM];
 	u32				qbuf_num[VI_MAX_CHN_NUM];
 	u32				dqbuf_num[VI_MAX_CHN_NUM];
 	u32				splt_wdma_frm_num[ISP_SPLT_MAX][ISP_SPLT_CHN_MAX];
@@ -121,7 +121,7 @@ struct sop_vi_dev {
 	u32				pre_fe_frm_num[ISP_PRERAW_MAX][ISP_FE_CHN_MAX];
 	u32				pre_be_frm_num[ISP_PRERAW_MAX][ISP_BE_CHN_MAX];
 	bool				preraw_first_frm[ISP_PRERAW_MAX];
-	u32				postraw_frame_number[ISP_PRERAW_MAX];
+	u32				postraw_frame_number[VI_MAX_CHN_NUM];
 	u32				drop_frame_number[ISP_PRERAW_MAX];
 	u32				dump_frame_number[ISP_PRERAW_MAX];
 	u8				postraw_proc_num;
@@ -137,11 +137,11 @@ struct sop_vi_dev {
 	atomic_t			isp_streamon;
 	atomic_t			ol_sc_frm_done;
 	atomic_t			post_dq_flag[VI_MAX_CHN_NUM];
-	atomic_t			out_buf_empty[ISP_PRERAW_MAX];
-	atomic_t			is_streaming[ISP_PRERAW_MAX];
+	atomic_t			out_buf_empty[VI_MAX_CHN_NUM];
+	atomic_t			is_streaming[VI_MAX_CHN_NUM];
 	atomic_t			file_open_cnt[VI_MAX_CHN_NUM];
 	atomic_t			open_dev_cnt;
-	atomic_t			isp_dump_yuv[ISP_PRERAW_MAX];
+	atomic_t			isp_dump_yuv[VI_MAX_CHN_NUM];
 	atomic_t			ai_isp_type;
 	atomic_t			bnr_run_tpu[ISP_PRERAW_MAX];
 	atomic_t			ai_isp_int_flag[ISP_PRERAW_MAX];
@@ -152,7 +152,7 @@ struct sop_vi_dev {
 	struct mutex			stream_lock;
 	struct mutex			v4l2_vb_lock;
 	struct mutex			ai_isp_lock;
-	struct vi_thread_attr		vi_event_th[ISP_PRERAW_MAX];
+	struct vi_thread_attr		vi_event_th[VI_MAX_CHN_NUM];
 	struct vi_thread_attr		vi_th[E_VI_TH_MAX];
 };
 

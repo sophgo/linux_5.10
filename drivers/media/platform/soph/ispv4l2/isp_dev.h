@@ -32,7 +32,7 @@
 #define GRP_ID_CIF			BIT(1)
 #define GRP_ID_ISP			BIT(2)
 
-#define MAX_SENSOR_NUM 6
+#define MAX_SENSOR_NUM 12
 
 enum sop_isp_pad {
 	ISP_PAD_SINK,

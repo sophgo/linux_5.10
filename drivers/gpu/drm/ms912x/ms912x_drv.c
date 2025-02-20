@@ -26,7 +26,7 @@ static int g_hal_index = 0;
 
 DEFINE_DRM_GEM_FOPS(ms912x_driver_fops);
 
-static const struct drm_driver driver = {
+static struct drm_driver driver = {
 	.driver_features = DRIVER_ATOMIC | DRIVER_GEM | DRIVER_MODESET,
 	.lastclose = drm_fb_helper_lastclose,
 	/* GEM hooks */

@@ -248,7 +248,11 @@ static int __init early_reserved_size(char *args)
 	while (*args) {
 		args = next_arg_separator(args, &param, &size, ':');
 		reserved_mem_size_array[reserved_mem_size_entry_count].uname = param;
-		kstrtou64(size, 16, &u64_size);
+		//kstrtou64(size, 16, &u64_size);
+		if (kstrtou64(size, 16, &u64_size) != 0) {
+			return -EINVAL;
+		}
+
 		reserved_mem_size_array[reserved_mem_size_entry_count].size = u64_size;
 		reserved_mem_size_entry_count++;
 

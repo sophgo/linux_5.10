@@ -82,7 +82,7 @@ static const struct of_device_id cv1835_sysdma_remap_id_match[] = {
 #ifdef CONFIG_PM_SLEEP
 static int dma_remap_suspend_late(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
+	//struct platform_device *pdev = to_platform_device(dev);
 
 	return 0;
 }

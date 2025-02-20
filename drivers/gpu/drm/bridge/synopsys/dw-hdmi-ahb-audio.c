@@ -127,10 +127,10 @@ struct snd_dw_hdmi {
 	void *buf_src;
 	void *buf_dst;
 	dma_addr_t buf_addr;
-	unsigned buf_offset;
-	unsigned buf_period;
-	unsigned buf_size;
-	unsigned channels;
+	unsigned int buf_offset;
+	unsigned int buf_period;
+	unsigned int buf_size;
+	unsigned int channels;
 	u8 revision;
 	u8 iec_offset;
 	u8 cs[192][8];
@@ -193,7 +193,7 @@ static void dw_hdmi_reformat_s24(struct snd_dw_hdmi *dw,
 	u32 *end = dw->buf_src + offset + bytes;
 
 	do {
-		unsigned i;
+		unsigned int i;
 		u8 *cs;
 
 		cs = dw->cs[dw->iec_offset++];
@@ -217,7 +217,7 @@ static void dw_hdmi_create_cs(struct snd_dw_hdmi *dw,
 	struct snd_pcm_runtime *runtime)
 {
 	u8 cs[4];
-	unsigned ch, i, j;
+	unsigned int ch, i, j;
 
 	snd_pcm_create_iec958_consumer(runtime, cs, sizeof(cs));
 
@@ -228,7 +228,7 @@ static void dw_hdmi_create_cs(struct snd_dw_hdmi *dw,
 		cs[2] |= (ch + 1) << 4;
 
 		for (i = 0; i < ARRAY_SIZE(cs); i++) {
-			unsigned c = cs[i];
+			unsigned int c = cs[i];
 
 			for (j = 0; j < 8; j++, c >>= 1)
 				dw->cs[i * 8 + j][ch] = (c & 1) << 2;
@@ -240,8 +240,8 @@ static void dw_hdmi_create_cs(struct snd_dw_hdmi *dw,
 static void dw_hdmi_start_dma(struct snd_dw_hdmi *dw)
 {
 	void __iomem *base = dw->data.base;
-	unsigned offset = dw->buf_offset;
-	unsigned period = dw->buf_period;
+	unsigned int offset = dw->buf_offset;
+	unsigned int period = dw->buf_period;
 	u32 start, stop, high_bit;
 
 	dw->reformat(dw, offset, period);
@@ -281,7 +281,7 @@ static irqreturn_t snd_dw_hdmi_irq(int irq, void *data)
 {
 	struct snd_dw_hdmi *dw = data;
 	struct snd_pcm_substream *substream;
-	unsigned stat;
+	unsigned int stat;
 
 	stat = _reg_read(dw->data.base + HDMI_IH_AHBDMAAUD_STAT0);
 	if (!stat)
@@ -308,7 +308,7 @@ static const struct snd_pcm_hardware dw_hdmi_hw = {
 		SNDRV_PCM_INFO_MMAP |
 		SNDRV_PCM_INFO_MMAP_VALID,
 	.formats = SNDRV_PCM_FMTBIT_IEC958_SUBFRAME_LE |
-		   SNDRV_PCM_FMTBIT_S24_LE ,
+		   SNDRV_PCM_FMTBIT_S24_LE,
 	.rates = SNDRV_PCM_RATE_16000 |
 		 SNDRV_PCM_RATE_32000 |
 		 SNDRV_PCM_RATE_44100 |
@@ -536,8 +536,9 @@ static int snd_dw_hdmi_probe(struct platform_device *pdev)
 	struct snd_dw_hdmi *dw;
 	struct snd_card *card;
 	struct snd_pcm *pcm;
-	unsigned revision;
+	unsigned int revision;
 	int ret;
+
 	_reg_write(HDMI_IH_MUTE_AHBDMAAUD_STAT0_ALL,
 		       data->base + HDMI_IH_MUTE_AHBDMAAUD_STAT0);
 	revision = _reg_read(data->base + HDMI_REVISION_ID);
@@ -636,7 +637,7 @@ static int snd_dw_hdmi_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(snd_dw_hdmi_pm, snd_dw_hdmi_suspend,
 			 snd_dw_hdmi_resume);
-#define PM_OPS &snd_dw_hdmi_pm
+#define PM_OPS (&snd_dw_hdmi_pm)
 #else
 #define PM_OPS NULL
 #endif

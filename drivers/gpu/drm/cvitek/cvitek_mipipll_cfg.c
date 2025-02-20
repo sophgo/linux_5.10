@@ -31,7 +31,7 @@ static void _cal_pll_reg(u8 dsi_id, u32 clkkHz, u32 VCORx10000, u32 *reg_txpll, 
 void mipi_dphy_set_pll(u8 dsi_id, u32 clkkHz, u8 lane, u8 bits)
 {
 	u32 VCORx10000 = clkkHz * bits * 10 / lane;
-	u32 reg_txpll,reg_set;
+	u32 reg_txpll, reg_set;
 
 	_cal_pll_reg(dsi_id, clkkHz, VCORx10000, &reg_txpll, &reg_set, 1800000);
 	_reg_write_mask(REG_DSI_PHY_TXPLL_SETUP(dsi_id), 0x30007ff, reg_txpll);
@@ -46,7 +46,7 @@ void mipi_dphy_set_pll(u8 dsi_id, u32 clkkHz, u8 lane, u8 bits)
 void dphy_lvds_set_pll(u8 lvds_id, u32 clkkHz, u8 link)
 {
 	u32 VCORx10000 = clkkHz * 70 / link;
-	u32 reg_txpll,reg_set;
+	u32 reg_txpll, reg_set;
 
 	_cal_pll_reg(lvds_id, clkkHz, VCORx10000, &reg_txpll, &reg_set, 1800000);
 	_reg_write_mask(REG_DSI_PHY_TXPLL_SETUP(lvds_id), 0x30007ff, reg_txpll);

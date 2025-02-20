@@ -16,22 +16,33 @@
 
 /* USB Device ID */
 #define USB_VENDOR_ID_AIC                0xA69C
+#define USB_VENDOR_ID_AIC_V2             0x368B
 
 #ifndef CONFIG_USB_BT
-#define USB_PRODUCT_ID_AIC8800               0x8800
+#define USB_PRODUCT_ID_AIC8800          0x8800
+#define USB_PRODUCT_ID_AIC8801          0x8801
+#define USB_PRODUCT_ID_AIC8800DC        0x88dc
+#define USB_PRODUCT_ID_AIC8800DW        0x88dd
+#define USB_PRODUCT_ID_AIC8800D81       0x8d81
+#define USB_PRODUCT_ID_AIC8800D81X2     0x8d91
+#define USB_PRODUCT_ID_AIC8800D89X2     0x8d99
 #else
-#define USB_PRODUCT_ID_AIC8801				0x8801
-#define USB_PRODUCT_ID_AIC8800DC			0x88dc
-#define USB_PRODUCT_ID_AIC8800DW            0x88dd
-#define USB_PRODUCT_ID_AIC8800D81           0x8d81
-
+#define USB_PRODUCT_ID_AIC8801          0x8801
+#define USB_PRODUCT_ID_AIC8800DC        0x88dc
+#define USB_PRODUCT_ID_AIC8800DW        0x88dd
+#define USB_PRODUCT_ID_AIC8800D81       0x8d81
+#define USB_PRODUCT_ID_AIC8800D41       0x8d41
+#define USB_PRODUCT_ID_AIC8800D81X2     0x8d91
+#define USB_PRODUCT_ID_AIC8800D89X2     0x8d99
 #endif
 
 enum AICWF_IC{
 	PRODUCT_ID_AIC8801	=	0,
 	PRODUCT_ID_AIC8800DC,
 	PRODUCT_ID_AIC8800DW,
-	PRODUCT_ID_AIC8800D81
+	PRODUCT_ID_AIC8800D81,
+	PRODUCT_ID_AIC8800D81X2,
+	PRODUCT_ID_AIC8800D89X2
 };
 
 
@@ -47,8 +58,14 @@ enum AICWF_IC{
 #endif
 #define AICWF_USB_TX_LOW_WATER         (AICWF_USB_TX_URBS/4)//25%
 #define AICWF_USB_TX_HIGH_WATER        (AICWF_USB_TX_LOW_WATER*3)//75%
+#ifdef CONFIG_PLATFORM_HI
 #define AICWF_USB_AGGR_MAX_PKT_SIZE     (2048*1)
+#else
+#define AICWF_USB_AGGR_MAX_PKT_SIZE     (2048*10)
+#endif
+#define AICWF_USB_MSG_MAX_PKT_SIZE      (2048)
 #define AICWF_USB_MAX_PKT_SIZE          (2048)
+#define AICWF_USB_MAX_AMSDU_PKT_SIZE    (2048*6)
 #define AICWF_USB_FC_PERSTA_HIGH_WATER		64
 #define AICWF_USB_FC_PERSTA_LOW_WATER		16
 
@@ -94,6 +111,8 @@ struct aic_usb_dev {
     struct aicwf_rx_priv* rx_priv;
     enum aicwf_usb_state state;
     struct rwnx_cmd_mgr cmd_mgr;
+
+	struct notifier_block reboot_notifier;
 
 #ifdef CONFIG_USB_TX_AGGR
     struct aicwf_tx_priv *tx_priv;

@@ -100,6 +100,11 @@ config BT_HCIUART
 	  Say Y here to compile support for Bluetooth UART devices into the
 	  kernel or say M to compile it as module (hci_uart).
 
+config AIC8800_BTUSB_SUPPORT
+	tristate "AIC HCI USB driver"
+	help
+	  AIC Bluetooth HCI USB driver
+
 config BT_HCIUART_SERDEV
 	bool
 	depends on SERIAL_DEV_BUS && BT_HCIUART

@@ -393,7 +393,7 @@
 #define HDMI_AUD_CTS2                           0x3204
 #define HDMI_AUD_CTS3                           0x3205
 #define HDMI_AUD_INPUTCLKFS                     0x3206
-#define HDMI_AUD_SPDIFINT			0x3302
+#define HDMI_AUD_SPDIFINT                       0x3302
 #define HDMI_AUD_CONF0_HBR                      0x3400
 #define HDMI_AUD_HBR_STATUS                     0x3401
 #define HDMI_AUD_HBR_INT                        0x3402
@@ -440,6 +440,7 @@
 #define HDMI_AHB_DMA_BUFFINT                    0x3618
 #define HDMI_AHB_DMA_BUFFMASK                   0x3619
 #define HDMI_AHB_DMA_BUFFPOL                    0x361a
+#define HDMI_AHB_DMA_STPADDR_SET1               0x3624
 
 /* Main Controller Registers */
 #define HDMI_MC_SFRDIV                          0x4000
@@ -508,6 +509,9 @@
 #define HDMI_A_INTSETUP                         0x5019
 #define HDMI_A_PRESETUP                         0x501A
 #define HDMI_A_SRM_BASE                         0x5020
+#define HDMI_A_HDCP_REVOC_LIST                  0x52BB
+#define HDMI_A_HDCP_REG_BKSV0                   0x7800
+#define HDMI_A_HDCP_REG_DPK6                    0x7818
 
 /* I2C Master Registers (E-DDC) */
 #define HDMI_I2CM_SLAVE                         0x7E00
@@ -529,6 +533,8 @@
 #define HDMI_I2CM_FS_SCL_HCNT_0_ADDR            0x7E10
 #define HDMI_I2CM_FS_SCL_LCNT_1_ADDR            0x7E11
 #define HDMI_I2CM_FS_SCL_LCNT_0_ADDR            0x7E12
+#define HDMI_I2CM_SCDC_UPDATE1                  0x7E31
+
 
 enum {
 /* PRODUCT_ID0 field values */
@@ -1179,22 +1185,6 @@ enum {
 #define LT_3_40GBPS LT_3_40GBPS_TXTERM, LT_3_40GBPS_VLEVCTRL, LT_3_40GBPS_CKSYMTXCTRL
 #define GT_3_40GBPS GT_3_40GBPS_TXTERM, GT_3_40GBPS_VLEVCTRL, GT_3_40GBPS_CKSYMTXCTRL
 
-#define SE9_LT_1_65GBPS_TXTERM 		0x0007
-#define SE9_LT_1_65GBPS_VLEVCTRL 	0x0120
-#define SE9_LT_1_65GBPS_CKSYMTXCTRL 0x8d88
-
-#define SE9_LT_3_40GBPS_TXTERM 		0x0000
-#define SE9_LT_3_40GBPS_VLEVCTRL 	0x0120
-#define SE9_LT_3_40GBPS_CKSYMTXCTRL 0x83F8
-
-#define SE9_GT_3_40GBPS_TXTERM 		0x0000
-#define SE9_GT_3_40GBPS_VLEVCTRL 	0x0080
-#define SE9_GT_3_40GBPS_CKSYMTXCTRL 0x8FF4
-
-#define SE9_LT_1_65GBPS SE9_LT_1_65GBPS_TXTERM, SE9_LT_1_65GBPS_VLEVCTRL, SE9_LT_1_65GBPS_CKSYMTXCTRL
-#define SE9_LT_3_40GBPS SE9_LT_3_40GBPS_TXTERM, SE9_LT_3_40GBPS_VLEVCTRL, SE9_LT_3_40GBPS_CKSYMTXCTRL
-#define SE9_GT_3_40GBPS SE9_GT_3_40GBPS_TXTERM, SE9_GT_3_40GBPS_VLEVCTRL, SE9_GT_3_40GBPS_CKSYMTXCTRL
-
-static void _reg_write_mask(void __iomem *addr, u32 mask, u32 data);
+void _reg_write_mask(void __iomem *addr, u32 mask, u32 data);
 
 #endif /* __DW_HDMI_H__ */

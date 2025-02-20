@@ -2,7 +2,7 @@
 #include <linux/sns_v4l2_uapi.h>
 
 static int sns_number;
-struct combo_dev_attr_s *g_attr[MAX_LINK_NUM];
+struct combo_dev_attr_s *g_attr[MAX_CHN_NUM];
 
 static struct v4l2_subdev *get_remote_sensor(struct v4l2_subdev *sd, int pad_index)
 {
@@ -209,8 +209,8 @@ static int cvicif_cif_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh
 	return 0;
 }
 
-struct combo_dev_attr_s ex_attr[MAX_LINK_NUM] = {
-	[0 ... MAX_LINK_NUM - 1] = {
+struct combo_dev_attr_s ex_attr[MAX_CHN_NUM] = {
+	[0 ... MAX_CHN_NUM - 1] = {
 		.input_mode = INPUT_MODE_MIPI,
 		.mac_clk = RX_MAC_CLK_400M,
 		.mipi_attr = {
@@ -296,9 +296,12 @@ static int cif_s_stream(struct v4l2_subdev *sd, int enable)
 				} else {
 					return -EINVAL;
 				}
-			} else
+			} else {
 				cif_reset_mipi(dev, i);
+			}
+		}
 
+		for (i = 0; i < sns_number; i++) {
 			sensor = get_remote_sensor(sd, CIF_PAD_SNS0 + i);
 			if (!sensor) {
 				CIF_PR(CIF_ERROR, "sensor subdev is NULL!\n");
@@ -385,12 +388,16 @@ static int cif_g_mbus_config(struct v4l2_subdev *sd, unsigned int pad_id,
 
 static int get_sensor_index(struct v4l2_subdev *sd)
 {
-	int index;
-	char name[] = "cam0";
+	int index, ret;
+	char name[2];
+	memcpy(name, sd->name + 3, 2);
 
-	memcpy(name, sd->name, sizeof(name));
+	if (name[1] < '0' || name[1] > '9')
+		name[1] = 0;
 
-	index = name[3] - '0';
+	CIF_PR(CIF_DEBUG, "index = %s", name);
+
+	ret = kstrtouint(name, 10, &index); //cmaX
 
 	return index;
 }

@@ -352,7 +352,7 @@ static long dac_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case ACODEC_SET_OUTPUT_VOL:
 		pr_debug("dac: ACODEC_SET_OUTPUT_VOL with val=%d\n", val);
 
-		if (val < 0 | val > 32)
+		if (val < 0 || val > 32)
 			pr_err("Only support range 0 [mute] ~ 32 [maximum]\n");
 		else {
 			temp = dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE1)

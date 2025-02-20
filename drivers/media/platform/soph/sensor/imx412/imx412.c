@@ -360,11 +360,11 @@ static void imx412_standby(struct imx412 *imx412)
 	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x01);
 }
 
-static void imx412_restart(struct imx412 *imx412)
-{
-	imx412_write_reg(imx412, 0x3000, REG_VALUE_08BIT, 0x00);
-	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x00);
-}
+//static void imx412_restart(struct imx412 *imx412)
+//{
+//	imx412_write_reg(imx412, 0x3000, REG_VALUE_08BIT, 0x00);
+//	imx412_write_reg(imx412, 0x3002, REG_VALUE_08BIT, 0x00);
+//}
 
 /* Start streaming */
 static int start_streaming(struct imx412 *imx412)

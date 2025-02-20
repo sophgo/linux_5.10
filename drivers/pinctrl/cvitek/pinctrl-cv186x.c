@@ -117,7 +117,7 @@ static const struct of_device_id cvi_pinctrl_of_match[] = {
 };
 
 static const struct dev_pm_ops cvitek_pinctrl_pm_ops = {
-	SET_LATE_SYSTEM_SLEEP_PM_OPS(cvitek_pinctrl_suspend,
+	SET_NOIRQ_SYSTEM_SLEEP_PM_OPS(cvitek_pinctrl_suspend,
 				cvitek_pinctrl_resume)
 };
 

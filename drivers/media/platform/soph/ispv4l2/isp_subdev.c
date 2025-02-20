@@ -31,14 +31,16 @@ static struct v4l2_subdev *get_remote_sd(struct v4l2_subdev *sd)
 
 static int get_sensor_index(struct v4l2_subdev *sd)
 {
-	int index;
-	char name[] = "cam0";
+	int index, ret;
+	char name[2];
+	memcpy(name, sd->name + 3, 2);
 
-	memcpy(name, sd->name, sizeof(name));
+	if (name[1] < '0' || name[1] > '9')
+		name[1] = 0;
 
-	index = name[3] - '0';
+	vi_pr(VI_INFO, "index = %s", name);
 
-	vi_pr(VI_INFO, "%s index:%d\n", sd->name, index);
+	ret = kstrtouint(name, 10, &index); //cmaX
 
 	return index;
 }

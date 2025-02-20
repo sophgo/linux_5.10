@@ -153,10 +153,12 @@ static int c_show(struct seq_file *m, void *v)
 		 */
 		seq_printf(m, "processor\t: %d\n", i);
 		if (compat) {
-			if (opt_cpu == 0)
+			if (opt_cpu == 0x0 || opt_cpu == 0x3f)
 				seq_printf(m, "model name\t: %s\n", "bm1688");
-			else
+			else if (opt_cpu == 0xc1 || opt_cpu == 0xf9)
 				seq_printf(m, "model name\t: %s\n", "cv186ah");
+			else
+				seq_printf(m, "model name\t: %s\n", "null");
 		}
 
 		seq_printf(m, "BogoMIPS\t: %lu.%02lu\n",

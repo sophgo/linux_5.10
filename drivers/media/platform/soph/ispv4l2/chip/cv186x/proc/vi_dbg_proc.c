@@ -316,8 +316,7 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 	u32 frmCnt1[ISP_PRERAW_MAX], frmCnt2[ISP_PRERAW_MAX];
 	u64 t2 = 0, t1 = 0;
 	u8 i;
-
-	for (i = ISP_PRERAW0; i < ISP_PRERAW_MAX; i++) {
+	for (i = 0; i < VI_MAX_CHN_NUM; i++) {
 		if (!vdev->ctx.isp_pipe_enable[i])
 			continue;
 
@@ -330,13 +329,12 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 		else //RGB sensor
 			frmCnt1[raw_num] = vdev->postraw_frame_number[raw_num];
 	}
-
 	ktime_get_real_ts64(&ts1);
 	t1 = ts1.tv_sec * 1000000 + ts1.tv_nsec / 1000;
 
 	msleep(940);
 	do {
-		for (i = ISP_PRERAW0; i < ISP_PRERAW_MAX; i++) {
+		for (i = 0; i < VI_MAX_CHN_NUM; i++) {
 			if (!vdev->ctx.isp_pipe_enable[i])
 				continue;
 			raw_num = ctx->isp_bind_info[i].bind_fe_num;
@@ -351,9 +349,12 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 
 		ktime_get_real_ts64(&ts2);
 		t2 = ts2.tv_sec * 1000000 + ts2.tv_nsec / 1000;
+
 	} while ((t2 - t1) < 1000000);
 
-	for (i = ISP_PRERAW0; i < ISP_PRERAW_MAX; i++) {
+
+
+	for (i = 0; i < VI_MAX_CHN_NUM; i++) {
 		if (!ctx->isp_pipe_enable[i])
 			continue;
 
@@ -399,6 +400,7 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 		} else {
 			seq_printf(m, "[VI ISP_FE_%d]\n", raw_num);
 		}
+
 		seq_printf(m, "VIOutImgWidth\t\t:%4d\n", ctx->isp_pipe_cfg[raw_num].post_img_w);
 		seq_printf(m, "VIOutImgHeight\t\t:%4d\n", ctx->isp_pipe_cfg[raw_num].post_img_h);
 		seq_printf(m, "VIInImgWidth\t\t:%4d\n", ctx->isp_pipe_cfg[raw_num].csibdg_width);
@@ -441,14 +443,13 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 			seq_printf(m, "VIPreBECh1Cnt\t\t:%4d\n", vdev->pre_be_frm_num[raw_num][ISP_BE_CH1]);
 
 		seq_printf(m, "VIPostCnt\t\t:%4d\n", vdev->postraw_frame_number[i]);
-		seq_printf(m, "VIDropCnt\t\t:%4d\n", vdev->drop_frame_number[i]);
-		seq_printf(m, "VIDumpCnt\t\t:%4d\n", vdev->dump_frame_number[i]);
+		seq_printf(m, "VIDropCnt\t\t:%4d\n", vdev->drop_frame_number[raw_num]);
+		seq_printf(m, "VIDumpCnt\t\t:%4d\n", vdev->dump_frame_number[raw_num]);
 
 		seq_printf(m, "[VI ISP_FE_%d Csi_Dbg_Info]\n", raw_num);
 		seq_printf(m, "VICsiIntStatus0\t\t:0x%x\n", ctx->isp_pipe_cfg[raw_num].dg_info.bdg_int_sts_0);
 		seq_printf(m, "VICsiIntStatus1\t\t:0x%x\n", ctx->isp_pipe_cfg[raw_num].dg_info.bdg_int_sts_1);
 		seq_printf(m, "VICsiOverFlowCnt\t:%4d\n", ctx->isp_pipe_cfg[raw_num].dg_info.bdg_fifo_of_cnt);
-
 		for (chn_num = ISP_FE_CH0; chn_num < ISP_FE_CHN_MAX; chn_num++) {
 			if (chn_num == ISP_FE_CH1) {
 				if (!ctx->isp_pipe_cfg[raw_num].is_hdr_on &&
@@ -498,17 +499,8 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 		}
 		if (ctx->isp_pipe_cfg[raw_num].is_yuv_sensor &&
 		    ctx->isp_pipe_cfg[raw_num].yuv_scene_mode == ISP_YUV_SCENE_BYPASS) {
-			seq_printf(m, "VIYuvCh0OutBufEmpty\t:%4d\n",
-				sop_isp_rdy_buf_empty(vdev, vdev->ctx.raw_chnstr_num[raw_num] + ISP_FE_CH0));
-			if (ctx->isp_pipe_cfg[raw_num].mux_mode > VI_WORK_MODE_1MULTIPLEX)
-				seq_printf(m, "VIYuvCh1OutBufEmpty\t:%4d\n",
-					sop_isp_rdy_buf_empty(vdev, vdev->ctx.raw_chnstr_num[raw_num] + ISP_FE_CH1));
-			if (ctx->isp_pipe_cfg[raw_num].mux_mode > VI_WORK_MODE_2MULTIPLEX)
-				seq_printf(m, "VIYuvCh2OutBufEmpty\t:%4d\n",
-					sop_isp_rdy_buf_empty(vdev, vdev->ctx.raw_chnstr_num[raw_num] + ISP_FE_CH2));
-			if (ctx->isp_pipe_cfg[raw_num].mux_mode > VI_WORK_MODE_3MULTIPLEX)
-				seq_printf(m, "VIYuvCh3OutBufEmpty\t:%4d\n",
-					sop_isp_rdy_buf_empty(vdev, vdev->ctx.raw_chnstr_num[raw_num] + ISP_FE_CH3));
+			seq_printf(m, "VIYuvOutBufEmpty\t:%4d\n",
+				sop_isp_rdy_buf_empty(vdev, vdev->ctx.raw_chnstr_num[i]));
 		} else {
 			if (_is_fe_be_online(ctx) && !ctx->is_slice_buf_on) { // fe->be->dram->post
 				seq_printf(m, "VIPreBECh0OutBufEmpty\t:%4d\n",
@@ -534,7 +526,7 @@ static inline void _vi_dbg_proc_show(struct seq_file *m, void *v)
 				}
 			}
 			if (ctx->isp_pipe_cfg[raw_num].is_offline_scaler) {
-				seq_printf(m, "VIPostOutBufEmpty\t:%4d\n", sop_isp_rdy_buf_empty(vdev, raw_num));
+				seq_printf(m, "VIPostOutBufEmpty\t:%4d\n", sop_isp_rdy_buf_empty(vdev, i));
 			}
 		}
 	}

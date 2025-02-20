@@ -20,8 +20,6 @@
 #include <linux/uaccess.h>
 #include "../codecs/cv181xadac.h"
 #include <linux/version.h>
-#include "cv1835_i2s_subsys.h"
-
 
 bool proc_ao_not_allocted = true;
 
@@ -121,99 +119,64 @@ static struct snd_soc_card cv181x_dac = {
 
 static int cv181x_dac_proc_show(struct seq_file *m, void *v)
 {
-
-	void __iomem *i2s_reg;
-	void __iomem *dac_reg;
-	void __iomem *clk_pll_en;
+#if 0
+	void __iomem *i2s3;
+	void __iomem *dac;
+	void __iomem *audio_pll;
+	void __iomem *sdma_pll;
 	u32 audio_freq;
 	u32 val1, val2, val3;
 
-	i2s_reg = ioremap(0x29140000, 0x100);
-	dac_reg = ioremap(0x2810a000, 0x100);
-	clk_pll_en = ioremap(0x28102174, 0x10);
-	audio_freq = cv1835_get_mclk(3);
+	i2s3 = ioremap(0x04130000, 0x100);
+	dac = ioremap(0x0300A000, 0x100);
+	audio_pll = ioremap(0x3002854, 0x10);
+	sdma_pll = ioremap(0x3002004, 0x10);
+	if (readl(audio_pll) == 0x179EDCFA)//406.4256MHz
+		audio_freq = 22579200;
+	else if (readl(audio_pll) == 0x249f0000) {
+		audio_freq = 16384000;
+	} else
+		audio_freq = 24576000;
 
-	seq_puts(m, "\n----------------- DAC0 INFO ----------------\n");
 	seq_puts(m, "\n------------- CVI AO ATTRIBUTE -------------\n");
-	seq_puts(m, "AoDev    Workmode    SampleRate    BitWidth\n");
-	val1 = (readl(i2s_reg) >> 1) & 0x1;
-	val2 = audio_freq / (readl(i2s_reg + 0x64) & 0x0000ffff) / ((readl(i2s_reg + 0x64) & 0xffff0000) >> 16) /
-					(((readl(i2s_reg + 0x4) & 0xf0000) >> 16) + 1) / 2;
-	val3 = ((readl(i2s_reg + 0x10) >> 1) & 0x3) * 16;
-	seq_printf(m, "  %d       %s        %6d        %2d\n", 0, val1 == 0 ? "slave" : "master", val2, val3);
-	seq_puts(m, "\n");
-	seq_puts(m, "-------------  CVI AO STATUS   -------------\n");
-	val1 = (readl(i2s_reg + 0x18));
-	seq_printf(m, "I2S3 is %s\n", val1 == 1 ? "on" : "off");
-	seq_puts(m, "\n");
-
-	val1 = (readl(clk_pll_en) & 0x00080000) >> 19;
-	seq_printf(m, "SDMA clk is %s,freq = %d\n", val1 == 1 ? "on" : "off", audio_freq);
-
-	val1 = (readl(dac_reg + AUDIO_PHY_TXDAC_CTRL0)
-		& (AUDIO_PHY_REG_TXDAC_EN_MASK | AUDIO_PHY_REG_I2S_RX_EN_MASK));
-	seq_printf(m, "DAC is %s (%d)\n", val1 == 3 ? "on" : "off", val1);
-
-	val2 = (readl(dac_reg + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_MASK) >> 16;
-	val3 = (readl(dac_reg + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_MASK) >> 17;
-	seq_puts(m, "L-Mute   R-Mute\n");
-	seq_printf(m, "  %s       %s\n", val2 == 1 ? "yes" : "no", val3 == 1 ? "yes" : "no");
-	seq_puts(m, "\n");
-
-	val2 = ((readl(dac_reg + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_0_MASK) + 1)
-					/ CV181X_DAC_VOL_STEP;
-	val3 = (((readl(dac_reg + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_1_MASK) >> 16) + 1)
-					/ CV181X_DAC_VOL_STEP;
-	seq_puts(m, "L-Vol           R-Vol\n");
-	seq_printf(m, "  %d             %d\n", val2, val3);
-	seq_puts(m, "\n");
-
-	iounmap(i2s_reg);
-	iounmap(dac_reg);
-
-	i2s_reg = ioremap(0x29160000, 0x100);
-	dac_reg = ioremap(0x28109000, 0x100);
-	audio_freq = cv1835_get_mclk(5);
-
-	seq_puts(m, "\n----------------- DAC1 INFO ----------------\n");
-	seq_puts(m, "\n------------- CVI AO ATTRIBUTE -------------\n");
-	seq_puts(m, "AoDev    Workmode    SampleRate    BitWidth\n");
-	val1 = (readl(i2s_reg) >> 1) & 0x1;
-	val2 = audio_freq / (readl(i2s_reg + 0x64) & 0x0000ffff) / ((readl(i2s_reg + 0x64) & 0xffff0000) >> 16) /
-					(((readl(i2s_reg + 0x4) & 0xf0000) >> 16) + 1) / 2;
-	val3 = ((readl(i2s_reg + 0x10) >> 1) & 0x3) * 16;
+	seq_puts(m, "AiDev    Workmode    SampleRate    BitWidth\n");
+	val1 = (readl(i2s3) >> 1) & 0x1;
+	val2 = audio_freq / ((readl(i2s3 + 0x64) & 0x0000ffff) *
+	       (0x1 << (readl(dac + AUDIO_PHY_TXDAC_CTRL1) & 0x3)) * 64 * 4);
+	val3 = ((readl(i2s3 + 0x10) >> 1) & 0x3) * 16;
 	seq_printf(m, "  %d       %s        %6d        %2d\n", 1, val1 == 0 ? "slave" : "master", val2, val3);
 	seq_puts(m, "\n");
 	seq_puts(m, "-------------  CVI AO STATUS   -------------\n");
-	val1 = (readl(i2s_reg + 0x18));
-	seq_printf(m, "I2S5 is %s\n", val1 == 1 ? "on" : "off");
+	val1 = (readl(i2s3 + 0x18));
+	seq_printf(m, "I2S3 is %s\n", val1 == 1 ? "on" : "off");
 	seq_puts(m, "\n");
 
-	val1 = (readl(clk_pll_en) & 0x00200000) >> 21;
-	seq_printf(m, "SDMA clk is %s,freq = %d\n", val1 == 1 ? "on" : "off", audio_freq);
+	val1 = (readl(sdma_pll) & 0x00000002) >> 1;
+	seq_printf(m, "SDMA clk is %s\n", val1 == 1 ? "on" : "off");
 
-	val1 = (readl(dac_reg + AUDIO_PHY_TXDAC_CTRL0)
+	val1 = (readl(dac + AUDIO_PHY_TXDAC_CTRL0)
 		& (AUDIO_PHY_REG_TXDAC_EN_MASK | AUDIO_PHY_REG_I2S_RX_EN_MASK));
 	seq_printf(m, "DAC is %s (%d)\n", val1 == 3 ? "on" : "off", val1);
 
-	val2 = (readl(dac_reg + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_MASK) >> 16;
-	val3 = (readl(dac_reg + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_MASK) >> 17;
+	val2 = (readl(dac + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_MASK) >> 16;
+	val3 = (readl(dac + AUDIO_PHY_TXDAC_ANA2) & AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_MASK) >> 17;
 	seq_puts(m, "L-Mute   R-Mute\n");
 	seq_printf(m, "  %s       %s\n", val2 == 1 ? "yes" : "no", val3 == 1 ? "yes" : "no");
 	seq_puts(m, "\n");
 
-	val2 = ((readl(dac_reg + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_0_MASK) + 1)
+	val2 = ((readl(dac + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_0_MASK) + 1)
 					/ CV181X_DAC_VOL_STEP;
-	val3 = (((readl(dac_reg + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_1_MASK) >> 16) + 1)
+	val3 = (((readl(dac + AUDIO_PHY_TXDAC_AFE1) & AUDIO_PHY_REG_TXDAC_GAIN_UB_1_MASK) >> 16) + 1)
 					/ CV181X_DAC_VOL_STEP;
 	seq_puts(m, "L-Vol           R-Vol\n");
 	seq_printf(m, "  %d             %d\n", val2, val3);
 	seq_puts(m, "\n");
 
-	iounmap(i2s_reg);
-	iounmap(dac_reg);
-	iounmap(clk_pll_en);
-
+	iounmap(i2s3);
+	iounmap(dac);
+	iounmap(audio_pll);
+	iounmap(sdma_pll);
+#endif
 	return 0;
 }
 

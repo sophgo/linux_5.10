@@ -48,6 +48,7 @@ int sophgo_phy_init(void)
 	uint32_t reg;
 	int timeout = 100;
 	void __iomem *axi_base = NULL;
+	void __iomem *top_base = NULL;
 
 	axi_base = ioremap(SSPERI_AXI_BASE, 0x44);
 	if (axi_base == NULL) {
@@ -59,7 +60,6 @@ int sophgo_phy_init(void)
 	writel(reg, axi_base + 0x40);
 	iounmap(axi_base);
 
-	void __iomem *top_base = NULL;
 
 	top_base = ioremap(SSPERI_TOP_REG_BASE, 0x4f0);
 	if (top_base == NULL) {

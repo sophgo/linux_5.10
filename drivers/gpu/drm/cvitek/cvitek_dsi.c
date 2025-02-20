@@ -41,8 +41,9 @@ static void cvitek_dsi_encoder_mode_set(struct drm_encoder *encoder,
 				      struct drm_display_mode *mode,
 				 struct drm_display_mode *adj_mode)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_encoder_mode_set.\n");
 	struct cvitek_dsi *dsi = encoder_to_dsi(encoder);
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi encoder mode set. ----\n");
 
 	drm_display_mode_to_videomode(adj_mode, &dsi->ctx.vm);
 }
@@ -61,12 +62,11 @@ static int mipi_check_mode(struct cvitek_dsi *dsi)
 			vid_mode = NON_BURST_MODE_SYNC_EVENTS;
 	}
 
-	if(vid_mode != BURST_MODE) {
+	if (vid_mode != BURST_MODE)
 		return -EINVAL;
-	}
 
 	ctx->bits = mipi_dsi_pixel_format_to_bpp(dsi->slave->format);
-	if(ctx->bits < 0)
+	if (ctx->bits < 0)
 		return -EINVAL;
 
 	return 0;
@@ -126,11 +126,11 @@ static int mipi_dphy_lane_init(struct cvitek_dsi *dsi)
 			}
 		} else {
 			ret = mipi_dphy_set_lane(ctx->dsi_id, i, ctx->lanes_map[i], ctx->lanes_swap[i]);
-			if (ret) {
+			if (!ret) {
+				lanes_en[ctx->lanes_map[i]] = true;
+			} else {
 				drm_err(dsi->drm, "mipi_dphy_set_lane [%d] fail.\n", i);
 				return ret;
-			} else {
-				lanes_en[ctx->lanes_map[i]] = true;
 			}
 		}
 	}
@@ -266,7 +266,7 @@ static int mipi_dsi_init(struct cvitek_dsi *dsi)
 	}
 
 	mipi_dphy_set_pll(ctx->dsi_id, ctx->vm.pixelclock / 1000, ctx->data_lanes_num, ctx->bits);
-	DRM_DEBUG_DRIVER("pixelclock(%d), data_lanes(%d), bits(%d)\n", ctx->vm.pixelclock / 1000, ctx->data_lanes_num, ctx->bits);
+	DRM_DEBUG_DRIVER("pixelclock(%lu), data_lanes(%u), bits(%d)\n", ctx->vm.pixelclock / 1000, ctx->data_lanes_num, ctx->bits);
 
 	ret = mipi_dphy_config(ctx->dsi_id, ctx->data_lanes_num, ctx->bits, dsi_get_format(dsi->slave->format), ctx->vm.hactive);
 	if (ret) {
@@ -417,23 +417,21 @@ static int dsi_short_packet(u8 dsi_id, const struct mipi_dsi_msg *msg)
 	const u8 *data = msg->tx_buf;
 
 	val = msg->type;
-	if (msg->tx_len == 2) {
+	if (msg->tx_len == 2)
 		val |= (data[0] << 8) | (data[1] << 16);
-	} else {
+	else
 		val |= data[0] << 8;
-	}
 
 #if 1
-	if(data[0] == 0x10 || data[0] == 0x28) //for reboot or Shutdown
+	if (data[0] == 0x10 || data[0] == 0x28) //for reboot or Shutdown
 		mipi_tx_disable(dsi_id);
 
 	_reg_write_mask(REG_DSI_HS_0(dsi_id), 0x00ffffff, val);
 	dsi_set_mode(dsi_id, DSI_MODE_SPKT);
 
 	ret = _dsi_chk_and_clean_mode(dsi_id, DSI_MODE_SPKT);
-	if (ret != 0){
-		DRM_ERROR("%s: _dsi_chk_and_clean_mode\n");
-	}
+	if (ret != 0)
+		DRM_ERROR("_dsi_chk_and_clean_mode\n");
 #else
 	val |= (ecc((u8 *)&val) << 24);
 	dpyh_mipi_tx_manual_packet(dsi_id, (u8 *)&val, 4);
@@ -460,23 +458,26 @@ static int dsi_read_packet(u8 dsi_id, const struct mipi_dsi_msg *msg)
 	u8 *data = msg->rx_buf;
 
 	if (dsi_get_mode(dsi_id) == DSI_MODE_HS) {
-		DRM_ERROR("[mipi_tx] %s: not work in HS.\n");
+		DRM_ERROR("[mipi_tx]: not work in HS.\n");
 		return -1;
 	}
-	// [2:0] reg_esc_mode
-	// [7:4] reg_esc_trig
-	// [11:8] reg_tx_bc
-	// [15:12] reg_bta_rx_bc
-	// [16:16] reg_tx_bc_over: TX LPDT transfer over,0: Extend to next trigger,1: Transfer over in this trigger
-	// only set necessery bits
+
+	/**
+	 * [2:0] reg_esc_mode
+	 * [15:12] reg_bta_rx_bc
+	 * [15:12] reg_bta_rx_bc
+	 * [16:16] reg_tx_bc_over: TX LPDT transfer over,0: Extend to next trigger,1: Transfer over in this trigger
+	 * only set necessery bits
+	*/
+
 	_reg_write_mask(REG_DSI_ESC(dsi_id), 0x07, 0x04);
 
 	dsi_short_packet(dsi_id, msg);
 
 	dsi_set_mode(dsi_id, DSI_MODE_ESC);
 	ret = _dsi_chk_and_clean_mode(dsi_id, DSI_MODE_ESC);
-	if (ret != 0){
-		DRM_ERROR("%s: dsi_read_packet _dsi_chk_and_clean_mode\n");
+	if (ret != 0) {
+		DRM_ERROR("%s: dsi chk and clean mode failed\n", __func__);
 		return ret;
 	}
 
@@ -499,12 +500,12 @@ static int dsi_read_packet(u8 dsi_id, const struct mipi_dsi_msg *msg)
 			data[i] = (rx_data >> (i * 8)) & 0xff;
 		break;
 	case ACK_WR:
-		DRM_ERROR("[mipi_tx] %s: dcs read, ack with error(%#x %#x).\n"
+		DRM_ERROR("[mipi_tx]: dcs read, ack with error(%#x %#x).\n"
 			, (rx_data >> 8) & 0xff, (rx_data >> 16) & 0xff);
 		ret = -1;
 		break;
 	default:
-		DRM_ERROR("[mipi_tx] %s: unknown DT, %#x.", rx_data);
+		DRM_ERROR("[mipi_tx]: unknown DT, %#x.", rx_data);
 		ret = -1;
 		break;
 	}
@@ -518,7 +519,7 @@ int dsi_long_packet_raw(u8 dsi_id, const u8 *data, u8 count)
 	u32 val = 0;
 	u8 i = 0, packet_count, data_offset = 0;
 	int ret;
-	char str[128];
+	// char str[128];
 
 	// DRM_DEBUG_DRIVER("%s; count(%d)\n", __func__, count);
 	while (count != 0) {
@@ -593,11 +594,11 @@ int dsi_long_packet(u8 dsi_id, const struct mipi_dsi_msg *msg)
 
 static void cvitek_dsi_encoder_enable(struct drm_encoder *encoder)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_encoder_enable.\n");
 	struct cvitek_dsi *dsi = encoder_to_dsi(encoder);
-	struct cvitek_crtc *ccrtc = to_cvitek_crtc(encoder->crtc);
 	struct dsi_context *ctx = &dsi->ctx;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi encoder enable. ----\n");
 
 	// clk_prepare_enable(ctx->dsi_clk);
 
@@ -626,11 +627,11 @@ static void cvitek_dsi_encoder_enable(struct drm_encoder *encoder)
 
 static void cvitek_dsi_encoder_disable(struct drm_encoder *encoder)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_encoder_disable.\n");
 	struct cvitek_dsi *dsi = encoder_to_dsi(encoder);
-	struct cvitek_crtc *ccrtc = to_cvitek_crtc(encoder->crtc);
 	struct dsi_context *ctx = &dsi->ctx;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi encoder disable. ----\n");
 
 	mipi_tx_disable(ctx->dsi_id);
 	// clk_disable_unprepare(ctx->dsi_clk);
@@ -662,10 +663,11 @@ static const struct drm_encoder_funcs cvitek_encoder_funcs = {
 static int cvitek_dsi_encoder_init(struct cvitek_dsi *dsi,
 				 struct device *dev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_encoder_init.\n");
 	struct drm_encoder *encoder = &dsi->encoder;
 	u32 crtc_mask;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi encoder init. ----\n");
 
 	crtc_mask = drm_of_find_possible_crtcs(dsi->drm, dev->of_node);
 	if (!crtc_mask) {
@@ -702,8 +704,8 @@ static void _cal_htt_extra(struct drm_display_mode *mode, int lane_num, int bits
 
 	htt_old = mode->htotal;
 	vtt = mode->vtotal;
-	fps = mode->clock * 1000 / (htt_old * vtt / 1024); // fps 1024
-	bit_rate_MHz = mode->clock  * 1024 * bits / (lane_num * 1000);//bit_rate_MHz 1024
+	fps = (unsigned long long)mode->clock * 1000 / (htt_old * vtt / 1024); // fps 1024
+	bit_rate_MHz = (unsigned long long) mode->clock  * 1024 * bits / (lane_num * 1000);//bit_rate_MHz 1024
 	clk_hs_MHz = bit_rate_MHz / 2;
 	clk_hs_ns = 1000 * 1024 * 1024 / clk_hs_MHz;//clk_hs_ns 1024
 	line_rate_KHz = vtt * fps / 1000;//line_rate_KHz 1024
@@ -725,11 +727,12 @@ static void _cal_htt_extra(struct drm_display_mode *mode, int lane_num, int bits
 
 static int cvitek_dsi_get_modes(struct drm_connector *connector)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_get_modes.\n");
 	struct cvitek_dsi *dsi = connector_to_dsi(connector);
 	struct drm_display_mode *mode;
 	struct list_head *pos;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi get modes. ----\n");
 
 	ret = drm_panel_get_modes(dsi->panel, connector);
 	if (!ret) {
@@ -746,11 +749,12 @@ static int cvitek_dsi_get_modes(struct drm_connector *connector)
 static int cvitek_dsi_atomic_check(struct drm_connector *connector,
 				 struct drm_atomic_state *state)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_atomic_check.\n");
 	struct cvitek_dsi *dsi = connector_to_dsi(connector);
 	struct drm_connector_state *new_state;
 	struct drm_crtc_state *new_crtc_state;
 	struct drm_connector_state *old_state;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi atomic check. ----\n");
 
 	new_state = drm_atomic_get_new_connector_state(state, connector);
 	if (!new_state->crtc)
@@ -782,8 +786,9 @@ static const struct drm_connector_helper_funcs cvitek_dsi_connector_helper_funcs
 static enum drm_connector_status
 cvitek_dsi_connector_detect(struct drm_connector *connector, bool force)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_connector_detect.\n");
 	struct cvitek_dsi *dsi = connector_to_dsi(connector);
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi connector detect. ----\n");
 
 	return dsi->panel ? connector_status_connected :
 						connector_status_disconnected;
@@ -801,10 +806,11 @@ static const struct drm_connector_funcs cvitek_dsi_connector_funcs = {
 static int cvitek_dsi_connector_init(struct cvitek_dsi *dsi,
 				 struct device *dev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_connector_init.\n");
 	struct drm_encoder *encoder = &dsi->encoder;
 	struct drm_connector *connector = &dsi->connector;
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi connector init. ----\n");
 
 	ret = drm_connector_init(dsi->drm, connector,
 				 &cvitek_dsi_connector_funcs,
@@ -838,7 +844,7 @@ static int dsi_host_parse_lane_data(struct dsi_context *ctx,
 
 	s32 lanes_map_default[LANE_MAX_NUM] = {MIPI_TX_LANE_0, MIPI_TX_LANE_1, MIPI_TX_LANE_CLK, MIPI_TX_LANE_2, MIPI_TX_LANE_3};
 	s32 lanes_map[LANE_MAX_NUM] = {-1, -1, -1, -1, -1};
-	u32 lanes_swap[LANE_MAX_NUM]= {false, false, false, false, false};
+	u32 lanes_swap[LANE_MAX_NUM] = {false, false, false, false, false};
 
 	prop = of_find_property(np, "clock-lane", &len);
 	if (!prop) {
@@ -881,9 +887,8 @@ static int dsi_host_parse_lane_data(struct dsi_context *ctx,
 		return ret;
 	}
 
-	for (i = 0; i < num_lanes; i++) {
+	for (i = 0; i < num_lanes; i++)
 		lanes_map[data_lanes[i]] = MIPI_TX_LANE_0 + i;
-	}
 
 	ctx->data_lanes_num = num_lanes;
 
@@ -926,12 +931,13 @@ default_lanes_maping:
 static int cvitek_dsi_context_init(struct cvitek_dsi *dsi,
 				 struct device *dev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_context_init.\n");
-	struct platform_device *pdev = to_platform_device(dev);
+	// struct platform_device *pdev = to_platform_device(dev);
+	// struct resource *res;
+	int ret;
 	struct dsi_context *ctx = &dsi->ctx;
 	struct dsi_match_data *dsi_data;
-	struct resource *res;
-	int ret, i;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi context init. ----\n");
 
 	dsi_data = (struct dsi_match_data *)of_device_get_match_data(dev);
 	if (!dsi_data)
@@ -939,32 +945,35 @@ static int cvitek_dsi_context_init(struct cvitek_dsi *dsi,
 
 	ctx->dsi_id = dsi_data->dsi_id;
 
-	// 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	// 	if (!res) {
-	// 		dev_err(dev, "failed to get I/O resource\n");
-	// 		return -EINVAL;
-	// 	}
+#if 0
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (!res) {
+			dev_err(dev, "failed to get I/O resource\n");
+			return -EINVAL;
+		}
 
-	// 	ctx->base = devm_ioremap(dev, res->start, resource_size(res));
-	// 	if (!ctx->base) {
-	// 		drm_err(dsi->drm, "failed to map dsi host registers\n");
-	// 		return -ENXIO;
-	// 	}
-	// 	DRM_DEBUG_DRIVER("(%d) res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
-	// 		i, res->start, res->end, ctx->base);
+		ctx->base = devm_ioremap(dev, res->start, resource_size(res));
+		if (!ctx->base) {
+			drm_err(dsi->drm, "failed to map dsi host registers\n");
+			return -ENXIO;
+		}
+		DRM_DEBUG_DRIVER("(%d) res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
+			i, res->start, res->end, ctx->base);
 
-	// ctx->dsi_clk = devm_clk_get(dev, "clk_dsi");
-	// if (IS_ERR(ctx->dsi_clk)) {
-	// 	DRM_ERROR("failed to parse clk dsi\n");
-	// 	return ERR_PTR(-ENODEV);
-	// }
-	// DRM_DEBUG_DRIVER("dsi_clk: %ldkhz.\n", clk_get_rate(ctx->dsi_clk) / 1000);
+	ctx->dsi_clk = devm_clk_get(dev, "clk_dsi");
+	if (IS_ERR(ctx->dsi_clk)) {
+		DRM_ERROR("failed to parse clk dsi\n");
+		return ERR_PTR(-ENODEV);
+	}
+	DRM_DEBUG_DRIVER("dsi_clk: %ldkhz.\n", clk_get_rate(ctx->dsi_clk) / 1000);
+#endif
 
 	ret = dsi_host_parse_lane_data(ctx, dev->of_node);
 	if (ret) {
 		DRM_ERROR("failed to parse lane data\n");
 		return ret;
 	}
+
 	DRM_DEBUG_DRIVER("data lanes: %d %d %d %d %d.	lanes swap: %d %d %d %d %d.\n",
 				ctx->lanes_map[0], ctx->lanes_map[1], ctx->lanes_map[2], ctx->lanes_map[3], ctx->lanes_map[4],
 				ctx->lanes_swap[0], ctx->lanes_swap[1], ctx->lanes_swap[2], ctx->lanes_swap[3], ctx->lanes_swap[4]);
@@ -975,7 +984,6 @@ static int cvitek_dsi_context_init(struct cvitek_dsi *dsi,
 static int cvitek_dsi_host_attach(struct mipi_dsi_host *host,
 				struct mipi_dsi_device *slave)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_host_attach.\n");
 	struct cvitek_dsi *dsi = host_to_dsi(host);
 	struct dsi_context *ctx = &dsi->ctx;
 	struct drm_panel *panel;
@@ -985,12 +993,20 @@ static int cvitek_dsi_host_attach(struct mipi_dsi_host *host,
 	if (ret)
 		return ret;
 
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi host attach. ----\n");
+
 	dsi->slave = slave;
 	dsi->panel = panel;
 
-	if(ctx->data_lanes_num != slave->lanes) {
+	if (ctx->data_lanes_num != slave->lanes) {
 		DRM_ERROR("dts's data lanes num[%d] != panel's data lanes num[%d]\n",
 		 ctx->data_lanes_num, slave->lanes);
+		return -EINVAL;
+	}
+
+	ctx->bits = mipi_dsi_pixel_format_to_bpp(slave->format);
+	if (ctx->bits < 0) {
+		DRM_ERROR("ctx->bits < 0\n");
 		return -EINVAL;
 	}
 
@@ -1004,8 +1020,9 @@ static int cvitek_dsi_host_attach(struct mipi_dsi_host *host,
 static int cvitek_dsi_host_detach(struct mipi_dsi_host *host,
 				struct mipi_dsi_device *slave)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_host_detach.\n");
 	struct cvitek_dsi *dsi = host_to_dsi(host);
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi host detach. ----\n");
 
 	drm_kms_helper_hotplug_event(dsi->drm);
 
@@ -1017,9 +1034,10 @@ static int cvitek_dsi_host_detach(struct mipi_dsi_host *host,
 static ssize_t cvitek_dsi_host_transfer(struct mipi_dsi_host *host,
 				      const struct mipi_dsi_msg *msg)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_host_transfer.\n");
 	struct cvitek_dsi *dsi = host_to_dsi(host);
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi host transfer. ----\n");
 
 	switch (msg->type) {
 	case MIPI_DSI_DCS_SHORT_WRITE:
@@ -1055,10 +1073,11 @@ static const struct mipi_dsi_host_ops cvitek_dsi_host_ops = {
 
 static int cvitek_dsi_bind(struct device *dev, struct device *master, void *data)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_bind.\n");
 	struct drm_device *drm = data;
 	struct cvitek_dsi *dsi = dev_get_drvdata(dev);
 	int ret;
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi bind. ----\n");
 
 	dsi = devm_kzalloc(dev, sizeof(*dsi), GFP_KERNEL);
 	if (!dsi)
@@ -1092,8 +1111,10 @@ static int cvitek_dsi_bind(struct device *dev, struct device *master, void *data
 static void cvitek_dsi_unbind(struct device *dev,
 			    struct device *master, void *data)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_unbind.\n");
 	struct cvitek_dsi *dsi = dev_get_drvdata(dev);
+
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi unbind. ----\n");
+
 	mipi_dsi_host_unregister(&dsi->host);
 }
 
@@ -1122,13 +1143,13 @@ static const struct of_device_id dsi_match_table[] = {
 
 static int cvitek_dsi_probe(struct platform_device *pdev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_probe.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi probe. ----\n");
 	return component_add(&pdev->dev, &dsi_component_ops);
 }
 
 static int cvitek_dsi_remove(struct platform_device *pdev)
 {
-	DRM_DEBUG_DRIVER("----cvitek_dsi_remove.\n");
+	DRM_DEBUG_DRIVER("---- enter cvitek dsi remove. ----\n");
 	component_del(&pdev->dev, &dsi_component_ops);
 	return 0;
 }

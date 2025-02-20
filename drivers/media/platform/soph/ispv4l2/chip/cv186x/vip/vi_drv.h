@@ -622,15 +622,17 @@ struct isp_ctx {
 
 	uintptr_t		*phys_regs;
 
-	struct _isp_bind_info	isp_bind_info[ISP_PRERAW_MAX];
+	struct _isp_bind_info	isp_bind_info[VI_MAX_PIPE_NUM];
 	struct _isp_cfg		isp_pipe_cfg[ISP_PRERAW_MAX];
-	u8			isp_pipe_enable[ISP_PRERAW_MAX];
-	u8			isp_pipe_offline_sc[ISP_PRERAW_MAX];
+	atomic_t			isp_vitural_num[ISP_PRERAW_MAX];
+	u8			isp_pipe_enable[VI_MAX_PIPE_NUM];
+	u8			isp_pipe_offline_sc[VI_MAX_PIPE_NUM];
 	enum isp_bayer_type_e	rgb_color_mode[ISP_PRERAW_MAX];
 	u8			rgbmap_prebuf_idx;
 	u8			mmap_grid_size[ISP_PRERAW_MAX];
-	u8			raw_chnstr_num[ISP_PRERAW_MAX];
+	u8			raw_chnstr_num[VI_MAX_PIPE_NUM];
 	u8			total_chn_num;
+	u8			dev_num;
 	atomic_t		is_post_done;
 
 	u8			cam_id;
