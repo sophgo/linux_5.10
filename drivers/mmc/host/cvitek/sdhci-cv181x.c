@@ -395,6 +395,78 @@ static void sdhci_cv181x_sd1_setup_pad(struct sdhci_host *host, bool bunplug)
 	writeb(val, cvi_host->pinmuxbase + 0xE4);
 }
 
+#ifdef CONFIG_ENABLE_EMMC_HW_RESET_QFN
+
+#define GPIO_SWPORTA_DDR 0x004
+#define GPIO_SWPORTA_DR 0x000
+#define GPIO0_BASE 0x03020000
+#define GPIO_NUM 19
+
+static void sdhci_cvi_emmc_hw_reset(struct sdhci_host *host)
+{
+	pr_debug("%s use qfn\n", __func__);
+
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
+
+	writeb(0x3, cvi_host->pinmuxbase + 0x64);
+	pr_debug("qfn reset pinmux:%x\n", readb(cvi_host->pinmuxbase + 0x64));
+
+	void __iomem *base = ioremap(GPIO0_BASE, 0x100);
+
+	if (!base) {
+		pr_err("ioremap failed for GPIO0_BASE\n");
+		return;
+	}
+
+	void __iomem *dir_reg_base = base + GPIO_SWPORTA_DDR;
+	void __iomem *val_reg_base = base + GPIO_SWPORTA_DR;
+
+	uint32_t dir_reg = readl(dir_reg_base);
+	uint32_t val_reg = readl(val_reg_base);
+
+	/* Set direction to output */
+	dir_reg &=  ~BIT(GPIO_NUM);
+	dir_reg |= BIT(GPIO_NUM);
+	writel(dir_reg, dir_reg_base);
+	udelay(100);
+	pr_debug("qfn reset 0, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+	/* Set Value to 0, reset */
+	val_reg	&=  ~BIT(GPIO_NUM);
+	writel(val_reg, val_reg_base);
+	udelay(500);
+	pr_debug("qfn reset 1, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+	/* Set value to 1 */
+	val_reg	&=  ~BIT(GPIO_NUM);
+	val_reg |= BIT(GPIO_NUM);
+	writel(val_reg, val_reg_base);
+	udelay(500);
+	pr_debug("qfn reset 2, dir:%x, val:%x\n", readl(dir_reg_base), readl(val_reg_base));
+
+	iounmap(base);
+}
+#else
+static void sdhci_cvi_emmc_hw_reset(struct sdhci_host *host)
+{
+	pr_debug("%s use bga\n", __func__);
+	/*clear bit 8; pull down hw reset pin*/
+	pr_debug("eMMC RST_n0: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	sdhci_writel(host,
+		sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R) & (~(BIT(8))),
+		CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R);
+	pr_debug("eMMC RST_n1: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	mdelay(1);
+	/*set bit 8; pull up hw reset pin*/
+	sdhci_writel(host,
+		sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R) | (BIT(8)),
+		CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R);
+	pr_debug("eMMC RST_n2: 0x%x\n", sdhci_readl(host, CVI_CV181X_SDHCI_VENDOR_MSHC_CTRL_R));
+	mdelay(1);
+}
+#endif
+
 static void sdhci_cvi_reset_helper(struct sdhci_host *host, u8 mask)
 {
 	// disable Intr before reset
@@ -1107,6 +1179,7 @@ static void cvi_adma_write_desc(struct sdhci_host *host, void **desc,
 
 static const struct sdhci_ops sdhci_cv181x_emmc_ops = {
 	.reset = sdhci_cv181x_emmc_reset,
+	.hw_reset = sdhci_cvi_emmc_hw_reset,
 	.set_clock = sdhci_set_clock,
 	.set_bus_width = sdhci_set_bus_width,
 	.get_max_clock = sdhci_cvi_general_get_max_clock,
@@ -1342,14 +1415,6 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 
 	sdhci_get_of_property(pdev);
 
-	if (pdata->ops->hw_reset) {
-		cvi_host->reset = devm_reset_control_get(&pdev->dev, "sdio");
-		if (IS_ERR(cvi_host->reset)) {
-			ret = PTR_ERR(cvi_host->reset);
-			goto pltfm_free;
-		}
-	}
-
 	if (pdev->dev.of_node) {
 		gpio_cd = of_get_named_gpio(pdev->dev.of_node, "cvi-cd-gpios", 0);
 	}
@@ -1434,84 +1499,18 @@ static int sdhci_cvi_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM_SLEEP
-#ifdef CONFIG_ARCH_CV181X_ASIC
-
-static int save_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	void __iomem *topbase;
-	void __iomem *rtcbase;
-
-	topbase = ioremap(TOP_BASE, 0x250);
-	rtcbase = ioremap(RTC_CTRL_BASE, 0x80);
-
-	if (!cvi_host->rtc_reg_ctx) {
-		cvi_host->rtc_reg_ctx = devm_kzalloc(&cvi_host->pdev->dev,
-								sizeof(struct cvi_rtc_sdhci_reg_context), GFP_KERNEL);
-		if (!cvi_host->rtc_reg_ctx)
-			return -ENOMEM;
-	}
-	cvi_host->rtc_reg_ctx->rtcsys_clkmux = readl(rtcbase + RTCSYS_CLKMUX);
-	cvi_host->rtc_reg_ctx->rtcsys_clkbyp = readl(rtcbase + RTCSYS_CLKBYP);
-	cvi_host->rtc_reg_ctx->rtcsys_mcu51_ictrl1 = readl(rtcbase + RTCSYS_MCU51_ICTRL1);
-	cvi_host->rtc_reg_ctx->rtcsys_ctrl = readl(topbase + RTCSYS_CTRL);
-
-	iounmap(topbase);
-	iounmap(rtcbase);
-
-	return 0;
-}
-
-static void restore_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	void __iomem *topbase;
-	void __iomem *rtcbase;
-
-	topbase = ioremap(TOP_BASE, 0x250);
-	rtcbase = ioremap(RTC_CTRL_BASE, 0x80);
-
-	writel(cvi_host->rtc_reg_ctx->rtcsys_clkmux, rtcbase + RTCSYS_CLKMUX);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_clkbyp, rtcbase + RTCSYS_CLKBYP);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_mcu51_ictrl1, rtcbase + RTCSYS_MCU51_ICTRL1);
-	writel(cvi_host->rtc_reg_ctx->rtcsys_ctrl, topbase + RTCSYS_CTRL);
-
-	iounmap(topbase);
-	iounmap(rtcbase);
-}
-#else
-static int save_rtc_reg(struct sdhci_cvi_host *cvi_host)
-{
-	return 0;
-}
-static void restore_rtc_reg(struct sdhci_cvi_host *cvi_host) {}
-#endif
-
-static void save_reg(struct sdhci_host *host, struct sdhci_cvi_host *cvi_host)
-{
-	save_rtc_reg(cvi_host);
-	cvi_host->reg_ctrl2 = sdhci_readl(host, SDHCI_HOST_CONTROL2);
-	cvi_host->reg_clk_ctrl = sdhci_readl(host, SDHCI_CLOCK_CONTROL);
-	cvi_host->reg_host_ctrl = sdhci_readl(host, SDHCI_HOST_CONTROL);
-}
-
-static void restore_reg(struct sdhci_host *host, struct sdhci_cvi_host *cvi_host)
-{
-	restore_rtc_reg(cvi_host);
-	sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
-	sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
-	sdhci_writel(host, cvi_host->reg_ctrl2, SDHCI_HOST_CONTROL2);
-	sdhci_writel(host, cvi_host->reg_clk_ctrl, SDHCI_CLOCK_CONTROL);
-	sdhci_writel(host, cvi_host->reg_host_ctrl, SDHCI_HOST_CONTROL);
-}
-
 static int sdhci_cvi_suspend(struct device *dev)
 {
 	struct sdhci_cvi_host *cvi_host = dev_get_drvdata(dev);
 	struct sdhci_host *host = cvi_host->host;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	int ret;
 
-	if (!host)
-		return 0;
+	ret = sdhci_suspend_host(host);
+	if (ret)
+		return ret;
 
-	save_reg(host, cvi_host);
+	clk_disable_unprepare(pltfm_host->clk);
 
 	return 0;
 }
@@ -1520,20 +1519,31 @@ static int sdhci_cvi_resume(struct device *dev)
 {
 	struct sdhci_cvi_host *cvi_host = dev_get_drvdata(dev);
 	struct sdhci_host *host = cvi_host->host;
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	int ret;
 
-	if (!host)
-		return 0;
+	ret = clk_prepare_enable(pltfm_host->clk);
+	if (ret)
+		return ret;
 
-	restore_reg(host, cvi_host);
+	ret = sdhci_resume_host(host);
+	if (ret)
+		goto disable_clk;
 
 	return 0;
-}
 
-#endif
+disable_clk:
+	clk_disable_unprepare(pltfm_host->clk);
+
+	return ret;
+}
 
 static const struct dev_pm_ops sdhci_cvi_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(sdhci_cvi_suspend, sdhci_cvi_resume)
 };
+#else
+static const struct dev_pm_ops sdhci_cvi_pm_ops = {};
+#endif
 
 static struct platform_driver sdhci_cvi_driver = {
 	.probe = sdhci_cvi_probe,

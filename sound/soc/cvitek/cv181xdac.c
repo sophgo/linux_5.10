@@ -80,6 +80,17 @@ static int dac_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static void cv181xdac_set_dither(struct cv181xdac *dac, bool enable)
+{
+	u32 val = dac_read_reg(dac->dac_base, AUDIO_PHY_TXDAC_CTRL1);
+	if (enable) {
+		val |= (1 << 12);
+	} else {
+		val &= ~(1 << 12);
+	}
+	dev_err(dac->dev, "%s, enable:%d \n", __func__, enable);
+	dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_CTRL1, val);
+}
 
 static int cv181xdac_set_dai_fmt(struct snd_soc_dai *dai,
 					unsigned int fmt)
@@ -272,6 +283,7 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		snd_pcm_stream_unlock_irq(substream);
 		cv181xdac_on(dac);
+		cv181xdac_set_dither(dac, true);
 		muteAmp(false);
 		snd_pcm_stream_lock_irq(substream);
 		break;
@@ -281,6 +293,7 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		snd_pcm_stream_unlock_irq(substream);
 		muteAmp(true);
+		cv181xdac_set_dither(dac, false);
 		cv181xdac_off(dac);
 		snd_pcm_stream_lock_irq(substream);
 		break;

@@ -178,6 +178,16 @@
 struct clk;
 struct device;
 struct reset_control;
+struct i2c_pinmux_info {
+	u32		scl_fmux_addr;
+	u32		scl_iic_func_sel;
+	u32		scl_gpio_func_sel;
+	u32		sda_fmux_addr;
+	u32		sda_iic_func_sel;
+	u32		sda_gpio_func_sel;
+	void	(*pinmux_to_gpio)(struct i2c_pinmux_info *pinfo);
+	void	(*pinmux_to_iic)(struct i2c_pinmux_info *pinfo);
+};
 
 /**
  * struct dw_i2c_dev - private i2c-designware data
@@ -287,6 +297,7 @@ struct dw_i2c_dev {
 	struct i2c_bus_recovery_info rinfo;
 	bool			suspended;
 	int			use_interstop;
+	struct i2c_pinmux_info pinfo;
 };
 
 #define ACCESS_INTR_MASK	0x00000001

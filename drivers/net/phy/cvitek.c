@@ -19,7 +19,8 @@
 
 #define CVI_INT_EVENTS \
 	(CVI_LNK_STS_CHG_INT_MSK | CVI_MGC_PKT_DET_INT_MSK)
-
+static u32 link_status;
+static u32 retry_time;
 static int cv182xa_phy_config_intr(struct phy_device *phydev)
 {
 	return 0;
@@ -32,8 +33,88 @@ static int cv182xa_phy_ack_interrupt(struct phy_device *phydev)
 
 static int cv182xa_read_status(struct phy_device *phydev)
 {
+	u32 lp_val, lp_val_cap, cap_val, cap_val_temp, i, ramdom_cap;
+	u32 get_random;
 	int err = genphy_read_status(phydev);
+	//pr_notice("link status=%x, retry_time=%x\n", phydev->link, retry_time);
+	if (retry_time > 0)
+		retry_time--;
 
+	if (phydev->link == 0) {
+		if (retry_time == 0)
+			link_status = 0;
+
+	} else if (phydev->speed == SPEED_100 && link_status == 0) {
+		link_status = 1;
+		lp_val = phy_read(phydev, 0x5);
+		pr_notice("lp1=%x\n", lp_val);
+		if (phydev->autoneg == AUTONEG_ENABLE && lp_val == 0x4d61) {
+			cap_val = phy_read(phydev, 0x4);
+			pr_notice("cap1=%x\n", cap_val);
+			get_random_bytes(&get_random, sizeof(int32_t));
+			//ramdom_cap = (get_random % 13) << 5;
+			//if(ramdom_cap == 0x160)
+			//{
+			//	ramdom_cap = 0x1e0;
+			//}
+			//cap_val_temp = cap_val & ~0x1e0 | ramdom_cap;
+			ramdom_cap =  get_random & 0xde0 | 0x20;
+			if (ramdom_cap == 0xd60) {
+				pr_notice("ramdom_cap=%x\n\n", ramdom_cap);
+				ramdom_cap = 0xde0;
+			}
+			cap_val_temp = cap_val & ~0xde0 | ramdom_cap;
+			phy_write(phydev, 0x4, cap_val_temp);
+			pr_notice("get_random=%x, ramdom_cap=%x, cap_val_temp=%x\n",
+				  get_random, ramdom_cap, cap_val_temp);
+			for (i = 0; i < 150; i++) {
+				if ((phy_read(phydev, 0x1) & 0x20) == 0)
+					break;
+
+				mdelay(10);
+				}
+			pr_notice("i=%d\n", i);
+			phy_modify(phydev, MII_BMCR, BMCR_ISOLATE, BMCR_ANENABLE | BMCR_ANRESTART);
+			for (i = 0; i < 1000; i++) {
+				if (phy_read(phydev, 0x1) & 0x20)
+					break;
+				mdelay(10);
+			}
+			lp_val = phy_read(phydev, 0x5);
+			lp_val_cap = lp_val & 0xde0;
+			pr_notice(" %d, link status=%x, lp2=%x\n", i, phy_read(phydev, 0x1), lp_val);
+
+			if (((phy_read(phydev, 0x1) & 0x4) != 0) && lp_val != 0 && lp_val_cap != ramdom_cap) {
+				retry_time = 10;
+				phy_write(phydev, 0x4, cap_val);
+				phy_modify(phydev, MII_BMCR, BMCR_ISOLATE, BMCR_ANENABLE | BMCR_ANRESTART);
+				for (i = 0; i < 1000; i++) {
+					if (phy_read(phydev, 0x1) & 0x20)
+						break;
+
+					mdelay(10);
+				}
+				//mdelay(8000);
+				//lp_val = phy_read(phydev, 0x5);
+				pr_notice(" %d, true link status=%x, lp2=%x\n", i,
+					  phy_read(phydev, 0x1), phy_read(phydev, 0x5));
+			} else {
+				phydev->link = 0;
+				link_status = 0;
+				phy_write(phydev, 0x4, cap_val);
+				phy_modify(phydev, MII_BMCR, BMCR_ISOLATE, BMCR_ANENABLE | BMCR_ANRESTART);
+				//err = phy_start_aneg(phydev);
+				//lp_val = phy_read(phydev, 0x5);
+				//pr_notice("lp3=%x\n", lp_val);
+				pr_notice(" %d, false link status=%x, lp2=%x\n", i,
+					  phy_read(phydev, 0x1), phy_read(phydev, 0x5));
+			}
+
+			//err = genphy_read_status(phydev);
+			//lp_val = phy_read(phydev, 0x5);
+			//pr_notice("lp3=%x\n", lp_val);
+		}
+	}
 	pr_debug("%s, speed=%d, duplex=%d, ", __func__, phydev->speed, phydev->duplex);
 	pr_debug("pasue=%d, asym_pause=%d, autoneg=%d ", phydev->pause, phydev->asym_pause, phydev->autoneg);
 
@@ -51,7 +132,6 @@ static int cv182xa_phy_aps_enable(struct phy_device *phydev)
 static int cv182xa_phy_config_aneg(struct phy_device *phydev)
 {
 	int ret;
-
 #if defined(CONFIG_CVITEK_PHY_UAPS)
 	cv182xa_phy_aps_enable(phydev); /* if phy not work, disable this function for try */
 #endif
@@ -111,7 +191,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 
 	// // ANA INIT
 	// // @Switch to MII-page5
-	// writel(0x0500, reg_ephy_base + 0x7c);
+	writel(0x0500, reg_ephy_base + 0x7c);
 
 // Efuse register
 	// Set Double Bias Current
@@ -124,7 +204,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x64) & ~0xFFFF) | val, reg_ephy_base + 0x64);
 	} else
 		writel(0x5a5a, reg_ephy_base + 0x64);
-
+	writel(0x5a5a, reg_ephy_base + 0x64);
 	// Set Echo_I
 	// Set rg_eth_txechoiadj reg_ephy_base + 0x54  [15:8]
 	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXECHORC_FLAG) ==
@@ -145,7 +225,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x58) & ~0xFF0) | val, reg_ephy_base + 0x58);
 	} else
 		writel(0x0bb0, reg_ephy_base + 0x58);
-
+	writel(0x0bb0, reg_ephy_base + 0x58);
 // ETH_100BaseT
 	// Set Rise update
 	writel(0x0c10, reg_ephy_base + 0x5c);
@@ -196,8 +276,6 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 //	Link Pulse
 	// Switch to MII-page10
 	writel(0x0a00, reg_ephy_base + 0x7c);
-
-// #if 1
 	// Set Link Pulse
 	writel(0x3e00, reg_ephy_base + 0x40);
 	writel(0x7864, reg_ephy_base + 0x44);
@@ -212,9 +290,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	writel(0x8688, reg_ephy_base + 0x68);
 	writel(0x8484, reg_ephy_base + 0x6c);
 	writel(0x0082, reg_ephy_base + 0x70);
-
-// #else
-/*
+	/*
 	// from sean
 	// Fix err: the status is still linkup when removed the network cable.
 	writel(0x2000, reg_ephy_base + 0x40);
@@ -230,9 +306,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	writel(0x8283, reg_ephy_base + 0x68);
 	writel(0x8182, reg_ephy_base + 0x6c);
 	writel(0x0081, reg_ephy_base + 0x70);
-*/
-// #endif
-
+	*/
 // TP_IDLE
 	// Switch to MII-page11
 	writel(0x0b00, reg_ephy_base + 0x7c);
@@ -340,7 +414,8 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 
 	// switch to MDIO control by ETH_MAC
 	writel(0x0000, reg_ephy_top_wrap + 4);
-
+	link_status = 0;
+	retry_time = 0;
 	iounmap(reg_ephy_base);
 err_ephy_mem_2:
 	iounmap(reg_ephy_top_wrap);

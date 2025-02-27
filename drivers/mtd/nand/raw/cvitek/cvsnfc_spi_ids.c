@@ -446,7 +446,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		},
 		.driver = &spi_nand_driver_gd,
 		{
-			.start = 0,
+			.start = 2 * SZ_2K,
 			.length = 4 * SZ_2K,
 			.locked = 0,
 		},
