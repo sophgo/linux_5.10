@@ -89,7 +89,7 @@ static int bm_reset_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	data->membase = devm_ioremap_resource(&pdev->dev, res);
+	data->membase = devm_ioremap(&pdev->dev, res->start, resource_size(res));
 	if (IS_ERR(data->membase))
 		goto out_free_devm;
 	data->rcdev.nr_resets = resource_size(res) * 32;
