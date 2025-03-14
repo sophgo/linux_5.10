@@ -204,7 +204,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x64) & ~0xFFFF) | val, reg_ephy_base + 0x64);
 	} else
 		writel(0x5a5a, reg_ephy_base + 0x64);
-
+	writel(0x5a5a, reg_ephy_base + 0x64); //Eye Diagram is better with short line
 	// Set Echo_I
 	// Set rg_eth_txechoiadj reg_ephy_base + 0x54  [15:8]
 	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXECHORC_FLAG) ==
@@ -225,7 +225,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x58) & ~0xFF0) | val, reg_ephy_base + 0x58);
 	} else
 		writel(0x0bb0, reg_ephy_base + 0x58);
-
+	writel(0x0bb0, reg_ephy_base + 0x58); //Eye Diagram is better with short line
 // ETH_100BaseT
 	// Set Rise update
 	writel(0x0c10, reg_ephy_base + 0x5c);
