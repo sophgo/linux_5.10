@@ -98,12 +98,10 @@ void spi_feature_op(struct cvsnfc_host *host, int op, int fe, unsigned int *val)
 		uint32_t fe_set = fe | (*val << 8);
 
 		pr_debug("cvsnfc: set feature [%#x] = [%#x]\n", fe, *val);
-
 		cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2, 2 << TRX_CMD_CONT_SIZE_SHIFT);
 		cvsfc_write(host,  REG_SPI_NAND_TRX_CTRL3, BIT_REG_TRX_RW);
 		cvsfc_write(host,  REG_SPI_NAND_TRX_CMD0, (fe_set << TRX_CMD_CONT0_SHIFT) | SPI_NAND_CMD_SET_FEATURE);
 		cvsnfc_send_nondata_cmd_and_wait(host);
-
 	}
 }
 
@@ -792,6 +790,12 @@ static int parse_status_info(struct cvsnfc_host *host)
 	uint32_t ecc_status0, ecc_status1, status;
 	uint32_t mask, sr_mask;
 	uint32_t corr_bit = 0;
+	uint32_t otp;
+
+	//We do not check ecc status when we prog otp area
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &otp);
+	if (otp && STATUS_OTP_E_MASK)
+		return 0;
 
 	if (!ecc_info->ecc_sr_addr && !ecc_info->read_ecc_opcode) {
 		pr_err("can not get ecc status\n");
@@ -840,7 +844,6 @@ static int parse_status_info(struct cvsnfc_host *host)
 	return corr_bit;
 }
 
-extern bool otp_en;
 static int spi_nand_read_from_cache(struct cvsnfc_host *host, struct mtd_info *mtd,
 		int col_addr, int len, void *buf)
 {
@@ -855,8 +858,6 @@ RETRY_READ_CMD:
 	pr_debug("%s caddr 0x%x, r_raddr 0x%x, len %d\n", __func__, col_addr, r_col_addr, len);
 
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2, len << TRX_DATA_SIZE_SHIFT | 3 << TRX_CMD_CONT_SIZE_SHIFT);
-	if (otp_en)
-		mode = SPI_NAND_READ_FROM_CACHE_MODE_X1;
 
 	spi_nand_set_read_from_cache_mode(host, mode, r_col_addr);
 
@@ -950,11 +951,10 @@ static int cvsnfc_read_page(struct nand_chip *chip,
 	if (ret) {
 		pr_debug("%s row_addr 0x%x ret %d\n", __func__, row_addr, ret);
 	}
-
 	mutex_unlock(&host->lock);
+
 	return ret;
 }
-
 static int read_oob_data(struct mtd_info *mtd, uint8_t *buf, int row_addr)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -1067,7 +1067,6 @@ static int spi_nand_prog_load(struct cvsnfc_host *host, const uint8_t *buf,
 		spi_driver->qe_enable(host);
 
 RETRY_WRITE_CMD:
-
 	pr_debug("=>%s size %u, col_addr 0x%x, r_col_addr 0x%x,  qe %d\n",
 			__func__, (int) size, col_addr, r_col_addr, qe);
 
@@ -1078,10 +1077,6 @@ RETRY_WRITE_CMD:
 		(BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN | SPI_NAND_CTRL3_IO_TYPE_X4_MODE) :
 		(BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN);
 
-	if (otp_en) {
-		cmd = SPI_NAND_CMD_PROGRAM_LOAD;
-		ctrl3 = (BIT_REG_TRX_RW | BIT_REG_TRX_DMA_EN);
-	}
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL3, ctrl3);
 
 	cvsfc_write(host, REG_SPI_NAND_TRX_CMD0, cmd | (r_col_addr << TRX_CMD_CONT0_SHIFT));
@@ -1230,6 +1225,89 @@ static int cvsnfc_write_page(struct nand_chip *chip,
 	return status;
 }
 
+static int cvsnfc_read_otp(struct nand_chip *chip, loff_t from, size_t len, u_char *buf)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct cvsnfc_host *host = chip->priv;
+	struct cvsnfc_chip_info *spi_nand = &host->spi_nand;
+	struct spi_nand_driver *spi_driver = spi_nand->driver;
+	unsigned int die_id;
+	u32 page_idx = (u32)from / mtd->writesize;
+	u32 blk_idx = page_idx / host->block_page_cnt;
+	u32 reg = 0;
+	u32 ret = 0;
+	u32 col_addr = 0;
+	u8 *buffer = NULL;
+
+	//enable OTP
+	mutex_lock(&host->lock);
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+	reg |= (STATUS_OTP_E_MASK);
+	spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+	//wait OTP cmd active
+	mdelay(10);
+
+	if (spi_driver->select_die) {
+		die_id = page_idx / (host->diesize / host->pagesize);
+		spi_driver->select_die(host, die_id);
+	}
+
+	spi_nand_send_read_page_cmd(host, page_idx);
+
+	if (host->flags & FLAGS_SET_PLANE_BIT && (blk_idx & BIT(0))) {
+		pr_debug("%s set plane bit for blkidx %d\n", __func__, blk_idx);
+		col_addr |= SPI_NAND_PLANE_BIT_OFFSET;
+	}
+
+	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize, host->buforg);
+
+	memcpy(buf, (void *)host->buforg, mtd->writesize);
+
+	if (ret < 0)
+		ret = -EFAULT;
+
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+	reg &= ~(STATUS_OTP_E_MASK);
+	spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+	mdelay(10);
+	mutex_unlock(&host->lock);
+	//wait OTP fully closed
+	return ret;
+}
+
+static int cvsnfc_write_otp(struct nand_chip *chip, loff_t to, size_t len, const u_char *buf)
+{
+	u32 reg = 0;
+	u32 ret = 0;
+	u32 page_idx = 0;
+	struct cvsnfc_host *host = chip->priv;
+	struct mtd_info *mtd = nand_to_mtd(chip);
+
+	//enable OTP
+	mutex_lock(&host->lock);
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+	reg |= (STATUS_OTP_E_MASK);
+	spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+	//wait OTP cmd active
+	mdelay(10);
+
+	//calculate phy page index
+	page_idx = (u32)to / mtd->writesize;
+	ret = write_page_helper(mtd, chip, buf, page_idx);
+
+	if (ret < 0)
+		ret = -EFAULT;
+
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &reg);
+	reg &= ~(STATUS_OTP_E_MASK);
+	spi_feature_op(host, SET_OP, FEATURE_ADDR, &reg);
+	//wait OTP fully closed
+	mdelay(10);
+	mutex_unlock(&host->lock);
+
+	return ret;
+}
+
 static int cvsnfc_attach_chip(struct nand_chip *chip)
 {
 	//struct mtd_info *mtd = nand_to_mtd(chip);
@@ -1264,6 +1342,8 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 
 	chip->legacy.chip_delay  = CVSNFC_CHIP_DELAY;
 	chip->legacy.otp_info  = cvsnfc_get_otp_num;
+	chip->legacy.otp_read   = cvsnfc_read_otp;
+	chip->legacy.otp_write  = cvsnfc_write_otp;
 
 	chip->options     = NAND_BROKEN_XD;
 

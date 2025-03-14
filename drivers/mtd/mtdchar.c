@@ -871,7 +871,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	{
 		struct mtd_info *master = mtd_get_master(mtd);
 		struct mtd_otp_buf buf;
-		struct mtd_otp_buf __user *buf_user = argp;
+		struct mtd_otp_buf *buf_user = argp;
 		void *ptr = NULL;
 
 		if (!master->_read_otp)
@@ -889,8 +889,8 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 			if (!access_ok((void __user *)buf.ptr, buf.length))
 				ret = -EFAULT;
 
-			if (ret == buf.length) {
-				ret = copy_to_user((void __user *)buf.ptr, ptr, buf.length);
+			if (ret == buf.length || ret == 0) {
+				ret = copy_to_user(buf.ptr, ptr, buf.length);
 				if (ret) {
 					pr_info("copy buffer data to userspace failed!\n");
 					ret = -1;

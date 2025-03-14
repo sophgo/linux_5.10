@@ -152,7 +152,7 @@
 #define DW_DMA_MAX_NR_MASTERS	2
 #define DW_DMA_MAX_NR_CHANNELS	8
 #define DW_DMA_MAX_NR_REQUESTS	16
-#define DW_DMA_CHAN_MASK	((1 << DW_DMA_MAX_NR_CHANNELS) - 1)
+#define DW_DMA_CHAN_MASK	((1ULL << DW_DMA_MAX_NR_CHANNELS) - 1ULL)
 #define DW_DWC_MAX_BLOCK_TS	32
 
 /* The set of bus widths supported by the DMA controller */

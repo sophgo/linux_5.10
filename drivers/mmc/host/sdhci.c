@@ -3652,6 +3652,12 @@ out:
 			host->ops->request_done(host, mrqs_done[i]);
 		else
 			mmc_request_done(host->mmc, mrqs_done[i]);
+
+		if (host->quirks2 & SDHCI_QUIRK2_SW_CLK_GATING_SUPPORT) {
+			sdhci_writew(host,
+				(sdhci_readw(host, SDHCI_CLOCK_CONTROL) & ~SDHCI_CLOCK_CARD_EN),
+				SDHCI_CLOCK_CONTROL);
+		}
 	}
 
 	if (unexpected) {

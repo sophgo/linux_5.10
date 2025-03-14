@@ -4312,8 +4312,32 @@ static int nand_get_otp_info(struct mtd_info *mtd, struct otp_info *otp_info)
 	int ret = 0;
 
 	if (chip->legacy.otp_info) {
-		pr_info("get nand otp info from low driver level\n");
+		pr_debug("get nand otp info from low driver level\n");
 		ret = chip->legacy.otp_info(chip, otp_info);
+	}
+	return ret;
+}
+
+static int nand_otp_read(struct mtd_info *mtd, loff_t from, size_t len, u_char *buf)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	int ret = 0;
+
+	if (chip->legacy.otp_read) {
+		pr_debug("nand otp read from low driver level\n");
+		ret = chip->legacy.otp_read(chip, from, len, buf);
+	}
+	return ret;
+}
+
+static int nand_otp_write(struct mtd_info *mtd, loff_t to, size_t len, const u_char *buf)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	int ret = 0;
+
+	if (chip->legacy.otp_write) {
+		pr_debug("nand otp write from low driver level\n");
+		ret = chip->legacy.otp_write(chip, to, len, buf);
 	}
 	return ret;
 }
@@ -5867,6 +5891,8 @@ static int nand_scan_tail(struct nand_chip *chip)
 	mtd->_block_markbad = nand_block_markbad;
 	mtd->_max_bad_blocks = nanddev_mtd_max_bad_blocks;
 	mtd->_get_otp_info_nand = nand_get_otp_info;
+	mtd->_read_otp = nand_otp_read;
+	mtd->_write_otp = nand_otp_write;
 	/*
 	 * Initialize bitflip_threshold to its default prior scan_bbt() call.
 	 * scan_bbt() might invoke mtd_read(), thus bitflip_threshold must be
