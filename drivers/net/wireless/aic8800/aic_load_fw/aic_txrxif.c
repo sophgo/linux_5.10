@@ -311,15 +311,11 @@ static void aicwf_recvframe_queue_deinit(struct list_head *q)
 
 void aicwf_rx_deinit(struct aicwf_rx_priv* rx_priv)
 {
-    if (!rx_priv)
-	return;
-
+    //struct reord_ctrl_info *reord_info, *tmp;
     aicwf_frame_queue_flush(&rx_priv->rxq);
     aicwf_recvframe_queue_deinit(&rx_priv->rxframes_freequeue);
-    if (rx_priv->recv_frames) {
+    if (rx_priv->recv_frames)
         vfree(rx_priv->recv_frames);
-	rx_priv->recv_frames = NULL;
-    }
 
     if (rx_priv->usbdev->bus_if->busrx_thread) {
         complete_all(&rx_priv->usbdev->bus_if->busrx_trgg);

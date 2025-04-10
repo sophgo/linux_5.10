@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
@@ -89,12 +90,12 @@ struct pr2100_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t pr2100_sync_info;
 	struct pr2100_yuv_format yuv_format;
 	struct pr2100_reg_list reg_list;
-	struct pr2100_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -104,6 +105,8 @@ static struct pr2100_mode supported_modes[] = {
 		.max_height = 1080,
 		.width = 1920,
 		.height = 1080,
+		.sns_type = V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT,
+		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 250000,
@@ -112,7 +115,55 @@ static struct pr2100_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(mode_1920x1080_regs),
 			.regs = mode_1920x1080_regs,
 		},
-	}
+	},
+	{
+		.max_width = 1920,
+		.max_height = 1080,
+		.width = 1920,
+		.height = 1080,
+		.sns_type = V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
+		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT",
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 250000,
+		},
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2ch_regs),
+			.regs = mode_1920x1080_2ch_regs,
+		},
+	},
+	{
+		.max_width = 1920,
+		.max_height = 1080,
+		.width = 1920,
+		.height = 1080,
+		.sns_type = V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT,
+		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT",
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 250000,
+		},
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2ch_2l_regs),
+			.regs = mode_1920x1080_2ch_2l_regs,
+		},
+	},
+	{
+		.max_width = 1920,
+		.max_height = 1080,
+		.width = 1920,
+		.height = 1080,
+		.sns_type = V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
+		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT",
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 250000,
+		},
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(mode_1920x1080_4ch_regs),
+			.regs = mode_1920x1080_4ch_regs,
+		},
+	},
 };
 
 static struct pr2100_yuv_format yuv_format[] = {
@@ -537,6 +588,13 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
+		if (!IS_ERR(pr2100->reset_gpio)) {
+			gpiod_set_value_cansleep(pr2100->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(pr2100->reset_gpio, 1);
+			msleep(100);
+		}
+
 		/*
 		 * Apply default & customized values
 		 * and then start streaming.
@@ -552,7 +610,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	pr2100->streaming = enable;
 	mutex_unlock(&pr2100->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -622,6 +680,109 @@ static int pr2100_identify_module(struct pr2100 *pr2100)
 			PR2100_CHIP_ID, read_data);
 		return -EIO;
 	}
+
+	return 0;
+}
+
+static int pr2100_get_info_form_dts(struct pr2100 *pr2100, int index_id) {
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable, rst_gpio, rst_acvive;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "sns_rest_pin", &rst_gpio);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "rst_acvive", &rst_acvive);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
 
 	return 0;
 }
@@ -740,6 +901,8 @@ static int pr2100_init_controls(struct pr2100 *pr2100, int index_id)
 		return ret;
 	}
 
+	pr2100_get_info_form_dts(pr2100, index_id);
+
 	mutex_init(&pr2100->mutex);
 	ctrl_hdlr->lock = &pr2100->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -820,7 +983,7 @@ static int pr2100_probe(struct i2c_client *client,
 	struct v4l2_subdev *sd;
 	struct device *dev = &client->dev;
 	int index_id = pr2100_probe_index;
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 
 	dev_info(dev, "probe id[%d] start\n", pr2100_probe_index);
@@ -838,50 +1001,66 @@ static int pr2100_probe(struct i2c_client *client,
 
 	sd = &pr2100->sd;
 
-	if (force_bus[index_id] == 0xFF)
-		bus_id = pr2100_bus_map[index_id];
-	else
-		bus_id = force_bus[index_id];
-
-	if (bus_id < 0 || bus_id > MAX_I2C_BUS_NUM)
-		return ret;
-
-	if (force_i2caddr[index_id] == 0xFF) {
-		if (index_id >= ARRAY_SIZE(pr2100_i2caddr_map))
-			client->addr = pr2100_i2caddr_map[index_id - 1];
+	if (!of_property_read_u32(client->dev.of_node,"reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node,"bus-id", &bus_id) &&
+		!pr2100_count) {
+		printk("pr2100_probe reg = %x\n", i2c_addr);
+		printk("pr2100_probe bus-id = %x\n", bus_id);
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		pr2100->client = client;
+		v4l2_i2c_subdev_init(sd, client, &pr2100_subdev_ops);
+		/* Check module identity */
+		ret = pr2100_identify_module(pr2100);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] no sensor found,use default\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				 index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+	if (use_defualt) {
+		if (force_bus[index_id] == 0xFF)
+			bus_id = pr2100_bus_map[index_id];
 		else
-			client->addr = pr2100_i2caddr_map[index_id];
-	} else
-		client->addr = force_i2caddr[index_id];
+			bus_id = force_bus[index_id];
 
-	client->adapter = i2c_get_adapter(bus_id);
-	pr2100->client = client;
-	v4l2_i2c_subdev_init(sd, client, &pr2100_subdev_ops);
+		if (bus_id < 0 || bus_id > MAX_I2C_BUS_NUM)
+			return ret;
+
+		if (force_i2caddr[index_id] == 0xFF && use_defualt) {
+			if (index_id >= ARRAY_SIZE(pr2100_i2caddr_map))
+				client->addr = pr2100_i2caddr_map[index_id - 1];
+			else
+				client->addr = pr2100_i2caddr_map[index_id];
+		} else
+			client->addr = force_i2caddr[index_id];
+
+		client->adapter = i2c_get_adapter(bus_id);
+		pr2100->client = client;
+		v4l2_i2c_subdev_init(sd, client, &pr2100_subdev_ops);
 
 	/* Check module identity */
-	ret = pr2100_identify_module(pr2100);
-	if (ret) {
-		dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] no sensor found\n",
-			 index_id, bus_id, client->addr);
+		ret = pr2100_identify_module(pr2100);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] no sensor found\n",
+				 index_id, bus_id, client->addr);
 
-		return ret;
-	} else
-		dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
-			 index_id, bus_id, client->addr);
-
+			return ret;
+		} else
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				 index_id, bus_id, client->addr);
+		}
 	pr2100->module_index = index_id;
 
 	pr2100_confirm_sensor_type(index_id);
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		pr2100->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct pr2100_mode), GFP_KERNEL);
-		memcpy(pr2100->cur_mode, &supported_modes[0], sizeof(struct pr2100_mode));
-	} else {
-		pr2100->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct pr2100_mode), GFP_KERNEL);
-		memcpy(pr2100->cur_mode, &supported_modes[index_id], sizeof(struct pr2100_mode));
-	}
+	pr2100->cur_mode = devm_kzalloc(&client->dev,
+					sizeof(struct pr2100_mode), GFP_KERNEL);
+	memcpy(pr2100->cur_mode, &supported_modes[0], sizeof(struct pr2100_mode));
 
 	memset(&pr2100->cur_mode->pr2100_sync_info, 0, sizeof(sns_sync_info_t));
 
@@ -942,13 +1121,17 @@ static int pr2100_remove(struct i2c_client *client)
 	struct pr2100 *pr2100 = to_pr2100(sd);
 
 	pr2100_probe_index = 0;
+	pr_info("== pr2100_remove_index = %d ==\n", pr2100_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	pr2100_free_controls(pr2100);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", pr2100_probe_index);
 	return 0;
 }
 
@@ -993,6 +1176,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== pr2100 mod rmmod ==\n");
 	i2c_del_driver(&pr2100_i2c_driver);
 }
 

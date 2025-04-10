@@ -1,16 +1,21 @@
 #ifndef __CVITEK_DISP_H__
 #define __CVITEK_DISP_H__
 
+#include "cvitek_drm_debugfs.h"
+
 #define to_cvitek_crtc(crtc) \
 	container_of(crtc, struct cvitek_crtc, base)
 
 #define to_cvitek_plane(plane) \
 	container_of(plane, struct cvitek_plane, base)
 
-#define CVITEK_MAX_PLANE	4
-#define DISP_MAX_GOP_OW_INST 8
-#define DISP_MAX_GOP_FB_INST 2
-
+#define CVITEK_MAX_PLANE		4
+#define DISP_MAX_GOP_OW_INST 	8
+#define DISP_MAX_GOP_FB_INST 	2
+#define DISP_COVER_0     		0
+#define DISP_COVER_1     		1
+#define DISP_COVER_2     		2
+#define DISP_COVER_3     		3
 
 /* cvitek-format translate table */
 struct cvitek_format {
@@ -18,10 +23,10 @@ struct cvitek_format {
 	u32 hw_format;
 };
 
-
 enum DISP_FORMAT_E {
 	DISP_FORMAT_YUV_PLANAR_420 = 0,
 	DISP_FORMAT_YUV_PLANAR_422 = 1,
+	DISP_FORMAT_YUV_PLANAR_444 = 2,
 
 	DISP_FORMAT_RGB_888 = 4,
 	DISP_FORMAT_BGR_888 = 3,
@@ -365,9 +370,9 @@ union disp_dbg_status {
 	u32 raw;
 };
 
-//disp ctx
 struct disp_hw_ctx {
 	u32 disp_id;
+	u16 bg_rgb[3];
 	int irq;
 	struct clk *disp_clk;
 	struct disp_cfg disp_cfg;
@@ -375,6 +380,9 @@ struct disp_hw_ctx {
 	bool disp_vgop_status[CVITEK_MAX_PLANE];
 	spinlock_t disp_mask_spinlock;
 	bool primary_formats_xr24;
+	struct disp_cover_cfg cover_cfg[CVITEK_MAX_COVER_NUM];
+
+	struct debugfs_disp_state debugfs_disp_state[CVITEK_MAX_CRTC];
 };
 
 struct cvitek_crtc {
@@ -391,10 +399,13 @@ struct cvitek_plane {
 
 struct cvitek_disp {
 	struct drm_device *drm;
-	struct cvitek_crtc crtc;
+	struct cvitek_crtc ccrtc;
 	struct cvitek_plane planes[CVITEK_MAX_PLANE];
 	void *hw_ctx;
 };
+
+#define to_cvitek_disp(cvitek_crtc) \
+	container_of(cvitek_crtc, struct cvitek_disp, cvitek_crtc)
 
 /* display controller init/cleanup ops */
 struct disp_match_data {
@@ -417,7 +428,5 @@ struct disp_match_data {
 	void (*cleanup_hw_ctx)(struct platform_device *pdev,
 					void *hw_ctx);
 };
-
-// extern u16 hdmi_width;
 
 #endif /* __CVITEK_DISP_H__ */

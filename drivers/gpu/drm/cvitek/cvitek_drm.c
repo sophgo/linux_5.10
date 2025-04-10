@@ -3,7 +3,9 @@
 #include <linux/of_platform.h>
 #include <linux/dma-mapping.h>
 
+#include <drm/drm_debugfs.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_atomic.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_fb_helper.h>
@@ -12,6 +14,7 @@
 #include <drm/drm_vblank.h>
 
 #include "cvitek_vo_sys_reg.h"
+#include "cvitek_drm_debugfs.h"
 #include "cvitek_drm.h"
 
 #define DRIVER_NAME	"cvitek"
@@ -40,6 +43,95 @@ static const struct drm_mode_config_funcs cvitek_drm_mode_config_funcs = {
 	.atomic_commit = drm_atomic_helper_commit,
 };
 
+int cvitek_register_crtc_funcs(struct drm_crtc *crtc,
+				 const struct cvitek_crtc_funcs *crtc_funcs)
+{
+	int crtc_id = drm_crtc_index(crtc);
+	struct cvitek_drm_private *priv = crtc->dev->dev_private;
+
+	if (crtc_id >= CVITEK_MAX_CRTC)
+		return -EINVAL;
+
+	priv->crtc_funcs[crtc_id] = crtc_funcs;
+
+	return 0;
+}
+
+void cvitek_unregister_crtc_funcs(struct drm_crtc *crtc)
+{
+	int crtc_id = drm_crtc_index(crtc);
+	struct cvitek_drm_private *priv = crtc->dev->dev_private;
+
+	if (crtc_id >= CVITEK_MAX_CRTC)
+		return;
+
+	priv->crtc_funcs[crtc_id] = NULL;
+}
+
+static int cvitek_drm_summary_show(struct seq_file *s, void *data)
+{
+	struct drm_info_node *node = s->private;
+	struct drm_minor *minor = node->minor;
+	struct drm_device *drm_dev = minor->dev;
+	struct cvitek_drm_private *priv = drm_dev->dev_private;
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, drm_dev) {
+		int crtc_id = drm_crtc_index(crtc);
+
+		if (priv->crtc_funcs[crtc_id] &&
+		    priv->crtc_funcs[crtc_id]->debugfs_dump){
+			priv->crtc_funcs[crtc_id]->debugfs_dump(crtc, s);
+		}
+	}
+
+	return 0;
+}
+
+static int cvitek_disp_reg_show(struct seq_file *s, void *data)
+{
+	struct drm_info_node *node = s->private;
+	struct drm_minor *minor = node->minor;
+	struct drm_device *drm_dev = minor->dev;
+	struct cvitek_drm_private *priv = drm_dev->dev_private;
+	struct drm_crtc *crtc;
+
+	drm_for_each_crtc(crtc, drm_dev) {
+		int crtc_id = drm_crtc_index(crtc);
+
+		if (priv->crtc_funcs[crtc_id] &&
+		    priv->crtc_funcs[crtc_id]->regs_dump){
+			priv->crtc_funcs[crtc_id]->regs_dump(crtc, s);
+		}
+	}
+
+	return 0;
+}
+
+static struct drm_info_list cvitek_debugfs_files[] = {
+	{ "summary", cvitek_drm_summary_show, 0, NULL },
+	{ "disp_reg_show", cvitek_disp_reg_show, 0, NULL },
+};
+
+static void cvitek_drm_debugfs_init(struct drm_minor *minor)
+{
+	struct drm_device *dev = minor->dev;
+	struct cvitek_drm_private *priv = dev->dev_private;
+	struct drm_crtc *crtc;
+
+	drm_debugfs_create_files(cvitek_debugfs_files,
+				 ARRAY_SIZE(cvitek_debugfs_files),
+				 minor->debugfs_root, minor);
+
+	drm_for_each_crtc(crtc, dev) {
+		int crtc_id = drm_crtc_index(crtc);
+		if (priv->crtc_funcs[crtc_id] &&
+		    priv->crtc_funcs[crtc_id]->debugfs_init){
+			priv->crtc_funcs[crtc_id]->debugfs_init(minor, crtc);
+		}
+	}
+}
+
 static void cvitek_drm_mode_config_init(struct drm_device *dev)
 {
 	dev->mode_config.min_width = 8;
@@ -66,6 +158,7 @@ static struct drm_driver cvitek_drm_drv = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops = &cvitek_drm_fops,
 	.lastclose = drm_fb_helper_lastclose,
+	.debugfs_init = cvitek_drm_debugfs_init,
 	/* GEM Operations */
 	DRM_GEM_CMA_DRIVER_OPS_WITH_DUMB_CREATE(drm_cvitek_gem_dumb_create),
 
@@ -140,6 +233,7 @@ static int cvitek_drm_bind(struct device *dev)
 {
 	struct drm_device *drm;
 	struct cvitek_drm *cvitek;
+	struct cvitek_drm_private *private;
 	int ret;
 
 	DRM_DEBUG_DRIVER("---- enter cvitek drm bind. ----\n");
@@ -151,7 +245,15 @@ static int cvitek_drm_bind(struct device *dev)
 	drm = &cvitek->drm;
 	dev_set_drvdata(dev, drm);
 
-	//Athena 2 dma need set to 64bit
+	private = devm_kzalloc(drm->dev, sizeof(*private), GFP_KERNEL);
+	if (!private) {
+		ret = -ENOMEM;
+		goto err_free;
+	}
+
+	drm->dev_private = private;
+
+	/* dma need set to 64bit */
 	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	if (ret) {
 		drm_err(drm, "cannot set DMA masks to 64-bit.\n");
@@ -166,7 +268,7 @@ static int cvitek_drm_bind(struct device *dev)
 	if (ret)
 		return ret;
 
-	/*reset disp0 and disp1*/
+	/* reset disp0 and disp1 */
 	reset_disp();
 
 	ret = drmm_mode_config_init(drm);
@@ -182,8 +284,6 @@ static int cvitek_drm_bind(struct device *dev)
 		return ret;
 	}
 
-	/* vblank init */
-	drm->irq_enabled = true;
 	ret = drm_vblank_init(drm, drm->mode_config.num_crtc);
 	if (ret) {
 		drm_err(drm, "failed to initialize vblank.\n");
@@ -193,6 +293,9 @@ static int cvitek_drm_bind(struct device *dev)
 	/* reset all the states of crtc/plane/encoder/connector */
 	drm_mode_config_reset(drm);
 
+	/* vblank init */
+	drm->irq_enabled = true;
+
 	/* init kms poll for handling hpd */
 	drm_kms_helper_poll_init(drm);
 
@@ -200,7 +303,7 @@ static int cvitek_drm_bind(struct device *dev)
 	if (ret < 0)
 		goto err_kms_helper_poll_fini;
 
-	//frame buffer support
+	/* frame buffer support */
 	drm_fbdev_generic_setup(drm, 24);
 	drm->mode_config.allow_fb_modifiers = true;
 
@@ -210,6 +313,10 @@ err_kms_helper_poll_fini:
 	drm_kms_helper_poll_fini(drm);
 err_unbind_all:
 	component_unbind_all(drm->dev, drm);
+err_free:
+	drm->dev_private = NULL;
+	dev_set_drvdata(dev, NULL);
+	drm_dev_put(drm);
 	return ret;
 }
 

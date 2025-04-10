@@ -1348,6 +1348,8 @@ void ispblk_tnr_tun_cfg(
 	union reg_isp_mmap_44 mm_44;
 	union reg_isp_444_422_8 reg_8;
 	union reg_isp_444_422_9 reg_9;
+	union reg_isp_mmap_dc reg_dc;
+	union reg_isp_mmap_e0 reg_e0;
 
 	if (!ctx->is_3dnr_on || !cfg->update)
 		return;
@@ -1448,60 +1450,25 @@ void ispblk_tnr_tun_cfg(
 		g_rgbmap_chg_pre[raw_num][0] = true;
 		g_rgbmap_chg_pre[raw_num][1] = true;
 
-		if (_is_all_online(ctx)) {
-			vi_pr(VI_ERR, "not support changed rgbmap under on the fly mode\n");
-		} else if (_is_fe_be_online(ctx) && ctx->is_slice_buf_on) {
-			if (ctx->is_rgbmap_sbm_on) {
-				ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH0);
-				if (ctx->isp_pipe_cfg[raw_num].is_hdr_on)
-					ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH1);
-
-				ctx->isp_pipe_cfg[raw_num].rgbmap_i.w_bit = g_w_bit[raw_num];
-				ctx->isp_pipe_cfg[raw_num].rgbmap_i.h_bit = g_h_bit[raw_num];
-				ispblk_tnr_post_chg(ctx, raw_num);
-			} else {
-				//ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH0);
-				//if (ctx->isp_pipe_cfg[raw_num].is_hdr_on)
-				//	ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH1);
-
-				ctx->isp_pipe_cfg[raw_num].rgbmap_chg_state = ISP_RGBMAP_CHG_T0;
-			}
-		} else {
-			ctx->isp_pipe_cfg[raw_num].rgbmap_chg_state = ISP_RGBMAP_CHG_T0;
-		}
-	}
-
-	if (ctx->isp_pipe_cfg[raw_num].rgbmap_chg_state == ISP_RGBMAP_CHG_T0) {
-		if (_is_fe_be_online(ctx) && ctx->is_slice_buf_on) {
+		if (_is_all_online(ctx) || (_is_fe_be_online(ctx) && ctx->is_slice_buf_on)) {
 			ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH0);
-			if (ctx->isp_pipe_cfg[raw_num].is_hdr_on)
+			if (ctx->is_hdr_on)
 				ispblk_tnr_rgbmap_chg(ctx, raw_num, ISP_FE_CH1);
-		}
 
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_0, 0xF);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_1, 0xF);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_2, 0xF);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_3, 0xF);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_28, mmap_0_iir_prtct_lut_slope_0, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_28, mmap_0_iir_prtct_lut_slope_1, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_2c, mmap_0_iir_prtct_lut_slope_2, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_2c, mmap_0_mh_wgt, 0xF);
-	} else if (ctx->isp_pipe_cfg[raw_num].rgbmap_chg_state == ISP_RGBMAP_CHG_T1) {
-		if (_is_fe_be_online(ctx) && ctx->is_slice_buf_on) {
 			ctx->isp_pipe_cfg[raw_num].rgbmap_i.w_bit = g_w_bit[raw_num];
 			ctx->isp_pipe_cfg[raw_num].rgbmap_i.h_bit = g_h_bit[raw_num];
 			ispblk_tnr_post_chg(ctx, raw_num);
 		}
-
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_0, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_1, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_2, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_24, mmap_0_iir_prtct_lut_out_3, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_28, mmap_0_iir_prtct_lut_slope_0, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_28, mmap_0_iir_prtct_lut_slope_1, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_2c, mmap_0_iir_prtct_lut_slope_2, 0x0);
-		ISP_WR_BITS(manr, reg_isp_mmap_t, reg_2c, mmap_0_mh_wgt, 0x0);
 	}
+
+	reg_dc.raw = ISP_RD_REG(manr, reg_isp_mmap_t, reg_dc);
+	reg_dc.bits.coef_r = cfg->coef_r;
+	reg_dc.bits.coef_g = cfg->coef_g;
+	ISP_WR_REG(manr, reg_isp_mmap_t, reg_dc, reg_dc.raw);
+
+	reg_e0.raw = ISP_RD_REG(manr, reg_isp_mmap_t, reg_e0);
+	reg_e0.bits.coef_b = cfg->coef_b;
+	ISP_WR_REG(manr, reg_isp_mmap_t, reg_e0, reg_e0.raw);
 }
 
 void ispblk_ee_tun_cfg(

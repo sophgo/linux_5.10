@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
@@ -43,7 +44,7 @@
 
 static const enum mipi_wdr_mode_e os04e10_wdr_mode = MIPI_WDR_MODE_VC;
 
-static int os04e10_count;
+volatile int os04e10_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &os04e10_count, 0644);
 
@@ -66,11 +67,11 @@ struct os04e10_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t os04e10_sync_info;
 	struct os04e10_reg_list reg_list;
-	struct os04e10_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -83,6 +84,8 @@ static struct os04e10_mode supported_modes[] = {
 		.exp_def = 0x2000,
 		.hts_def = 0x67E,
 		.vts_def = 0x89B,
+		.sns_type = V4L2_OV_OS04E10_MIPI_4M_30FPS_2L_10BIT,
+		.sns_type_name = "V4L2_OV_OS04E10_MIPI_4M_30FPS_2L_10BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 310000,
@@ -100,6 +103,8 @@ static struct os04e10_mode supported_modes[] = {
 		.exp_def = 0x2000,
 		.hts_def = 0x67E,
 		.vts_def = 0x89B,
+		.sns_type = V4L2_OV_OS04E10_SALVE_MIPI_4M_30FPS_2L_10BIT,
+		.sns_type_name = "V4L2_OV_OS04E10_SALVE_MIPI_4M_30FPS_2L_10BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 310000,
@@ -291,13 +296,8 @@ static int enum_frame_interval(struct v4l2_subdev *sd,
 	fie->width  = os04e10->cur_mode->width;
 	fie->height = os04e10->cur_mode->height;
 
-	if (os04e10->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {
-		fie->interval.numerator   = os04e10->cur_mode->max_fps.numerator;
-		fie->interval.denominator = os04e10->cur_mode->max_fps.denominator;
-	} else {
-		fie->interval.numerator   = os04e10->cur_mode->wdr_max_fps.numerator;
-		fie->interval.denominator = os04e10->cur_mode->wdr_max_fps.denominator;
-	}
+	fie->interval.numerator   = os04e10->cur_mode->max_fps.numerator;
+	fie->interval.denominator = os04e10->cur_mode->max_fps.denominator;
 
 	return 0;
 }
@@ -394,11 +394,7 @@ static int start_streaming(struct os04e10 *os04e10)
 	const sns_sync_info_t *sync_info;
 	int ret;
 
-	if (os04e10->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
-		reg_list = &os04e10->cur_mode->reg_list;
-	} else {//wdr
-		reg_list = &os04e10->cur_mode->wdr_reg_list;
-	}
+	reg_list = &os04e10->cur_mode->reg_list;
 
 	ret = os04e10_write_regs(os04e10, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
@@ -454,6 +450,14 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
+		//reset sensor
+		if (!IS_ERR(os04e10->reset_gpio)) {
+			gpiod_set_value_cansleep(os04e10->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(os04e10->reset_gpio, 1);
+			msleep(100);
+		}
+
 		/*
 		 * Apply default & customized values
 		 * and then start streaming.
@@ -469,7 +473,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	os04e10->streaming = enable;
 	mutex_unlock(&os04e10->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -624,6 +628,124 @@ error:
 
 	return ret;
 }
+static int os04e10_get_info_form_dts(struct os04e10 *os04e10, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&os04e10->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable, rst_gpio, rst_acvive;
+	struct property *prop;
+	const char *type_name;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	os04e10_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			os04e10->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct os04e10_mode), GFP_KERNEL);
+			memcpy(os04e10->cur_mode, &supported_modes[i], sizeof(struct os04e10_mode));
+		}
+	}
+
+	os04e10->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(os04e10->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(os04e10->power_gpio, 1);
+
+	os04e10->reset_gpio = devm_gpiod_get(&client->dev,
+			"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(os04e10->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
 
 static long os04e10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
@@ -666,16 +788,18 @@ static long os04e10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 	case SNS_V4L2_SET_HDR_ON:
 	{
+		struct i2c_client *client = v4l2_get_subdevdata(&os04e10->sd);
 		int hdr_on = 0;
 
 		memcpy(&hdr_on, arg, sizeof(int));
 
 		if (hdr_on)
-			os04e10->cur_mode->mipi_wdr_mode = os04e10_wdr_mode;
+			dev_warn(&client->dev, "Not support HDR!\n");
 		else
-			os04e10->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+			memcpy(os04e10->cur_mode, &supported_modes[os04e10->module_index], sizeof(struct os04e10_mode));
 
 		os04e10_update_link_menu(os04e10);
+
 		break;
 	}
 
@@ -761,6 +885,8 @@ static int os04e10_init_controls(struct os04e10 *os04e10, int index_id)
 		return ret;
 	}
 
+	os04e10_get_info_form_dts(os04e10, index_id);
+
 	mutex_init(&os04e10->mutex);
 	ctrl_hdlr->lock = &os04e10->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -816,7 +942,7 @@ static int os04e10_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = os04e10_probe_index;
 	int addr_num = sizeof(os04e10_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -835,7 +961,27 @@ static int os04e10_probe(struct i2c_client *client,
 
 	sd = &os04e10->sd;
 
-	for (i = 0; i < addr_num; i++) {
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!os04e10_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		os04e10->client = client;
+		v4l2_i2c_subdev_init(sd, client, &os04e10_subdev_ops);
+		/* Check module identity */
+		ret = os04e10_identify_module(os04e10);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	for (i = 0; i < addr_num && use_defualt; i++) {
 		if (force_bus[index_id] < 0)
 			bus_id = os04e10_bus_map[index_id];
 		else
@@ -937,23 +1083,27 @@ static int os04e10_remove(struct i2c_client *client)
 	struct os04e10 *os04e10 = to_os04e10(sd);
 
 	os04e10_probe_index = 0;
+	pr_info("== os04e10_remove_index = %d ==\n", os04e10_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	os04e10_free_controls(os04e10);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", os04e10_probe_index);
 	return 0;
 }
 
 static const struct of_device_id os04e10_of_match[] = {
-	{ .compatible = "cvitek,sensor0" },
-	{ .compatible = "cvitek,sensor1" },
-	{ .compatible = "cvitek,sensor2" },
-	{ .compatible = "cvitek,sensor3" },
-	{ .compatible = "cvitek,sensor4" },
-	{ .compatible = "cvitek,sensor5" },
+	{ .compatible = "v4l2,sensor0" },
+	{ .compatible = "v4l2,sensor1" },
+	{ .compatible = "v4l2,sensor2" },
+	{ .compatible = "v4l2,sensor3" },
+	{ .compatible = "v4l2,sensor4" },
+	{ .compatible = "v4l2,sensor5" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, os04e10_of_match);
@@ -982,6 +1132,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== os04e10 mod rmmod ==\n");
 	i2c_del_driver(&os04e10_i2c_driver);
 }
 

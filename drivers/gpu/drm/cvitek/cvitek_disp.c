@@ -4,6 +4,7 @@
 #include <linux/of_graph.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/debugfs.h>
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
@@ -15,6 +16,7 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 #include <drm/drm_fourcc.h>
+#include <drm/drm_debugfs.h>
 
 #include "cvitek_vo_sys_reg.h"
 #include "cvitek_drm.h"
@@ -27,11 +29,11 @@
 #define DEFINE_CSC_COEF2(a, b, c) \
 		.coef[2][0] = a, .coef[2][1] = b, .coef[2][2] = c,
 
-#define RETRAIN_REG        0x281000F4
-#define GP_REG             0x281000F8
-#define DISP_FPS_CNT       10
-#define DISP_FPS_TABLE_CNT 6
-#define DISP_MAX_INST      2
+#define RETRAIN_REG        		0x281000F4
+#define GP_REG             		0x281000F8
+#define DISP_FPS_CNT       		10
+#define DISP_FPS_TABLE_CNT 		6
+#define DISP_MAX_INST      		2
 
 static void *gp_reg;
 static void *retrain_reg;
@@ -169,8 +171,19 @@ static void disp_reg_set_shadow_mask(struct disp_hw_ctx *ctx, bool shadow_mask)
 		spin_unlock(&ctx->disp_mask_spinlock);
 }
 
+void disp_set_fde_bgcolor(u8 disp_id, u16 r, u16 g, u16 b)
+{
+	_reg_write_mask(REG_DISP_PAT_COLOR1(disp_id), 0x3ff0000, r << 16);
+	_reg_write_mask(REG_DISP_PAT_COLOR2(disp_id), 0x3ff03ff, b << 16 | g);
+}
+
 void disp_set_window_bgcolor(u8 disp_id, u16 r, u16 g, u16 b)
 {
+	// fde
+	_reg_write_mask(REG_DISP_PAT_COLOR1(disp_id), 0x03ff0000, r << 16);
+	_reg_write(REG_DISP_PAT_COLOR2(disp_id), b << 16 | g);
+
+	// mde
 	_reg_write(REG_DISP_PAT_COLOR3(disp_id), g << 16 | r);
 	_reg_write_mask(REG_DISP_PAT_COLOR4(disp_id), 0x0fff, b);
 }
@@ -554,13 +567,12 @@ static void ddr_retrain(int disp_id, union disp_intr intr_status)
 	}
 }
 
-
 static irqreturn_t disp_irq_handler(int irq, void *data)
 {
 	struct device *disp_dev = data;
 	struct cvitek_disp *cvitek_disp = dev_get_drvdata(disp_dev);
 	struct disp_hw_ctx *ctx = cvitek_disp->hw_ctx;
-	struct drm_crtc *crtc = &cvitek_disp->crtc.base;
+	struct drm_crtc *crtc = &cvitek_disp->ccrtc.base;
 
 	union disp_dbg_status dbg_status = disp_dbg_status(ctx->disp_id);
 	union disp_intr intr_status = disp_intr_status(ctx->disp_id);
@@ -621,7 +633,7 @@ static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc
 	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x03);
 
 	if (!crtc->state->gamma_lut) {
-		_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x00);
+		_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x07, 0x00);
 		return;
 	}
 
@@ -661,6 +673,26 @@ static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
 		disp_crtc_write_gamma_lut(ccrtc, crtc, old_state);
 
 	drm_crtc_vblank_on(crtc);
+}
+
+static void disp_set_cover_cfg(struct disp_cover_cfg *cover_cfg, int disp_id, int cover_id)
+{
+	_reg_write_mask(REG_DISP_COVER_CFG(disp_id, cover_id), BIT(31),
+					cover_cfg->start.b.enable << 31);
+	_reg_write_mask(REG_DISP_COVER_CFG(disp_id, cover_id), 0x3fff,
+					cover_cfg->start.b.x);
+	_reg_write_mask(REG_DISP_COVER_CFG(disp_id, cover_id), 0x3fff0000,
+					cover_cfg->start.b.y << 16);
+	_reg_write_mask(REG_DISP_COVER_SIZE(disp_id, cover_id), 0x3fff,
+					cover_cfg->img_size.w);
+	_reg_write_mask(REG_DISP_COVER_SIZE(disp_id, cover_id), 0x3fff0000,
+					cover_cfg->img_size.h << 16);
+	_reg_write_mask(REG_DISP_COVER_COLOR(disp_id, cover_id), 0xff,
+					cover_cfg->color.b.cover_color_r);
+	_reg_write_mask(REG_DISP_COVER_COLOR(disp_id, cover_id), 0xff00,
+					cover_cfg->color.b.cover_color_g << 8);
+	_reg_write_mask(REG_DISP_COVER_COLOR(disp_id, cover_id), 0xff0000,
+					cover_cfg->color.b.cover_color_b << 16);
 }
 
 static void disp_crtc_atomic_disable(struct drm_crtc *crtc,
@@ -731,6 +763,126 @@ static void disp_crtc_atomic_flush(struct drm_crtc *crtc,
 	}
 }
 
+static int cvitek_crtc_atomic_get_property(struct drm_crtc *crtc,
+					const struct drm_crtc_state *state,
+					struct drm_property *property,
+					uint64_t *val)
+{
+	struct drm_device *drm_dev = crtc->dev;
+	struct cvitek_drm_private *private = drm_dev->dev_private;
+	struct cvitek_crtc *ccrtc;
+	struct disp_hw_ctx *ctx;
+	int i;
+
+	ccrtc = to_cvitek_crtc(crtc);
+	if (!ccrtc)
+		return -EINVAL;
+
+	ctx = ccrtc->hw_ctx;
+
+	if (property == private->bg_color_prop[ctx->disp_id]) {
+		*val = ((ctx->bg_rgb[0] & GENMASK(9, 0)) |
+			((ctx->bg_rgb[1] & GENMASK(9, 0)) << 10) |
+			((ctx->bg_rgb[2] & GENMASK(9, 0)) << 20));
+		return 0;
+	}
+
+	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++) {
+		if (property == private->cover_prop[ctx->disp_id].cover_en_prop[i]) {
+			*val = ctx->cover_cfg[i].start.b.enable;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_x_prop[i]) {
+			*val = ctx->cover_cfg[i].start.b.x;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_y_prop[i]) {
+			*val = ctx->cover_cfg[i].start.b.y;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_w_prop[i]) {
+			*val = ctx->cover_cfg[i].img_size.w;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_h_prop[i]) {
+			*val = ctx->cover_cfg[i].img_size.h;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_rgb_prop[i]) {
+			*val = ctx->cover_cfg[i].color.raw;
+			return 0;
+		}
+	}
+
+	DRM_ERROR("failed to get cvitek crtc property\n");
+	return -EINVAL;
+}
+
+static int cvitek_crtc_atomic_set_property(struct drm_crtc *crtc,
+					struct drm_crtc_state *state,
+					struct drm_property *property,
+					uint64_t val)
+{
+	struct drm_device *drm_dev = crtc->dev;
+	struct cvitek_drm_private *private = drm_dev->dev_private;
+	struct cvitek_crtc *ccrtc;
+	struct disp_hw_ctx *ctx;
+	int i;
+
+	ccrtc = to_cvitek_crtc(crtc);
+	if (!ccrtc)
+		return -EINVAL;
+
+	ctx = ccrtc->hw_ctx;
+
+	if (property == private->bg_color_prop[ctx->disp_id]) {
+		ctx->bg_rgb[0] = val;
+		ctx->bg_rgb[1] = val >> 10;
+		ctx->bg_rgb[2] = val >> 20;
+		return 0;
+	}
+
+	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++) {
+		if (property == private->cover_prop[ctx->disp_id].cover_en_prop[i]) {
+			ctx->cover_cfg[i].start.b.enable = val;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_x_prop[i]) {
+			ctx->cover_cfg[i].start.b.x = val;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_y_prop[i]) {
+			ctx->cover_cfg[i].start.b.y = val;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_w_prop[i]) {
+			ctx->cover_cfg[i].img_size.w = val;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_h_prop[i]) {
+			ctx->cover_cfg[i].img_size.h = val;
+			return 0;
+		}
+
+		if (property == private->cover_prop[ctx->disp_id].cover_rgb_prop[i]) {
+			ctx->cover_cfg[i].color.raw = val;
+			return 0;
+		}
+	}
+
+	DRM_ERROR("failed to set cvitek crtc property\n");
+	return -EINVAL;
+}
+
 static const struct drm_crtc_helper_funcs disp_crtc_helper_funcs = {
 	.mode_set_nofb	= disp_crtc_mode_set_nofb,
 	.atomic_flush	= disp_crtc_atomic_flush,
@@ -743,6 +895,8 @@ static const struct drm_crtc_funcs disp_crtc_funcs = {
 	.set_config	= drm_atomic_helper_set_config,
 	.page_flip	= drm_atomic_helper_page_flip,
 	.reset		= drm_atomic_helper_crtc_reset,
+	.atomic_get_property = cvitek_crtc_atomic_get_property,
+	.atomic_set_property = cvitek_crtc_atomic_set_property,
 	.atomic_duplicate_state	= drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state	= drm_atomic_helper_crtc_destroy_state,
 	.enable_vblank	= disp_crtc_enable_vblank,
@@ -951,6 +1105,17 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 	u32 fmt, i, bytesperpixel;
 	enum drm_intf intf;
 
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+	memset(&ctx->debugfs_disp_state[disp_id].dump_info, 0, sizeof(struct disp_dump_info));
+	if (type == DRM_PLANE_TYPE_PRIMARY && (fb->format->format != DRM_FORMAT_XRGB8888))
+		ctx->debugfs_disp_state[disp_id].dump_info.primary_fmt = fb->format->format;
+
+	ctx->debugfs_disp_state[disp_id].dump_info.width = fb->width;
+	ctx->debugfs_disp_state[disp_id].dump_info.height = fb->height;
+	ctx->debugfs_disp_state[disp_id].dump_info.hsub = fb->format->hsub;
+	ctx->debugfs_disp_state[disp_id].dump_info.vsub = fb->format->vsub;
+#endif
+
 	if (type == DRM_PLANE_TYPE_PRIMARY) {
 		//fmt
 		fmt = disp_get_format(fb->format->format);
@@ -981,6 +1146,12 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
 			addr = cma_obj->paddr + fb->offsets[0];
 			fmt = VGOP_FORMAT_ARGB8888;
+
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+			ctx->debugfs_disp_state[disp_id].dump_info.cma_object_vaddr[0] = (u64)(cma_obj->vaddr + fb->offsets[0]);
+			ctx->debugfs_disp_state[disp_id].dump_info.pitches[0] = fb->pitches[0];
+			ctx->debugfs_disp_state[disp_id].dump_info.primary_xr24 = true;
+#endif
 			//ow_0
 			ctx->disp_cfg.gop_cfg.ow_cfg[0].fmt = fmt;
 			ctx->disp_cfg.gop_cfg.ow_cfg[0].addr = addr;
@@ -1035,6 +1206,12 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 				cma_obj = drm_fb_cma_get_gem_obj(fb, i);
 				addr = cma_obj->paddr + fb->offsets[i];
 
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+				ctx->debugfs_disp_state[disp_id].dump_info.cma_object_vaddr[i] =
+					(u64)(cma_obj->vaddr + fb->offsets[i]);
+				ctx->debugfs_disp_state[disp_id].dump_info.pitches[i] = fb->pitches[i];
+#endif
+
 				if (i == 0)
 					ctx->disp_cfg.mem.addr0 = addr;
 				else if (i == 1)
@@ -1063,6 +1240,12 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 		fmt = vgop_get_format(fb->format->format);
 		bytesperpixel = (fmt == VGOP_FORMAT_ARGB8888) ? 4 : 2;
 
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+		ctx->debugfs_disp_state[disp_id].dump_info.cma_object_vaddr[0] =
+			(u64)(cma_obj->vaddr + fb->offsets[0]);
+		ctx->debugfs_disp_state[disp_id].dump_info.pitches[0] = fb->pitches[0];
+		ctx->debugfs_disp_state[disp_id].dump_info.overlay = true;
+#endif
 		//ow_0
 		ctx->disp_cfg.gop_cfg.ow_cfg[0].fmt = fmt;
 		ctx->disp_cfg.gop_cfg.ow_cfg[0].addr = addr;
@@ -1116,6 +1299,20 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 	intf = disp_id ? DRM_INTF_DISP1 : DRM_INTF_DISP0;
 	extend_axi_to_36bit(addr >> 32, intf);
 
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+	if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_KEEP ||
+		ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_ONCE ||
+		ctx->debugfs_disp_state[disp_id].disp_dump_times > 0) {
+		if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_ONCE)
+			ctx->debugfs_disp_state[disp_id].disp_dump_status = DUMP_DISABLE;
+		else if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_MULTI)
+			ctx->debugfs_disp_state[disp_id].disp_dump_times--;
+
+		cvitek_drm_dump_plane_buffer(&ctx->debugfs_disp_state[disp_id].dump_info,
+			ctx->debugfs_disp_state[disp_id].frame_count++);
+	}
+#endif
+
 	DRM_DEBUG_DRIVER("channel%d: src:(%d, %d)-%dx%d, crtc:(%d, %d)-%dx%d fmt:(%d)",
 			ch, src_x, src_y, src_w, src_h,
 			crtc_x, crtc_y, crtc_w, crtc_h, fmt);
@@ -1127,6 +1324,7 @@ static void disp_plane_atomic_update(struct drm_plane *plane,
 	struct drm_plane_state *state = plane->state;
 	struct cvitek_plane *cplane = to_cvitek_plane(plane);
 	struct disp_hw_ctx *ctx = cplane->hw_ctx;
+	int i;
 
 	DRM_DEBUG_DRIVER("---- enter disp plane atomic update. ----\n");
 
@@ -1143,6 +1341,12 @@ static void disp_plane_atomic_update(struct drm_plane *plane,
 			   state->src_w >> 16, state->src_h >> 16);
 
 	disp_enable_window_bgcolor(ctx->disp_id, false);
+	disp_set_fde_bgcolor(ctx->disp_id, ctx->bg_rgb[0], ctx->bg_rgb[1], ctx->bg_rgb[2]);
+
+	/*cover cfg*/
+	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++)
+		if (ctx->cover_cfg[i].start.b.enable)
+			disp_set_cover_cfg(&ctx->cover_cfg[i], ctx->disp_id, i);
 }
 
 static void disp_plane_atomic_disable(struct drm_plane *plane,
@@ -1151,7 +1355,8 @@ static void disp_plane_atomic_disable(struct drm_plane *plane,
 	struct cvitek_plane *cplane = to_cvitek_plane(plane);
 	struct disp_hw_ctx *ctx = cplane->hw_ctx;
 	u32 ch = cplane->ch;
-	int i = 0;
+	int primary_plane = 0;
+	int i;
 
 	DRM_DEBUG_DRIVER("---- enter disp plane atomic disable. ----\n");
 
@@ -1159,19 +1364,227 @@ static void disp_plane_atomic_disable(struct drm_plane *plane,
 		disp_set_addr(ctx, 0, 0, 0);
 		disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 		disp_enable_window_bgcolor(ctx->disp_id, true);
-		for (i = 0; i < CVITEK_MAX_PLANE - 1; i++) {
-			if (ctx->disp_vgop_status[i] == 1) {
-				memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
-				disp_gop_set_cfg(ctx, i, &ctx->disp_cfg.gop_cfg);
-				ctx->disp_vgop_status[i] = 0;
-			}
+		if (ctx->disp_vgop_status[primary_plane] == 1) {
+			memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
+			disp_gop_set_cfg(ctx, primary_plane, &ctx->disp_cfg.gop_cfg);
+			disp_gop_ow_set_cfg(ctx, primary_plane, 0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
+			ctx->disp_vgop_status[primary_plane] = 0;
 		}
 	} else {
 		memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
 		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg);
+		disp_gop_ow_set_cfg(ctx, ch - 1, 0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
 		ctx->disp_vgop_status[ch - 1] = 0;
 	}
+
+	ctx->bg_rgb[0] = 0;
+	ctx->bg_rgb[1] = 0;
+	ctx->bg_rgb[2] = 0;
+
+	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++) {
+		if (ctx->cover_cfg[i].start.b.enable) {
+			memset(&ctx->cover_cfg[i], 0, sizeof(struct disp_cover_cfg));
+			disp_set_cover_cfg(&ctx->cover_cfg[i], ctx->disp_id, i);
+		}
+	}
 }
+
+static int cvitek_atomic_plane_set_property(struct drm_plane *plane,
+					 struct drm_plane_state *state,
+					 struct drm_property *property,
+					 uint64_t val)
+{
+	return 0;
+}
+
+static int cvitek_atomic_plane_get_property(struct drm_plane *plane,
+					 const struct drm_plane_state *state,
+					 struct drm_property *property,
+					 uint64_t *val)
+{
+	return 0;
+}
+
+static int disp_gamma_show(struct seq_file *s, void *data)
+{
+
+	struct drm_info_node *node = s->private;
+	struct drm_crtc *crtc = node->info_ent->data;
+	struct drm_color_lut *lut;
+	int i;
+
+	if (!crtc->state->gamma_lut) {
+		DRM_INFO(" gamma_lut is not set\n");
+		return 0;
+	}
+
+	lut = (struct drm_color_lut *)crtc->state->gamma_lut->data;
+
+	for (i = 0; i < crtc->gamma_size; i++) {
+		DRM_INFO("%d 0x%08x \n", i,
+			(lut[i].red | (lut[i].green << 8) | (lut[i].blue << 16)));
+	}
+	DRM_INFO("\n");
+
+	return 0;
+}
+
+static void disp_dump_connector_on_crtc(struct drm_crtc *crtc, struct seq_file *s)
+{
+	struct drm_connector_list_iter conn_iter;
+	struct drm_connector *connector;
+
+	drm_connector_list_iter_begin(crtc->dev, &conn_iter);
+	drm_for_each_connector_iter(connector, &conn_iter) {
+		if (crtc->state->connector_mask & drm_connector_mask(connector))
+			DRM_INFO("\tConnector: %s\n", connector->name);
+	}
+	drm_connector_list_iter_end(&conn_iter);
+}
+
+static struct drm_info_list disp_debugfs_files[] = {
+	{ "gamma_lut", disp_gamma_show, 0, NULL },
+};
+
+static int disp_debugfs_dump(struct drm_crtc *crtc, struct seq_file *s)
+{
+	struct drm_crtc_state *crtc_state = crtc->state;
+	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
+	struct cvitek_crtc *ccrtc;
+	struct cvitek_disp *cvitek_disp;
+	struct disp_hw_ctx *ctx;
+	bool interlaced;
+	struct drm_plane_state *state;
+	int i;
+
+	ccrtc = to_cvitek_crtc(crtc);
+	if(!ccrtc)
+		return 0;
+
+	cvitek_disp = to_cvitek_disp(ccrtc);
+	if (!cvitek_disp)
+		return 0;
+
+	for (i = 0; i < CVITEK_MAX_PLANE; i++) {
+		if (cvitek_disp->planes[i].base.type == DRM_PLANE_TYPE_PRIMARY) {
+			state = cvitek_disp->planes[i].base.state;
+			if (!state)
+				return 0;
+		}
+	}
+
+	ctx = ccrtc->hw_ctx;
+
+	DRM_INFO("DISP [%d]: %s\n", ctx->disp_id,
+		    crtc_state->active ? "ACTIVE" : "DISABLED");
+
+	if (!crtc_state->active)
+		return 0;
+
+	disp_dump_connector_on_crtc(crtc, s);
+	DRM_INFO("\toutput bus_format: %s\n",
+		ctx->disp_cfg.out_csc ? "YUV8_1X24" : "RGB888_1X24");
+	DRM_INFO("\tcolor_space_in[%d]\n",
+		    ctx->disp_cfg.in_csc);
+	DRM_INFO("\tcolor_space_out[%d]\n",
+		    ctx->disp_cfg.out_csc);
+	interlaced = !!(mode->flags & DRM_MODE_FLAG_INTERLACE);
+	DRM_INFO("\tDisplay mode: %dx%d%s%d\n",
+		    mode->hdisplay, mode->vdisplay, interlaced ? "i" : "p",
+		    drm_mode_vrefresh(mode));
+	DRM_INFO("\tclk[%d] real_clk[%d] type[%x] flag[%x]\n",
+		    mode->clock, mode->crtc_clock, mode->type, mode->flags);
+	DRM_INFO("\tH: %d %d %d %d\n", mode->hdisplay, mode->hsync_start,
+		    mode->hsync_end, mode->htotal);
+	DRM_INFO("\tV: %d %d %d %d\n", mode->vdisplay, mode->vsync_start,
+		    mode->vsync_end, mode->vtotal);
+	DRM_INFO("\tleft_margin[%d] right_margin[%d]\n",
+		    state->crtc_x, (state->crtc_x + state->src_w >= state->crtc_w) ?
+			0 : (state->crtc_w - (state->crtc_x + state->src_w)));
+	DRM_INFO("\ttop_margin[%d] bottom_margin[%d]\n",
+		    state->crtc_y, (state->crtc_y + state->src_h >= state->crtc_h) ?
+			0 : (state->crtc_h - (state->crtc_y + state->src_h)));
+
+	return 0;
+}
+
+static int disp_debugfs_init(struct drm_minor *minor, struct drm_crtc *crtc)
+{
+	int ret, i;
+	char file_name[10];
+	struct cvitek_crtc *ccrtc;
+	struct disp_hw_ctx *ctx;
+
+	ccrtc = to_cvitek_crtc(crtc);
+	if(!ccrtc)
+		return 0;
+
+	ctx = ccrtc->hw_ctx;
+
+	snprintf(file_name, 10, "disp_%d", ctx->disp_id);
+
+	ctx->debugfs_disp_state[ctx->disp_id].debugfs = debugfs_create_dir(file_name,
+					  minor->debugfs_root);
+
+	if (!ctx->debugfs_disp_state[ctx->disp_id].debugfs)
+		return -ENOMEM;
+
+	ctx->debugfs_disp_state[ctx->disp_id].debugfs_files = kmemdup(disp_debugfs_files,
+				     sizeof(disp_debugfs_files),
+				     GFP_KERNEL);
+	if (!ctx->debugfs_disp_state[ctx->disp_id].debugfs_files) {
+		ret = -ENOMEM;
+		goto remove;
+	}
+
+	cvitek_drm_add_dump_buffer(crtc, ctx->debugfs_disp_state[ctx->disp_id].debugfs);
+
+	for (i = 0; i < ARRAY_SIZE(disp_debugfs_files); i++)
+		ctx->debugfs_disp_state[ctx->disp_id].debugfs_files[i].data = crtc;
+
+	drm_debugfs_create_files(ctx->debugfs_disp_state[ctx->disp_id].debugfs_files, ARRAY_SIZE(disp_debugfs_files),
+				 ctx->debugfs_disp_state[ctx->disp_id].debugfs, minor);
+
+	return 0;
+remove:
+	debugfs_remove(ctx->debugfs_disp_state[ctx->disp_id].debugfs);
+	ctx->debugfs_disp_state[ctx->disp_id].debugfs = NULL;
+	return ret;
+}
+
+static void disp_regs_dump(struct drm_crtc *crtc, struct seq_file *s)
+{
+	struct drm_crtc_state *crtc_state = crtc->state;
+	struct cvitek_crtc *ccrtc;
+	struct disp_hw_ctx *ctx;
+	int disp_id;
+	int i;
+
+	if (!crtc_state->active)
+		return;
+
+	ccrtc = to_cvitek_crtc(crtc);
+	if(!ccrtc)
+		return;
+
+	ctx = ccrtc->hw_ctx;
+	disp_id = ctx->disp_id;
+
+	DRM_INFO("DSIP %d\n", disp_id);
+	for (i = 0; i < 836; i += 16) {
+		DRM_INFO("0x%08x: %08x %08x %08x %08x\n", i,
+			    _reg_read(REG_DISP_CFG(disp_id) + i),
+				_reg_read(REG_DISP_CFG(disp_id) + i + 0x4),
+			    _reg_read(REG_DISP_CFG(disp_id) + i + 0x8),
+				_reg_read(REG_DISP_CFG(disp_id) + i + 0xc));
+	}
+}
+
+static const struct cvitek_crtc_funcs private_crtc_funcs = {
+	.debugfs_init = disp_debugfs_init,
+	.debugfs_dump = disp_debugfs_dump,
+	.regs_dump = disp_regs_dump,
+};
 
 static const struct drm_plane_helper_funcs disp_plane_helper_funcs = {
 	.atomic_check = disp_plane_atomic_check,
@@ -1185,7 +1598,10 @@ static struct drm_plane_funcs disp_plane_funcs = {
 	.destroy = drm_plane_cleanup,
 	.reset = drm_atomic_helper_plane_reset,
 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+	.atomic_set_property = cvitek_atomic_plane_set_property,
+	.atomic_get_property = cvitek_atomic_plane_get_property,
 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+
 };
 
 static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device *dev, struct drm_crtc *crtc,
@@ -1193,7 +1609,10 @@ static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device 
 			       const struct disp_match_data *match_data)
 {
 	struct device_node *port;
-	int ret;
+	struct cvitek_drm_private *private;
+	struct drm_property *prop;
+	int ret, i;
+	char prop_name[30];
 
 	/* set crtc port so that
 	 * drm_of_find_possible_crtcs call works
@@ -1214,6 +1633,62 @@ static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device 
 	}
 
 	drm_crtc_helper_add(crtc, match_data->crtc_helper_funcs);
+
+	cvitek_register_crtc_funcs(crtc, &private_crtc_funcs);
+
+	private = dev->dev_private;
+
+	prop = drm_property_create_range(dev, 0, "background_color", 0, UINT_MAX);
+	if (prop) {
+		private->bg_color_prop[match_data->crtc_id] = prop;
+		drm_object_attach_property(&crtc->base,
+			private->bg_color_prop[match_data->crtc_id], 0);
+	}
+
+	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++) {
+		sprintf(prop_name, "cover_%d_en", i);
+		prop = drm_property_create_bool(dev, 0, prop_name);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_en_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_en_prop[i], false);
+		}
+		sprintf(prop_name, "cover_%d_x", i);
+		prop = drm_property_create_range(dev, 0, prop_name, 0, 4096);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_x_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_x_prop[i], 0);
+		}
+		sprintf(prop_name, "cover_%d_y", i);
+		prop = drm_property_create_range(dev, 0, prop_name, 0, 2160);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_y_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_y_prop[i], 0);
+		}
+		sprintf(prop_name, "cover_%d_w", i);
+		prop = drm_property_create_range(dev, 0, prop_name, 0, 4096);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_w_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_w_prop[i], 0);
+		}
+		sprintf(prop_name, "cover_%d_h", i);
+		prop = drm_property_create_range(dev, 0, prop_name, 0, 2160);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_h_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_h_prop[i], 0);
+		}
+		sprintf(prop_name, "cover_%d_rgb", i);
+		prop = drm_property_create_range(dev, 0, prop_name, 0, UINT_MAX);
+		if (prop) {
+			private->cover_prop[match_data->crtc_id].cover_rgb_prop[i] = prop;
+			drm_object_attach_property(&crtc->base,
+				private->cover_prop[match_data->crtc_id].cover_rgb_prop[i], 0);
+		}
+	}
 
 	if (!gp_reg)
 		gp_reg = ioremap(GP_REG, 4);
@@ -1354,16 +1829,17 @@ static int cvitek_disp_private_init(struct device *disp_dev, struct drm_device *
 	/* crtc init */
 	prim_plane = &cvitek_disp->planes[match_data->prim_plane].base;
 	cursor_plane = &cvitek_disp->planes[match_data->num_planes - 1].base;
-	ret = cvitek_drm_crtc_init(pdev, drm_dev, &cvitek_disp->crtc.base,
+	ret = cvitek_drm_crtc_init(pdev, drm_dev, &cvitek_disp->ccrtc.base,
 				prim_plane, cursor_plane, match_data);
 	if (ret)
 		return ret;
 
 	if (match_data->gamma_lut_size) {
-		drm_mode_crtc_set_gamma_size(&cvitek_disp->crtc.base, match_data->gamma_lut_size);
-		drm_crtc_enable_color_mgmt(&cvitek_disp->crtc.base, 0, 0, match_data->gamma_lut_size);
+		drm_mode_crtc_set_gamma_size(&cvitek_disp->ccrtc.base, match_data->gamma_lut_size);
+		drm_crtc_enable_color_mgmt(&cvitek_disp->ccrtc.base, 0, 0, match_data->gamma_lut_size);
 	}
-	cvitek_disp->crtc.hw_ctx = ctx;
+
+	cvitek_disp->ccrtc.hw_ctx = ctx;
 
 	return 0;
 }

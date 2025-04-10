@@ -30,11 +30,19 @@ static s64 os04a10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		4,                      //LANE_2
 		2,                      //LANE_3
 		3,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//s1 linear mode
 		SNS_CFG_TYPE_MAX,
@@ -53,11 +61,19 @@ static s64 os04a10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		16,                      //LANE_2
 		14,                      //LANE_3
 		15,                      //LANE_4
+		-1,                      //LANE_5
+		-1,                      //LANE_6
+		-1,                      //LANE_7
+		-1,                      //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 
@@ -235,9 +251,9 @@ static const struct os04a10_reg mode_2688x1520_12bit_regs[] = {
 	{0x3806, 0x05},
 	{0x3807, 0xff},
 	{0x3808, 0x0a},
-	{0x3809, 0x80},
+	{0x3809, 0x00},
 	{0x380a, 0x05},
-	{0x380b, 0xf0},
+	{0x380b, 0xa0},
 	{0x380c, 0x05},
 	{0x380d, 0xcc},
 	{0x380e, 0x09},

@@ -760,7 +760,7 @@ static void send_file_work(struct work_struct *data)
 					__cpu_to_le32(dev->xfer_transaction_id);
 		}
 		start_time = ktime_get();
-		ret = vfs_read(filp, req->buf + hdr_size, xfer - hdr_size,
+		ret = kernel_read(filp, req->buf + hdr_size, xfer - hdr_size,
 								&offset);
 		if (ret < 0) {
 			r = ret;
@@ -833,9 +833,9 @@ static void receive_file_work(struct work_struct *data)
 		if (write_req) {
 			DBG(cdev, "rx %p %d\n", write_req, write_req->actual);
 			start_time = ktime_get();
-			ret = vfs_write(filp, write_req->buf, write_req->actual,
+			ret = kernel_write(filp, write_req->buf, write_req->actual,
 				&offset);
-			DBG(cdev, "vfs_write %d\n", ret);
+			DBG(cdev, "kernel_write %d\n", ret);
 			if (ret != write_req->actual) {
 				r = -EIO;
 				if (dev->state != STATE_OFFLINE)
@@ -1394,7 +1394,7 @@ static int debug_mtp_read_stats(struct seq_file *s, void *unused)
 			iteration++;
 		}
 	}
-	seq_printf(s, "vfs_write(time in usec) min:%d\t max:%d\t avg:%d\n",
+	seq_printf(s, "kernel_write(time in usec) min:%d\t max:%d\t avg:%d\n",
 						min, max, sum / iteration);
 	min = max = sum = iteration = 0;
 	seq_puts(s, "\n=======================\n");
@@ -1414,7 +1414,7 @@ static int debug_mtp_read_stats(struct seq_file *s, void *unused)
 			iteration++;
 		}
 	}
-	seq_printf(s, "vfs_read(time in usec) min:%d\t max:%d\t avg:%d\n",
+	seq_printf(s, "kernel_read(time in usec) min:%d\t max:%d\t avg:%d\n",
 						min, max, sum / iteration);
 	spin_unlock_irqrestore(&dev->lock, flags);
 	return 0;

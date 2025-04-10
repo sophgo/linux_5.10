@@ -34,6 +34,12 @@ config CVITEK_LVDS
 	  If you want to enable LVDS on Cvitek SoC, you should
 	  select this option.
 
+config CVITEK_DRM_DEBUG
+	bool "Cvitek specific extensions for DRM_DEBUG"
+	help
+	  If you want to enable DRM debug function on Cvitek SoC, you should
+	  select this option.
+
 choice
     prompt "Cvitek display0 output"
 	depends on DRM_CVITEK

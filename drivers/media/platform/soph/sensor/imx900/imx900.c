@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 #include <linux/comm_cif.h>
@@ -41,7 +42,7 @@
 
 static const enum mipi_wdr_mode_e imx900_wdr_mode = MIPI_WDR_MODE_VC;
 
-static int imx900_count;
+volatile int imx900_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx900_count, 0644);
 
@@ -64,10 +65,11 @@ struct imx900_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
 	sns_sync_info_t imx900_sync_info;
 	struct imx900_reg_list reg_list;
-	struct imx900_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -81,6 +83,8 @@ static struct imx900_mode supported_modes[] = {
 		.hts_def = 0x262,
 		.vts_def = 0x699,
 		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+		.sns_type = V4L2_SONY_IMX900_MIPI_3M_70FPS_12BIT,
+		.sns_type_name = "V4L2_SONY_IMX900_MIPI_3M_70FPS_12BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 700000,
@@ -99,6 +103,8 @@ static struct imx900_mode supported_modes[] = {
 		.hts_def = 0x262,
 		.vts_def = 0x699,
 		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+		.sns_type = V4L2_SONY_IMX900_MONO_MIPI_3M_70FPS_12BIT,
+		.sns_type_name = "V4L2_SONY_IMX900_MONO_MIPI_3M_70FPS_12BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 700000,
@@ -373,11 +379,7 @@ static int start_streaming(struct imx900 *imx900)
 	const sns_sync_info_t *sync_info;
 	int ret;
 
-	if (imx900->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
-		reg_list = &imx900->cur_mode->reg_list;
-	} else {//wdr
-		reg_list = &imx900->cur_mode->wdr_reg_list;
-	}
+	reg_list = &imx900->cur_mode->reg_list;
 
 	ret = imx900_write_regs(imx900, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
@@ -431,6 +433,14 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0) {
 			pm_runtime_put_noidle(&client->dev);
 			goto err_unlock;
+		}
+
+		//reset sensor
+		if (!IS_ERR(imx900->reset_gpio)) {
+			gpiod_set_value_cansleep(imx900->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(imx900->reset_gpio, 1);
+			msleep(100);
 		}
 
 		/*
@@ -602,6 +612,124 @@ error:
 
 	return ret;
 }
+static int imx900_get_info_form_dts(struct imx900 *imx900, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&imx900->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_err(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_err(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_err(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_err(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		imx900_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		imx900_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	imx900_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			imx900->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct imx900_mode), GFP_KERNEL);
+			memcpy(imx900->cur_mode, &supported_modes[i], sizeof(struct imx900_mode));
+		}
+	}
+
+	imx900->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(imx900->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(imx900->power_gpio, 1);
+
+	imx900->reset_gpio = devm_gpiod_get(&client->dev,
+			"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(imx900->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
 
 static long imx900_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
@@ -647,13 +775,16 @@ static long imx900_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	case SNS_V4L2_SET_HDR_ON:
 	{
 		int hdr_on = 0;
+		struct i2c_client *client = v4l2_get_subdevdata(&imx900->sd);
 
 		memcpy(&hdr_on, arg, sizeof(int));
 
-		if (hdr_on)
-			imx900->cur_mode->mipi_wdr_mode = imx900_wdr_mode;
-		else
-			imx900->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+		if (hdr_on) {
+			dev_warn(&client->dev, "Not support HDR!\n");
+		}
+		else {
+			memcpy(imx900->cur_mode, &supported_modes[0], sizeof(struct imx900_mode));
+		}
 
 		imx900_update_link_menu(imx900);
 		break;
@@ -741,6 +872,8 @@ static int imx900_init_controls(struct imx900 *imx900, int index_id)
 		return ret;
 	}
 
+	imx900_get_info_form_dts(imx900, index_id);
+
 	mutex_init(&imx900->mutex);
 	ctrl_hdlr->lock = &imx900->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -796,7 +929,7 @@ static int imx900_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = imx900_probe_index;
 	int addr_num = sizeof(imx900_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -813,7 +946,27 @@ static int imx900_probe(struct i2c_client *client,
 
 	sd = &imx900->sd;
 
-	if (force_bus[index_id] < 0)
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!imx900_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		imx900->client = client;
+		v4l2_i2c_subdev_init(sd, client, &imx900_subdev_ops);
+		/* Check module identity */
+		ret = imx900_identify_module(imx900);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	if (force_bus[index_id] < 0 && use_defualt)
 		bus_id = imx900_bus_map[index_id];
 	else
 		bus_id = force_bus[index_id];
@@ -842,16 +995,10 @@ static int imx900_probe(struct i2c_client *client,
 
 	imx900->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		imx900->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct imx900_mode), GFP_KERNEL);
-		memcpy(imx900->cur_mode, &supported_modes[0], sizeof(struct imx900_mode));
-	} else {
-		imx900->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct imx900_mode), GFP_KERNEL);
-		memcpy(imx900->cur_mode, &supported_modes[index_id], sizeof(struct imx900_mode));
-		dev_err(dev, "supported_modes[%d] num_of_regs[%d]\n", index_id, supported_modes[index_id].reg_list.num_of_regs);
-	}
+
+	imx900->cur_mode = devm_kzalloc(&client->dev,
+						sizeof(struct imx900_mode), GFP_KERNEL);
+	memcpy(imx900->cur_mode, &supported_modes[0], sizeof(struct imx900_mode));
 
 	memset(&imx900->cur_mode->imx900_sync_info, 0, sizeof(sns_sync_info_t));
 

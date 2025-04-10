@@ -410,21 +410,6 @@ static void reset_after_tuning_pass(struct sdhci_host *host)
 		;
 }
 
-static inline uint32_t CHECK_MASK_BIT(void *_mask, uint32_t bit)
-{
-	uint32_t w = bit / 8;
-	uint32_t off = bit % 8;
-
-	return ((uint8_t *)_mask)[w] & (1 << off);
-}
-
-static inline void SET_MASK_BIT(void *_mask, uint32_t bit)
-{
-	uint32_t byte = bit / 8;
-	uint32_t offset = bit % 8;
-	((uint8_t *)_mask)[byte] |= (1 << offset);
-}
-
 static int sdhci_cv186x_general_select_drive_strength(struct sdhci_host *host,
 		struct mmc_card *card, unsigned int max_dtr, int host_drv,
 		int card_drv, int *drv_type)
@@ -523,146 +508,76 @@ static void sdhci_cvi_cv186x_set_tap(struct sdhci_host *host, unsigned int tap)
 	mdelay(1);
 }
 
+static int sdhci_cvi_retry_tuning(struct sdhci_host *host, u32 opcode, int *cmd_error)
+{
+	int ret, retry = 0;
+
+	while (retry < MAX_TUNING_CMD_RETRY_COUNT) {
+		ret = mmc_send_tuning(host->mmc, opcode, NULL);
+		if (ret)
+			return ret;
+		retry++;
+	}
+
+	return 0;
+}
+
 static int sdhci_cv186x_general_execute_tuning(struct sdhci_host *host, u32 opcode)
 {
-	u16 min = 0;
-	u32 k = 0;
-	s32 ret;
-	u32 retry_cnt = 0;
-
-	u32 tuning_result[4] = {0, 0, 0, 0};
-	u32 rx_lead_lag_result[4] = {0, 0, 0, 0};
-	char tuning_graph[TUNE_MAX_PHCODE+1];
-	char rx_lead_lag_graph[TUNE_MAX_PHCODE+1];
-
-	u32 reg = 0;
-	u32 reg_rx_lead_lag = 0;
-	s32 max_lead_lag_idx = -1;
-	s32 max_window_idx = -1;
-	s32 cur_window_idx = -1;
-	u16 max_lead_lag_size = 0;
-	u16 max_window_size = 0;
-	u16 cur_window_size = 0;
-	s32 rx_lead_lag_phase = -1;
-	s32 final_tap = -1;
-	u32 rate = 0;
+	u8 min = 0, max = 0;
+	u8 win_length, target_min, target_max, target_win_length = 0;
+	u16 ctrl_2, final_tap = 0;
 
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
-	reg = sdhci_readw(host, SDHCI_ERR_INT_STATUS);
-	pr_debug("%s : SDHCI_ERR_INT_STATUS 0x%x\n", mmc_hostname(host->mmc),
-		 reg);
-
-	reg = sdhci_readw(host, SDHCI_HOST_CONTROL2);
-	pr_debug("%s : host ctrl2 0x%x\n", mmc_hostname(host->mmc), reg);
 	/* Set Host_CTRL2_R.SAMPLE_CLK_SEL=0 */
-	sdhci_writew(host,
-			 sdhci_readw(host, SDHCI_HOST_CONTROL2) & (~(0x1 << 7)),
-			 SDHCI_HOST_CONTROL2);
-	sdhci_writew(host,
-			 sdhci_readw(host, SDHCI_HOST_CONTROL2) & (~(0x3 << 4)),
-			 SDHCI_HOST_CONTROL2);
+	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+	ctrl_2 &= (~(0x1 << 7));
+	ctrl_2 &= (~(0x3 << 4));
+	sdhci_writew(host, ctrl_2, SDHCI_HOST_CONTROL2);
 
-	reg = sdhci_readw(host, SDHCI_HOST_CONTROL2);
-	pr_debug("%s : host ctrl2 0x%x\n", mmc_hostname(host->mmc), reg);
+	pr_debug("%s : host ctrl2 0x%x\n", mmc_hostname(host->mmc), sdhci_readw(host, SDHCI_HOST_CONTROL2));
 
-	while (min < TUNE_MAX_PHCODE) {
-		retry_cnt = 0;
-		sdhci_cvi_cv186x_set_tap(host, min);
-		reg_rx_lead_lag = sdhci_readw(host, SDHCI_PHY_DLY_STS) & BIT(1);
-
-retry_tuning:
-		ret = mmc_send_tuning(host->mmc, opcode, NULL);
-
-		if (!ret && retry_cnt < MAX_TUNING_CMD_RETRY_COUNT) {
-			retry_cnt++;
-			goto retry_tuning;
+	while (max < TUNE_MAX_PHCODE) {
+		while (min < TUNE_MAX_PHCODE) {
+			sdhci_cvi_cv186x_set_tap(host, min);
+			if (!sdhci_cvi_retry_tuning(host, opcode, NULL))
+				break;
+			min++;
+		}
+		max = min + 1;
+		while (max < TUNE_MAX_PHCODE) {
+			sdhci_cvi_cv186x_set_tap(host, max);
+			if (sdhci_cvi_retry_tuning(host, opcode, NULL))
+				break;
+			max++;
 		}
 
-		if (ret)
-			SET_MASK_BIT(tuning_result, min);
+		/* get max tuning pass window size */
+		win_length = max - min;
+		if (win_length > target_win_length) {
+			target_min = min;
+			target_max = max;
+			target_win_length = win_length;
+		}
 
-		if (reg_rx_lead_lag)
-			SET_MASK_BIT(rx_lead_lag_result, min);
-
-		min++;
+		/* continue get last tuning pass window */
+		min = max + 1;
 	}
+
+	/* If the tuning-pass window size is < 20, it means the hardware performance is very poor */
+	if (target_win_length < TAP_WINDOW_THLD)
+		pr_warn("%s: the hardware performance is very poor!\n", __func__);
 
 	reset_after_tuning_pass(host);
 
-	pr_debug("tuning result:      0x%08x 0x%08x 0x%08x 0x%08x\n",
-		tuning_result[0], tuning_result[1], tuning_result[2], tuning_result[3]);
-	pr_debug("rx_lead_lag result: 0x%08x 0x%08x 0x%08x 0x%08x\n",
-		rx_lead_lag_result[0], rx_lead_lag_result[1], rx_lead_lag_result[2], rx_lead_lag_result[3]);
-	for (k = 0; k < TUNE_MAX_PHCODE; k++) {
-		if (CHECK_MASK_BIT(tuning_result, k) == 0)
-			tuning_graph[k] = '-';
-		else
-			tuning_graph[k] = 'x';
-		if (CHECK_MASK_BIT(rx_lead_lag_result, k) == 0)
-			rx_lead_lag_graph[k] = '0';
-		else
-			rx_lead_lag_graph[k] = '1';
-	}
-	tuning_graph[TUNE_MAX_PHCODE] = '\0';
-	rx_lead_lag_graph[TUNE_MAX_PHCODE] = '\0';
-
-	pr_debug("tuning graph:      %s\n", tuning_graph);
-	pr_debug("rx_lead_lag graph: %s\n", rx_lead_lag_graph);
-
-	// Find a final tap as median of maximum window
-	for (k = 0; k < TUNE_MAX_PHCODE; k++) {
-		if (CHECK_MASK_BIT(tuning_result, k) == 0) {
-			if (-1 == cur_window_idx)
-				cur_window_idx = k;
-
-			cur_window_size++;
-
-			if (cur_window_size > max_window_size) {
-				max_window_size = cur_window_size;
-				max_window_idx = cur_window_idx;
-				if (max_window_size >= TAP_WINDOW_THLD)
-					final_tap = cur_window_idx + (max_window_size/2);
-			}
-		} else {
-			cur_window_idx = -1;
-			cur_window_size = 0;
-		}
-	}
-
-	cur_window_idx = -1;
-	cur_window_size = 0;
-	for (k = 0; k < TUNE_MAX_PHCODE; k++) {
-		if (CHECK_MASK_BIT(rx_lead_lag_result, k) == 0) {
-			//from 1 to 0 and window_size already computed.
-			if ((rx_lead_lag_phase == 1) && (cur_window_size > 0)) {
-				max_lead_lag_idx = cur_window_idx;
-				max_lead_lag_size = cur_window_size;
-				break;
-			}
-			if (cur_window_idx == -1)
-				cur_window_idx = k;
-
-			cur_window_size++;
-			rx_lead_lag_phase = 0;
-		} else {
-			rx_lead_lag_phase = 1;
-			if ((cur_window_idx != -1) && (cur_window_size > 0)) {
-				cur_window_size++;
-				max_lead_lag_idx = cur_window_idx;
-				max_lead_lag_size = cur_window_size;
-			} else {
-				cur_window_size = 0;
-			}
-		}
-	}
-	rate = max_window_size * 100 / max_lead_lag_size;
-	pr_debug("MaxWindow[Idx, Width]:[%d,%u] Tuning Tap: %d\n", max_window_idx, max_window_size, final_tap);
-	pr_debug("RX_LeadLag[Idx, Width]:[%d,%u] rate = %d\n", max_lead_lag_idx, max_lead_lag_size, rate);
-
+	/* use average delay to get the best timing */
+	final_tap = (target_max + target_min) / 2;
 	sdhci_cvi_cv186x_set_tap(host, final_tap);
+
 	cvi_host->final_tap = final_tap;
+	pr_debug("MaxWindow[Idx, Width]:[%d,%u] Tuning Tap: %d\n", target_min, target_win_length, final_tap);
 	pr_debug("%s finished tuning, code:%d\n", __func__, final_tap);
 
 	return mmc_send_tuning(host->mmc, opcode, NULL);

@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
@@ -34,7 +35,7 @@
 /* Chip ID */
 #define IMX415_CHIP_ID_ADDR_H	0x3f13
 #define IMX415_CHIP_ID_ADDR_L	0x3f12
-#define IMX415_CHIP_ID			0x0514
+#define IMX415_CHIP_ID		0x0514
 
 /*Sensor type for isp middleware*/
 #define IMX415_SNS_TYPE_SDR V4L2_SONY_IMX415_MIPI_8M_25FPS_12BIT
@@ -42,7 +43,7 @@
 
 static const enum mipi_wdr_mode_e imx415_wdr_mode = MIPI_WDR_MODE_NONE;
 
-static int imx415_count;
+volatile int imx415_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx415_count, 0644);
 
@@ -65,11 +66,11 @@ struct imx415_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t imx415_sync_info;
 	struct imx415_reg_list reg_list;
-	struct imx415_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -83,6 +84,8 @@ static struct imx415_mode supported_modes[] = {
         .hts_def = 0x44c,
         .vts_def = 0xa8c,
         .mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+        .sns_type = V4L2_SONY_IMX415_MIPI_8M_25FPS_12BIT,
+        .sns_type_name = "V4L2_SONY_IMX415_MIPI_8M_25FPS_12BIT",
         .max_fps = {
             .numerator = 10000,
             .denominator = 250000,
@@ -90,6 +93,26 @@ static struct imx415_mode supported_modes[] = {
         .reg_list = {
             .num_of_regs = ARRAY_SIZE(mode_2560x1440p25_regs),
             .regs = mode_2560x1440p25_regs,
+        },
+    },
+    {
+        .max_width = 3864,
+        .max_height = 2192,
+        .width = 3840,
+        .height = 2160,
+        .exp_def = 0x2000,
+        .hts_def = 0x44c,
+        .vts_def = 0xa8c,
+        .mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+	.sns_type = V4L2_SONY_IMX415_MIPI_8M_30FPS_10BIT,
+        .sns_type_name = "V4L2_SONY_IMX415_MIPI_8M_30FPS_10BIT",
+        .max_fps = {
+            .numerator = 10000,
+            .denominator = 300000,
+        },
+        .reg_list = {
+            .num_of_regs = ARRAY_SIZE(mode_3840x2160p30_regs),
+            .regs = mode_3840x2160p30_regs,
         },
     },
 };
@@ -374,9 +397,7 @@ static int start_streaming(struct imx415 *imx415)
 	const sns_sync_info_t *sync_info;
 	int ret;
 
-	if (imx415->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
-		reg_list = &imx415->cur_mode->reg_list;
-	}
+	reg_list = &imx415->cur_mode->reg_list;
 
 	ret = imx415_write_regs(imx415, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
@@ -430,6 +451,14 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0) {
 			pm_runtime_put_noidle(&client->dev);
 			goto err_unlock;
+		}
+
+		//reset sensor
+		if (!IS_ERR(imx415->reset_gpio)) {
+			gpiod_set_value_cansleep(imx415->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(imx415->reset_gpio, 1);
+			msleep(100);
 		}
 
 		/*
@@ -601,6 +630,126 @@ error:
 	return ret;
 }
 
+static int imx415_get_info_form_dts(struct imx415 *imx415, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&imx415->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		imx415_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		imx415_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	imx415_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			imx415->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct imx415_mode), GFP_KERNEL);
+			memcpy(imx415->cur_mode, &supported_modes[i], sizeof(struct imx415_mode));
+		}
+	}
+
+	imx415->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(imx415->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(imx415->power_gpio, 1);
+
+	imx415->reset_gpio = devm_gpiod_get(&client->dev,
+			"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(imx415->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
+
+
 static long imx415_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct imx415 *imx415 = to_imx415(sd);
@@ -650,7 +799,7 @@ static long imx415_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		if (hdr_on)
 			dev_warn(&client->dev, "Not support HDR!\n");
 		else
-			imx415->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+			memcpy(imx415->cur_mode, &supported_modes[0], sizeof(struct imx415_mode));
 
 		imx415_update_link_menu(imx415);
 		break;
@@ -738,6 +887,8 @@ static int imx415_init_controls(struct imx415 *imx415, int index_id)
 		return ret;
 	}
 
+	imx415_get_info_form_dts(imx415, index_id);
+
 	mutex_init(&imx415->mutex);
 	ctrl_hdlr->lock = &imx415->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -793,7 +944,7 @@ static int imx415_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = imx415_probe_index;
 	int addr_num = sizeof(imx415_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -812,7 +963,27 @@ static int imx415_probe(struct i2c_client *client,
 
 	sd = &imx415->sd;
 
-	for (i = 0; i < addr_num; i++) {
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!imx415_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		imx415->client = client;
+		v4l2_i2c_subdev_init(sd, client, &imx415_subdev_ops);
+		/* Check module identity */
+		ret = imx415_identify_module(imx415);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	for (i = 0; i < addr_num && use_defualt; i++) {
 		if (force_bus[index_id] < 0)
 			bus_id = imx415_bus_map[index_id];
 		else
@@ -845,15 +1016,9 @@ static int imx415_probe(struct i2c_client *client,
 
 	imx415->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		imx415->cur_mode = devm_kzalloc(&client->dev,
+	imx415->cur_mode = devm_kzalloc(&client->dev,
 						 sizeof(struct imx415_mode), GFP_KERNEL);
-		memcpy(imx415->cur_mode, &supported_modes[0], sizeof(struct imx415_mode));
-	} else {
-		imx415->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct imx415_mode), GFP_KERNEL);
-		memcpy(imx415->cur_mode, &supported_modes[index_id], sizeof(struct imx415_mode));
-	}
+	memcpy(imx415->cur_mode, &supported_modes[0], sizeof(struct imx415_mode));
 
 	memset(&imx415->cur_mode->imx415_sync_info, 0, sizeof(sns_sync_info_t));
 

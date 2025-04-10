@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
@@ -43,7 +44,7 @@
 
 static const enum mipi_wdr_mode_e os08b10_wdr_mode = MIPI_WDR_MODE_VC;
 
-static int os08b10_count;
+volatile int os08b10_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &os08b10_count, 0644);
 
@@ -66,6 +67,8 @@ struct os08b10_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
 	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t os08b10_sync_info;
@@ -84,11 +87,9 @@ static struct os08b10_mode supported_modes[] = {
 		.hts_def = 0x054B,
 		.vts_def = 0x0453,
 		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+		.sns_type = V4L2_OV_OS08B10_MIPI_8M_30FPS_10BIT,
+		.sns_type_name  = "V4L2_OV_OS08B10_MIPI_8M_30FPS_10BIT",
 		.max_fps = {
-			.numerator = 10000,
-			.denominator = 300000,
-		},
-		.wdr_max_fps = {
 			.numerator = 10000,
 			.denominator = 300000,
 		},
@@ -96,7 +97,23 @@ static struct os08b10_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(mode_3840x2160_10bit_regs),
 			.regs = mode_3840x2160_10bit_regs,
 		},
-		.wdr_reg_list = {
+	},
+	{
+		.max_width = 3840,
+		.max_height = 2160,
+		.width = 3840,
+		.height = 2160,
+		.exp_def = 0x0140,
+		.hts_def = 0x054B,
+		.vts_def = 0x0453,
+		.mipi_wdr_mode = MIPI_WDR_MODE_VC,
+		.sns_type = V4L2_OV_OS08B10_MIPI_8M_30FPS_10BIT_WDR2TO1,
+		.sns_type_name  = "V4L2_OV_OS08B10_MIPI_8M_30FPS_10BIT_WDR2TO1",
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
+		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_3840x2160_10bit_wdr_regs),
 			.regs = mode_3840x2160_10bit_wdr_regs,
 		},
@@ -389,11 +406,7 @@ static int start_streaming(struct os08b10 *os08b10)
 	const sns_sync_info_t *sync_info;
 	int ret;
 
-	if (os08b10->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
-		reg_list = &os08b10->cur_mode->reg_list;
-	} else {//wdr
-		reg_list = &os08b10->cur_mode->wdr_reg_list;
-	}
+	reg_list = &os08b10->cur_mode->reg_list;
 
 	ret = os08b10_write_regs(os08b10, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
@@ -449,6 +462,14 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
+		//reset sensor
+		if (!IS_ERR(os08b10->reset_gpio)) {
+			gpiod_set_value_cansleep(os08b10->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(os08b10->reset_gpio, 1);
+			msleep(100);
+		}
+
 		/*
 		 * Apply default & customized values
 		 * and then start streaming.
@@ -464,7 +485,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	os08b10->streaming = enable;
 	mutex_unlock(&os08b10->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -623,6 +644,125 @@ error:
 	return ret;
 }
 
+static int os08b10_get_info_form_dts(struct os08b10 *os08b10, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&os08b10->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_err(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_err(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_err(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_err(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	os08b10_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			os08b10->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct os08b10_mode), GFP_KERNEL);
+			memcpy(os08b10->cur_mode, &supported_modes[i], sizeof(struct os08b10_mode));
+		}
+	}
+
+	os08b10->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(os08b10->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(os08b10->power_gpio, 1);
+
+	os08b10->reset_gpio = devm_gpiod_get(&client->dev,
+			"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(os08b10->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
+
 static long os08b10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct os08b10 *os08b10 = to_os08b10(sd);
@@ -668,10 +808,13 @@ static long os08b10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 		memcpy(&hdr_on, arg, sizeof(int));
 
-		if (hdr_on)
-			os08b10->cur_mode->mipi_wdr_mode = os08b10_wdr_mode;
-		else
-			os08b10->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+		if (hdr_on) {
+			memcpy(os08b10->cur_mode, &supported_modes[1], sizeof(struct os08b10_mode));
+		}
+		else {
+			memcpy(os08b10->cur_mode, &supported_modes[0], sizeof(struct os08b10_mode));
+		}
+
 		os08b10_update_link_menu(os08b10);
 		break;
 	}
@@ -760,6 +903,8 @@ static int os08b10_init_controls(struct os08b10 *os08b10, int index_id)
 		return ret;
 	}
 
+	os08b10_get_info_form_dts(os08b10, index_id);
+
 	mutex_init(&os08b10->mutex);
 	ctrl_hdlr->lock = &os08b10->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -817,7 +962,7 @@ static int os08b10_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = os08b10_probe_index;
 	int addr_num = sizeof(os08b10_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -836,7 +981,29 @@ static int os08b10_probe(struct i2c_client *client,
 
 	sd = &os08b10->sd;
 
-	for (i = 0; i < addr_num; i++) {
+	printk("os08b10_count %d\n", os08b10_count);
+
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!os08b10_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		os08b10->client = client;
+		v4l2_i2c_subdev_init(sd, client, &os08b10_subdev_ops);
+		/* Check module identity */
+		ret = os08b10_identify_module(os08b10);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				 index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	for (i = 0; i < addr_num && use_defualt; i++) {
 		if (force_bus[index_id] < 0)
 			bus_id = os08b10_bus_map[index_id];
 		else
@@ -868,19 +1035,10 @@ static int os08b10_probe(struct i2c_client *client,
 
 	os08b10->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		os08b10->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct os08b10_mode), GFP_KERNEL);
-
-		memcpy(os08b10->cur_mode, &supported_modes[0],
-		       sizeof(struct os08b10_mode));
-	} else {
-		os08b10->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct os08b10_mode), GFP_KERNEL);
-
-		memcpy(os08b10->cur_mode, &supported_modes[index_id],
-		       sizeof(struct os08b10_mode));
-	}
+	os08b10->cur_mode = devm_kzalloc(&client->dev,
+					sizeof(struct os08b10_mode), GFP_KERNEL);
+	//use default mode
+	memcpy(os08b10->cur_mode, &supported_modes[0], sizeof(struct os08b10_mode));
 
 	memset(&os08b10->cur_mode->os08b10_sync_info, 0, sizeof(sns_sync_info_t));
 
@@ -941,23 +1099,27 @@ static int os08b10_remove(struct i2c_client *client)
 	struct os08b10 *os08b10 = to_os08b10(sd);
 
 	os08b10_probe_index = 0;
+	pr_info("== os08b10_remove_index = %d ==\n", os08b10_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	os08b10_free_controls(os08b10);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", os08b10_probe_index);
 	return 0;
 }
 
 static const struct of_device_id os08b10_of_match[] = {
-	{ .compatible = "cvitek,sensor0" },
-	{ .compatible = "cvitek,sensor1" },
-	{ .compatible = "cvitek,sensor2" },
-	{ .compatible = "cvitek,sensor3" },
-	{ .compatible = "cvitek,sensor4" },
-	{ .compatible = "cvitek,sensor5" },
+	{ .compatible = "v4l2,sensor0" },
+	{ .compatible = "v4l2,sensor1" },
+	{ .compatible = "v4l2,sensor2" },
+	{ .compatible = "v4l2,sensor3" },
+	{ .compatible = "v4l2,sensor4" },
+	{ .compatible = "v4l2,sensor5" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, os08b10_of_match);
@@ -985,6 +1147,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== os08b10 mod rmmod ==\n");
 	i2c_del_driver(&os08b10_i2c_driver);
 }
 

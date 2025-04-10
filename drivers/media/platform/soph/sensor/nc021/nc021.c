@@ -18,10 +18,12 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
 #include <linux/comm_cif.h>
+#include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
 
 #include "nc021.h"
@@ -42,7 +44,7 @@
 
 static const enum mipi_wdr_mode_e nc021_wdr_mode = MIPI_WDR_MODE_VC;
 
-static int nc021_count;
+volatile int nc021_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &nc021_count, 0644);
 
@@ -52,10 +54,15 @@ static const unsigned short nc021_i2c_list[] = {0x1a};
 
 static const int nc021_bus_map[MAX_SENSOR_DEVICE] = {1, -1, -1, -1, -1, -1};
 
+struct nc021_yuv_format {
+	vi_isp_yuv_scene_e	yuv_scene_mode;
+	vi_intf_mode_e	inf_mode;
+	vi_work_mode_e	mux_mode;
+	vi_yuv_data_seq_e data_seq;
+};
+
 struct nc021_reg_list {
-
 	u32 num_of_regs;
-
 	const struct nc021_reg *regs;
 };
 
@@ -70,10 +77,12 @@ struct nc021_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
 	sns_sync_info_t nc021_sync_info;
+	struct nc021_yuv_format yuv_format;
 	struct nc021_reg_list reg_list;
-	struct nc021_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -87,6 +96,8 @@ static struct nc021_mode supported_modes[] = {
 		.hts_def = 0x4C4,
 		.vts_def = 0x7C8,
 		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+		.sns_type = V4L2_NUC_NC021_MIPI_2M_50FPS_8BIT,
+		.sns_type_name = "V4L2_NUC_NC021_MIPI_2M_50FPS_8BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 500000,
@@ -96,6 +107,15 @@ static struct nc021_mode supported_modes[] = {
 			.regs = mode_1920x1080_regs,
 		},
 
+	},
+};
+
+static struct nc021_yuv_format yuv_format[] = {
+	{
+		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
+		.inf_mode = VI_MODE_MIPI_YUV422,
+		.mux_mode = VI_WORK_MODE_1MULTIPLEX,
+		.data_seq = VI_DATA_SEQ_YUYV,
 	},
 };
 
@@ -231,6 +251,9 @@ static int nc021_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	try_fmt->code = MEDIA_BUS_FMT_UYVY8_1X16;
 	try_fmt->field = V4L2_FIELD_NONE;
 
+	memcpy(&nc021->cur_mode->yuv_format, &yuv_format[0],
+		sizeof(struct nc021_yuv_format));
+
 	/* No crop or compose */
 	mutex_unlock(&nc021->mutex);
 
@@ -307,6 +330,12 @@ static void update_pad_format(const struct nc021_mode *mode, struct v4l2_subdev_
 	fmt->format.height = mode->height;
 	fmt->format.code = MEDIA_BUS_FMT_UYVY8_1X16;
 	fmt->format.field = V4L2_FIELD_NONE;
+
+	//set yuv format
+	fmt->format.reserved[YUV_SCENCE_MODE] = mode->yuv_format.yuv_scene_mode;
+	fmt->format.reserved[YUV_INF_MODE] = mode->yuv_format.inf_mode;
+	fmt->format.reserved[YUV_MUX_MODE] = mode->yuv_format.mux_mode;
+	fmt->format.reserved[YUV_DATA_SEQ] = mode->yuv_format.data_seq;
 }
 
 static int get_pad_format(struct v4l2_subdev *sd,
@@ -438,6 +467,13 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
+		if (!IS_ERR(nc021->reset_gpio)) {
+			gpiod_set_value_cansleep(nc021->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(nc021->reset_gpio, 1);
+			msleep(100);
+		}
+
 		/*
 		 * Apply default & customized values
 		 * and then start streaming.
@@ -453,7 +489,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	nc021->streaming = enable;
 	mutex_unlock(&nc021->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -597,6 +633,125 @@ error:
 	return ret;
 }
 
+static int nc021_get_info_form_dts(struct nc021 *nc021, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&nc021->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_dbg(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_dbg(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		nc021_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		nc021_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	nc021_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			nc021->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct nc021_mode), GFP_KERNEL);
+			memcpy(nc021->cur_mode, &supported_modes[i], sizeof(struct nc021_mode));
+		}
+	}
+
+	nc021->power_gpio = devm_gpiod_get(&client->dev,
+		"power", GPIOD_OUT_LOW);
+	if (IS_ERR(nc021->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(nc021->power_gpio, 1);
+
+	nc021->reset_gpio = devm_gpiod_get(&client->dev,
+		"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(nc021->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
+
 static long nc021_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct nc021 *nc021 = to_nc021(sd);
@@ -635,7 +790,7 @@ static long nc021_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 		memcpy(&hdr_on, arg, sizeof(int));
 
-		nc021->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+		memcpy(nc021->cur_mode, &supported_modes[0], sizeof(struct nc021_mode));
 
 		nc021_update_link_menu(nc021);
 		break;
@@ -722,6 +877,8 @@ static int nc021_init_controls(struct nc021 *nc021, int index_id)
 		return ret;
 	}
 
+	nc021_get_info_form_dts(nc021, index_id);
+
 	mutex_init(&nc021->mutex);
 	ctrl_hdlr->lock = &nc021->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -778,7 +935,7 @@ static int nc021_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = nc021_probe_index;
 	int addr_num = sizeof(nc021_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -797,7 +954,27 @@ static int nc021_probe(struct i2c_client *client,
 
 	sd = &nc021->sd;
 
-	for (i = 0; i < addr_num; i++) {
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!nc021_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		nc021->client = client;
+		v4l2_i2c_subdev_init(sd, client, &nc021_subdev_ops);
+		/* Check module identity */
+		ret = nc021_identify_module(nc021);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	for (i = 0; i < addr_num && use_defualt; i++) {
 		if (force_bus[index_id] < 0)
 			bus_id = nc021_bus_map[index_id];
 		else
@@ -830,15 +1007,9 @@ static int nc021_probe(struct i2c_client *client,
 
 	nc021->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		nc021->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct nc021_mode), GFP_KERNEL);
-		memcpy(nc021->cur_mode, &supported_modes[0], sizeof(struct nc021_mode));
-	} else {
-		nc021->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct nc021_mode), GFP_KERNEL);
-		memcpy(nc021->cur_mode, &supported_modes[index_id], sizeof(struct nc021_mode));
-	}
+	nc021->cur_mode = devm_kzalloc(&client->dev,
+			sizeof(struct nc021_mode), GFP_KERNEL);
+	memcpy(nc021->cur_mode, &supported_modes[0], sizeof(struct nc021_mode));
 
 	memset(&nc021->cur_mode->nc021_sync_info, 0, sizeof(sns_sync_info_t));
 
@@ -899,13 +1070,17 @@ static int nc021_remove(struct i2c_client *client)
 	struct nc021 *nc021 = to_nc021(sd);
 
 	nc021_probe_index = 0;
+	pr_info("== nc021_remove_index = %d ==\n", nc021_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	nc021_free_controls(nc021);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", nc021_probe_index);
 	return 0;
 }
 
@@ -939,6 +1114,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== nc021 mod rmmod ==\n");
 	i2c_del_driver(&nc021_i2c_driver);
 }
 

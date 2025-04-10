@@ -6,6 +6,7 @@
 #ifndef __DW_HDMI__
 #define __DW_HDMI__
 
+#include <drm/drm_property.h>
 #include <sound/hdmi-codec.h>
 
 struct drm_display_info;
@@ -147,23 +148,6 @@ struct dw_hdmi_curr_ctrl {
 	u16 curr[DW_HDMI_RES_MAX];
 };
 
-struct dw_hdmi_audio_tmds_n {
-	unsigned long tmds;
-	unsigned int n_32k;
-	unsigned int n_44k1;
-	unsigned int n_48k;
-};
-
-struct dw_hdmi_link_config {
-	bool dsc_mode;
-	bool frl_mode;
-	int frl_lanes;
-	int rate_per_lane;
-	int hcactive;
-	u8 add_func;
-	u8 pps_payload[128];
-};
-
 struct dw_hdmi_phy_config {
 	unsigned long mpixelclock;
 	u16 sym_ctr;    /*clock symbol and transmitter control*/
@@ -182,6 +166,22 @@ struct dw_hdmi_phy_ops {
 	void (*setup_hpd)(struct dw_hdmi *hdmi, void *data);
 };
 
+struct dw_hdmi_property_ops {
+	void (*attach_properties)(struct drm_connector *connector,
+				  unsigned int color, int version,
+				  void *data);
+	int (*set_property)(struct drm_connector *connector,
+			    struct drm_connector_state *state,
+			    struct drm_property *property,
+			    u64 val,
+			    void *data);
+	int (*get_property)(struct drm_connector *connector,
+			    const struct drm_connector_state *state,
+			    struct drm_property *property,
+			    u64 *val,
+			    void *data);
+};
+
 struct dw_hdmi_plat_data {
 	struct regmap *regm;
 
@@ -193,7 +193,6 @@ struct dw_hdmi_plat_data {
 	bool ycbcr_420_allowed;
 	bool unsupported_yuv_input;
 	bool unsupported_deep_color;
-	bool is_hdmi_qp;
 
 	/*
 	 * Private data passed to all the .mode_valid() and .configure_phy()
@@ -209,21 +208,12 @@ struct dw_hdmi_plat_data {
 
 	/* Vendor PHY support */
 	const struct dw_hdmi_phy_ops *phy_ops;
-	const struct dw_hdmi_qp_phy_ops *qp_phy_ops;
 	const char *phy_name;
 	void *phy_data;
 	unsigned int phy_force_vendor;
-	const struct dw_hdmi_audio_tmds_n *tmds_n_table;
-
-	/* split mode */
-	bool split_mode;
-	bool first_screen;
-	struct dw_hdmi_qp *left;
-	struct dw_hdmi_qp *right;
 
 	/* Synopsys PHY support */
 	const struct dw_hdmi_mpll_config *mpll_cfg;
-	const struct dw_hdmi_mpll_config *mpll_cfg_420;
 	const struct dw_hdmi_curr_ctrl *cur_ctr;
 	const struct dw_hdmi_phy_config *phy_config;
 	int (*configure_phy)(struct dw_hdmi *hdmi, void *data,
@@ -235,22 +225,8 @@ struct dw_hdmi_plat_data {
 	unsigned long (*get_enc_in_encoding)(void *data);
 	unsigned long (*get_enc_out_encoding)(void *data);
 	unsigned long (*get_quant_range)(void *data);
-	struct drm_property *(*get_hdr_property)(void *data);
-	struct drm_property_blob *(*get_hdr_blob)(void *data);
+
 	bool (*get_color_changed)(void *data);
-	int (*get_yuv422_format)(struct drm_connector *connector,
-				 struct edid *edid);
-	int (*get_edid_dsc_info)(void *data, struct edid *edid);
-	int (*get_next_hdr_data)(void *data, struct edid *edid,
-				 struct drm_connector *connector);
-	struct dw_hdmi_link_config *(*get_link_cfg)(void *data);
-	void (*set_grf_cfg)(void *data);
-	u64 (*get_grf_color_fmt)(void *data);
-	void (*convert_to_split_mode)(struct drm_display_mode *mode);
-	void (*convert_to_origin_mode)(struct drm_display_mode *mode);
-	int (*dclk_set)(void *data, bool enable, int vp_id);
-	int (*link_clk_set)(void *data, bool enable);
-	// int (*get_vp_id)(struct drm_crtc_state *crtc_state);
 
 	/* Vendor Property support */
 	const struct dw_hdmi_property_ops *property_ops;
@@ -296,5 +272,10 @@ enum drm_connector_status dw_hdmi_phy_read_hpd(struct dw_hdmi *hdmi,
 void dw_hdmi_phy_update_hpd(struct dw_hdmi *hdmi, void *data,
 			    bool force, bool disabled, bool rxsense);
 void dw_hdmi_phy_setup_hpd(struct dw_hdmi *hdmi, void *data);
+void dw_hdmi_set_quant_range(struct dw_hdmi *hdmi);
+void dw_hdmi_set_output_type(struct dw_hdmi *hdmi, u64 val);
+bool dw_hdmi_get_output_whether_hdmi(struct dw_hdmi *hdmi);
+int dw_hdmi_get_output_type_cap(struct dw_hdmi *hdmi);
+
 
 #endif /* __IMX_HDMI_H__ */

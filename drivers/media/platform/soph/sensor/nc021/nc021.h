@@ -6,7 +6,7 @@ struct nc021_reg {
 	u16 address;
 	u8 val;
 };
-#define SNS_CFG_TYPE_MAX	21
+
 #define MAX_SENSOR_DEVICE   6
 #define MAX_I2C_BUS_NUM     7
 
@@ -30,11 +30,19 @@ static s64 nc021_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		1,                      //LANE_2
 		-1,                     //LANE_3
 		-1,                     //LANE_4
+		-1,                      //LANE_1
+		-1,                      //LANE_2
+		-1,                     //LANE_3
+		-1,                     //LANE_4
 		0,                      //SWAP_0
 		0,                      //SWAP_1
 		0,                      //SWAP_2
 		0,                      //SWAP_3
 		0,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 

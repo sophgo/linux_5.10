@@ -497,7 +497,7 @@ static int dwapb_gpio_add_port(struct dwapb_gpio *gpio,
 
 	/* This registers 32 GPIO lines per port */
 	err = bgpio_init(&port->gc, gpio->dev, 4, dat, set, NULL, dirout,
-			 NULL, 0);
+			 NULL, BGPIOF_READ_OUTPUT_REG_SET);
 	if (err) {
 		dev_err(gpio->dev, "failed to init gpio chip for port%d\n",
 			port->idx);

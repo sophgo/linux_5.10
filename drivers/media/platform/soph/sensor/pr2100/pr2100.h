@@ -7,9 +7,6 @@ struct pr2100_reg {
 	u8 val;
 };
 
-/* Configurations for supported link menu items */
-#define SNS_CFG_TYPE_MAX	21
-
 #define MAX_SENSOR_DEVICE   12
 #define MAX_I2C_BUS_NUM     7
 
@@ -61,11 +58,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		3,                      //LANE_3
 		4,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//pipe1
 		SNS_CFG_TYPE_MAX,
@@ -84,11 +89,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		3,                      //LANE_3
 		4,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//pipe2
 		SNS_CFG_TYPE_MAX,
@@ -107,11 +120,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		3,                      //LANE_3
 		4,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//pipe3
 		SNS_CFG_TYPE_MAX,
@@ -130,11 +151,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		3,                      //LANE_3
 		4,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//pipe4
 		SNS_CFG_TYPE_MAX,
@@ -153,11 +182,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		14,                     //LANE_2
 		15,                     //LANE_3
 		16,                     //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//pipe5
 		SNS_CFG_TYPE_MAX,
@@ -176,11 +213,19 @@ static s64 pr2100_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		14,                     //LANE_2
 		15,                     //LANE_3
 		16,                     //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 
