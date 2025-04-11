@@ -142,6 +142,29 @@ void sdvt_init_chip(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_co
 	cdev->ops->write_reg(cdev, SDVT_CAN_FIFO_FLUSH, m_data_8b);
 }
 
+
+void keep_ex_std(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_config_st)
+{
+
+	u8 m_data_8b ; // Variable to store data
+
+	// dev_info(cdev->dev, "INFO : keep_ex_std\n");
+	if (p_config_st->cfg_ext_frame_mode_b == SDVT_CAN_STANDARD_FRAME)
+		m_data_8b = m_data_8b | (SDVT_CAN_STANDARD_FRAME << 2);  // Standard frame format
+	else
+		m_data_8b = m_data_8b | (SDVT_CAN_EXTENDED_FRAME << 2); // Extended frame format
+	 // Operate in Normal CAN specs mode
+	if (p_config_st->cfg_can_mode_2b == SDVT_CAN_CLASSIC_MODE)
+		m_data_8b = m_data_8b | (SDVT_CAN_CLASSIC_MODE << 3);
+	else
+		// Operate in CAN FD mode
+		m_data_8b = m_data_8b | (SDVT_CAN_FD_MODE << 3);
+
+	// Write control register
+	cdev->ops->write_reg(cdev, SDVT_CAN_CONTROL, m_data_8b);
+
+}
+
 // send_command :This method is used for sending command
 // p_cmd_st :Pointer to command object
 // p_config_st :Pointer to config object
@@ -170,8 +193,8 @@ void send_command(struct sdvt_can_classdev *cdev,
 		m_ext_b = 1;
 		m_rtr_b = 1;
 	}
-
-  // Program standard frame ID registers
+	// dev_info(cdev->dev, "INFO : m_rtr_b %x m_ext_b  %x\n", m_rtr_b , m_ext_b);
+	// Program standard frame ID registers
 	if (m_ext_b == 0) {
 		if (m_rtr_b == 0)
 			m_data_8b = p_cmd_st->dlc_4b; // Identifier[2:0], rtr, length
@@ -228,19 +251,16 @@ void send_command(struct sdvt_can_classdev *cdev,
 		}
 	}
 
-	// Write the COMMAND_REGISTER to enable tranmission
-	  m_data_8b    = 1;
-	  m_data_8b    = m_data_8b | (m_ext_b  << 1);
-	  cdev->ops->write_reg(cdev, SDVT_CAN_COMMAND, m_data_8b);
+	// fd
+	if (p_config_st->cfg_can_mode_2b == SDVT_CAN_FD_MODE) {
+		m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_CONTROL);
+		if (m_ext_b == 1)
+			m_data_8b = m_data_8b | 0x4;
+		else
+			m_data_8b = m_data_8b & ~0x4;
 
-	  // Enable bit 0 (Info empty register)
-	  m_data_8b = 0;
-	  cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE0, m_data_8b);
-
-	  // Enable bit 0 (Transmit Done)
-	  m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE1) | 0x1;
-	  cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, m_data_8b);
-
+		cdev->ops->write_reg(cdev, SDVT_CAN_CONTROL, m_data_8b);
+	}
 	// #Core drives response frame
 	if (p_config_st->cfg_remote_resp_en_b == 1) {
 		// #Randomize the data, and store in STD_TX_DATA fifo
@@ -253,6 +273,22 @@ void send_command(struct sdvt_can_classdev *cdev,
 		m_data_8b  = m_data_8b | (p_cmd_st->remote_resp_en_b << 5);
 		cdev->ops->write_reg(cdev, SDVT_CAN_DLC_REMOTE_FRAME, m_data_8b);
 	}
+
+
+
+	// Enable bit 0 (Info empty register)
+	m_data_8b = 0;
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE0, m_data_8b);
+
+	// Enable bit 0 (Transmit Done)
+	m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_IRQ_ENABLE1) | 0x1;
+	cdev->ops->write_reg(cdev, SDVT_CAN_IRQ_ENABLE1, m_data_8b);
+
+	// Write the COMMAND_REGISTER to enable tranmission
+	m_data_8b    = 1;
+	m_data_8b    = m_data_8b | (m_ext_b  << 1);
+	cdev->ops->write_reg(cdev, SDVT_CAN_COMMAND, m_data_8b);
+
 }
 
 // receive_frame :This method is used for receiving frame, this method is called by IRQ handler

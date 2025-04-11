@@ -115,6 +115,26 @@ static struct imx415_mode supported_modes[] = {
             .regs = mode_3840x2160p30_regs,
         },
     },
+    {
+        .max_width = 1944,
+        .max_height = 1097,
+        .width = 1920,
+        .height = 1080,
+        .exp_def = 0x2000,
+        .hts_def = 0x021E,
+        .vts_def = 0x08EB,
+        .mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+	.sns_type = V4L2_SONY_IMX415_MIPI_2M_60FPS_12BIT,
+        .sns_type_name = "V4L2_SONY_IMX415_MIPI_2M_60FPS_12BIT",
+        .max_fps = {
+            .numerator = 10000,
+            .denominator = 600000,
+        },
+        .reg_list = {
+            .num_of_regs = ARRAY_SIZE(mode_1920x1080p60_regs),
+            .regs = mode_1920x1080p60_regs,
+        },
+    },
 };
 
 struct imx415 {
