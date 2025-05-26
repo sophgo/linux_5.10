@@ -111,8 +111,8 @@ static struct imx327_mode supported_modes[] = {
 			.denominator = 300000,
 		},
 		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1920x1080_wdr_regs),
-			.regs = mode_1920x1080_wdr_regs,
+			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2l_wdr_regs),
+			.regs = mode_1920x1080_2l_wdr_regs,
 		},
 	},
 };

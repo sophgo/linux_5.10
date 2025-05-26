@@ -137,10 +137,10 @@ static const char *const compat_hwcap2_str[] = {
 static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
-	int opt_cpu;
+	int value;
 	bool compat = personality(current->personality) == PER_LINUX;
 
-	opt_cpu = readl(ioremap(0x27102014, 4));
+	value = readl(ioremap(0x27102014, 4)) & 0x7;
 
 	for_each_online_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
@@ -153,10 +153,10 @@ static int c_show(struct seq_file *m, void *v)
 		 */
 		seq_printf(m, "processor\t: %d\n", i);
 		if (compat) {
-			if (opt_cpu == 0x0 || opt_cpu == 0x3f)
-				seq_printf(m, "model name\t: %s\n", "bm1688");
-			else if (opt_cpu == 0xc1 || opt_cpu == 0xf9)
+			if (value == 0x1)
 				seq_printf(m, "model name\t: %s\n", "cv186ah");
+			else if (value == 0x0 || value == 0x7)
+				seq_printf(m, "model name\t: %s\n", "bm1688");
 			else
 				seq_printf(m, "model name\t: %s\n", "null");
 		}

@@ -6719,7 +6719,6 @@ static void _vi_sw_init(struct sop_vi_dev *vdev)
 static void _vi_init_param(struct sop_vi_dev *vdev)
 {
 	struct isp_ctx *ctx = &vdev->ctx;
-	int enable_dev_num = vdev->num_dev;
 	u8 i = 0;
 
 	atomic_set(&dev_open_cnt, 0);
@@ -6783,7 +6782,7 @@ static void _vi_init_param(struct sop_vi_dev *vdev)
 	}
 
 	//ToDo sync_task_ext
-	for (i = 0; i < enable_dev_num; i++)
+	for (i = 0; i < ISP_PRERAW_MAX; i++)
 		sync_task_init(i);
 
 	tasklet_init(&vdev->job_work, isp_post_tasklet, (unsigned long)vdev);
@@ -9140,9 +9139,10 @@ static void _subdev_init(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num)
 
 	g_vi_ctx->dev_attr[chn_id].size.width = max_w;
 	g_vi_ctx->dev_attr[chn_id].size.height = max_h;
-	g_vi_ctx->chn_status[chn_id].size.width = crop_w;
-	g_vi_ctx->chn_status[chn_id].size.height = crop_h;
-
+	if (!vdev->is_user_crop[chn_id]) {
+		g_vi_ctx->chn_status[chn_id].size.width = crop_w;
+		g_vi_ctx->chn_status[chn_id].size.height = crop_h;
+	}
 
 }
 
@@ -10042,6 +10042,27 @@ static int sop_isp_s_ext_ctrls(
 			break;
 		}
 
+		case VI_IOCTL_PUT_PIPE_DUMP:
+		{
+			if (raw_num >= ISP_PRERAW_MAX) {
+				rc = 0;
+				break;
+			}
+
+			if (isp_byr[raw_num]) {
+				vfree(isp_byr[raw_num]);
+				isp_byr[raw_num] = NULL;
+			}
+
+			if (isp_byr_se[raw_num]) {
+				vfree(isp_byr_se[raw_num]);
+				isp_byr_se[raw_num] = NULL;
+			}
+
+			rc = 0;
+			break;
+		}
+
 		case VI_IOCTL_SET_DEV_ATTR:
 		{
 			vi_dev_attr_s dev_attr;
@@ -10485,6 +10506,8 @@ static int sop_isp_try_fmt_vid_cap(struct file *file, void *priv, struct v4l2_fo
 
 	WARN_ON(!videv);
 
+	mutex_lock(&videv->dev_lock);
+
 	if (!videv->ctx.isp_pipe_enable[raw_num])
 		return -EINVAL;
 
@@ -10504,11 +10527,14 @@ static int sop_isp_try_fmt_vid_cap(struct file *file, void *priv, struct v4l2_fo
 		*crop_w = w;
 		*crop_h = h;
 
+		videv->is_user_crop[chn_id] = 1;
 		// if size change ,need to reconfig
 		_v4l2_init_config_info(videv, chn_id, raw_num);
 	}
 
 	f->fmt.pix.sizeimage = videv->pipe[chn_id].sizeimage[0];
+
+	mutex_unlock(&videv->dev_lock);
 
 	return 0;
 }
@@ -10528,6 +10554,8 @@ static int sop_isp_try_fmt_vid_cap_mplane(
 	int rc;
 
 	WARN_ON(!videv);
+
+	mutex_lock(&videv->dev_lock);
 
 	w = mp->width;
 	h = mp->height;
@@ -10550,6 +10578,8 @@ static int sop_isp_try_fmt_vid_cap_mplane(
 		// if size change ,need to reconfig
 		_v4l2_init_config_info(videv, chn_id, raw_num);
 	}
+
+	mutex_unlock(&videv->dev_lock);
 
 	return rc;
 }

@@ -84,6 +84,7 @@ static struct imx307_mode supported_modes[] = {
 		.exp_def = 0x00,
 		.hts_def = 1484,
 		.vts_def = 2432,
+		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
 		.sns_type = V4L2_SONY_IMX307_2L_MIPI_2M_30FPS_12BIT,
 		.sns_type_name  = "V4L2_SONY_IMX307_2L_MIPI_2M_30FPS_12BIT",
 		.max_fps = {
@@ -103,6 +104,7 @@ static struct imx307_mode supported_modes[] = {
 		.exp_def = 0x00,
 		.hts_def = 1484,
 		.vts_def = 2432,
+		.mipi_wdr_mode = MIPI_WDR_MODE_DOL,
 		.sns_type = V4L2_SONY_IMX307_2L_MIPI_2M_30FPS_12BIT_WDR2TO1,
 		.sns_type_name  = "V4L2_SONY_IMX307_2L_MIPI_2M_30FPS_12BIT_WDR2TO1",
 		.max_fps = {
@@ -585,6 +587,7 @@ static int imx307_update_link_menu(struct imx307 *imx307)
 	int i;
 
 	imx307_link_cif_menu[id][wdr_index] = imx307->cur_mode->mipi_wdr_mode;
+	dev_info(&client->dev, "imx307->cur_mode->mipi_wdr_mode = %d", imx307->cur_mode->mipi_wdr_mode);
 
 	dev_info(&client->dev, "update mipi_mode:%lld", imx307_link_cif_menu[id][wdr_index]);
 
@@ -791,7 +794,7 @@ static long imx307_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 			memcpy(imx307->cur_mode, &supported_modes[1], sizeof(struct imx307_mode));
 		else
 			memcpy(imx307->cur_mode, &supported_modes[0], sizeof(struct imx307_mode));
-
+		printk(KERN_INFO "in ioctl, hdr_on = %d, cur_mode->sns_type = %d\n", hdr_on, imx307->cur_mode->mipi_wdr_mode);
 		imx307_update_link_menu(imx307);
 		break;
 	}
