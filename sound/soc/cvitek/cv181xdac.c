@@ -540,8 +540,8 @@ unsigned int cv181xdac_reg_read(struct snd_soc_component *codec, unsigned int re
 	ret = dac_read_reg(dac->dac_base, reg);
 
 	if (reg == AUDIO_PHY_TXDAC_AFE1) {
-		temp_lval = ((ret & 0x000001ff) + 1) / 16;
-		temp_rval = (((ret >> 16) & 0x000001ff) + 1) / 16;
+		temp_lval = ((ret & AUDIO_PHY_REG_TXDAC_GAIN_UB_0_MASK) + 1) / CV181X_DAC_VOL_STEP;
+		temp_rval = (((ret & AUDIO_PHY_REG_TXDAC_GAIN_UB_1_MASK) >> 16) + 1) / CV181X_DAC_VOL_STEP;
 		dev_info(dac->dev, "Get DAC Vol reg:%d,ret:0x%x temp_lval=%d.\n", reg, ret, temp_lval);
 		ret = (temp_rval<<16)|temp_lval;
 	}
@@ -564,6 +564,7 @@ int cv181xdac_reg_write(struct snd_soc_component *codec, unsigned int reg, unsig
 			temp_lval = 32;
 		if (temp_rval > 32)
 			temp_rval = 32;
+		dev_info(dac->dev, "Set DAC Vol, get input val=%d, output val=%d\n", value, temp_lval);
 		value = DAC_VOL_L(temp_lval)|DAC_VOL_R(temp_rval);
 	}
 
