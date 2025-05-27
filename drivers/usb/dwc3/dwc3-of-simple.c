@@ -28,6 +28,14 @@
 #include <linux/of_gpio.h>
 #endif
 
+struct dwc3_sophgo_regs_backup {
+	u32 sys_reg00;
+	u32 sys_reg0c;
+	u32 sys_reg10;
+	u32 sys_reg14;
+	u32 tune_ctrl_reg1;
+};
+
 struct dwc3_of_simple {
 	struct device		*dev;
 	struct clk_bulk_data	*clks;
@@ -37,6 +45,7 @@ struct dwc3_of_simple {
 	void __iomem *reg_usbsys;
 	void __iomem *reg_phy_tune_ctrl_reg;
 	int vbus_gpio;
+	struct dwc3_sophgo_regs_backup regs_backup;
 };
 
 #define OTP_USB_XTAL_PHY_MASK	0x3
@@ -68,20 +77,110 @@ struct dwc3_of_simple {
 
 #define USB_PHY_TUNE_CTRL_REG2				0x8
 
+
+#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+static int dwc3_sophgo_start(struct dwc3_of_simple *simple)
+{
+	uint32_t value;
+	uint32_t otp_usb_xtal_phy;
+	uint32_t los_mask;
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) | (REG_PHY_PHY_RESET);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
+
+	msleep(20);
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) & (~REG_PHY_PHY_RESET);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_0C) | (REG_PHY_REF_SSP_EN);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_0C);
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_00) | (REG_USB_EN);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_00);
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_10) | REG_PHY_RX0LOSLEPSEM;
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_10);
+
+	otp_usb_xtal_phy = readl(simple->reg_usbsys + REG_USB_SYS_REG_0C) & OTP_USB_XTAL_PHY_MASK;
+
+	value &= readl(simple->reg_usbsys + REG_USB_SYS_REG_0C)
+			& ~(REG_PHY_REF_CLKDIV2) & ~(REG_PHY_FSEL_MSK)
+			& ~(REG_PHY_MPLL_MULTIPLIER_MSK) & ~(REG_PHY_SSC_REF_CLK_SEL_MSK);
+	switch (otp_usb_xtal_phy) {
+	case 0x0:    // xtal = 24 MHz
+		value |= (0x2A << REG_PHY_FSEL_POS);
+		los_mask = 240;
+		break;
+	case 0x1:    // xtal = 19.2 MHz
+		value |= (0x38 << REG_PHY_FSEL_POS);
+		los_mask = 192;
+		break;
+	case 0x2:    // xtal = 20 MHz
+		value |= (0x31 << REG_PHY_FSEL_POS);
+		los_mask = 200;
+		break;
+	case 0x3:    // xtal = 40 MHz
+		value |= REG_PHY_REF_CLKDIV2 | (0x31 << REG_PHY_FSEL_POS);
+		los_mask = 200;
+		break;
+	}
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_0C);
+
+	value = readl(simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1) & ~(REG_USB_PHY_PCS_RX_LOS_MASK_VAL_MSK);
+	value |= (los_mask << REG_USB_PHY_PCS_RX_LOS_MASK_VAL_POS);
+	writel(value, simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
+
+	if (gpio_is_valid(simple->vbus_gpio)) {
+		if (devm_gpio_request_one(simple->dev, simple->vbus_gpio, GPIOF_OUT_INIT_HIGH, "vbus-gpio")) {
+			simple->vbus_gpio = -EINVAL;
+			dev_err(simple->dev, "request gpio fail!\n");
+		}
+	}
+
+	return 0;
+}
+
+static void dwc3_sophgo_backup_registers(struct dwc3_of_simple *simple)
+{
+	simple->regs_backup.sys_reg00 = readl(simple->reg_usbsys + REG_USB_SYS_REG_00);
+	simple->regs_backup.sys_reg0c = readl(simple->reg_usbsys + REG_USB_SYS_REG_0C);
+	simple->regs_backup.sys_reg10 = readl(simple->reg_usbsys + REG_USB_SYS_REG_10);
+	simple->regs_backup.sys_reg14 = readl(simple->reg_usbsys + REG_USB_SYS_REG_14);
+	simple->regs_backup.tune_ctrl_reg1 = readl(simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
+}
+
+static void dwc3_sophgo_restore_registers(struct dwc3_of_simple *simple)
+{
+	u32 value;
+
+	writel(simple->regs_backup.sys_reg14, simple->reg_usbsys + REG_USB_SYS_REG_14);
+
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) | (REG_PHY_PHY_RESET);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
+	msleep(20);
+	value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) & (~REG_PHY_PHY_RESET);
+	writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
+
+	writel(simple->regs_backup.sys_reg00, simple->reg_usbsys + REG_USB_SYS_REG_00);
+	writel(simple->regs_backup.sys_reg0c, simple->reg_usbsys + REG_USB_SYS_REG_0C);
+	writel(simple->regs_backup.sys_reg10, simple->reg_usbsys + REG_USB_SYS_REG_10);
+	writel(simple->regs_backup.tune_ctrl_reg1, simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
+}
+
+#endif
+
 static int dwc3_of_simple_probe(struct platform_device *pdev)
 {
 	struct dwc3_of_simple	*simple;
 	struct device		*dev = &pdev->dev;
 	struct device_node	*np = dev->of_node;
 
+	int			ret;
+
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
 	struct resource *res;
-	uint32_t value;
-	uint32_t otp_usb_xtal_phy;
-	uint32_t los_mask;
 #endif
-
-	int			ret;
 
 	simple = devm_kzalloc(dev, sizeof(*simple), GFP_KERNEL);
 	if (!simple)
@@ -92,6 +191,7 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
 	if (of_device_is_compatible(np, "sophgo,cv186x-dwc3")) {
+
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		simple->reg_usbsys = devm_ioremap_resource(&pdev->dev, res);
 		if (IS_ERR(simple->reg_usbsys))
@@ -102,60 +202,12 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 		if (IS_ERR(simple->reg_phy_tune_ctrl_reg))
 			return PTR_ERR(simple->reg_phy_tune_ctrl_reg);
 
-		value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) | (REG_PHY_PHY_RESET);
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
-
-		msleep(20);
-
-		value = readl(simple->reg_usbsys + REG_USB_SYS_REG_14) & (~REG_PHY_PHY_RESET);
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_14);
-
-		value = readl(simple->reg_usbsys + REG_USB_SYS_REG_0C) | (REG_PHY_REF_SSP_EN);
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_0C);
-
-		value = readl(simple->reg_usbsys + REG_USB_SYS_REG_00) | (REG_USB_EN);
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_00);
-
-		value = readl(simple->reg_usbsys + REG_USB_SYS_REG_10) | REG_PHY_RX0LOSLEPSEM;
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_10);
-
-		otp_usb_xtal_phy = readl(simple->reg_usbsys + REG_USB_SYS_REG_0C) & OTP_USB_XTAL_PHY_MASK;
-
-		value &= readl(simple->reg_usbsys + REG_USB_SYS_REG_0C)
-				& ~(REG_PHY_REF_CLKDIV2) & ~(REG_PHY_FSEL_MSK)
-				& ~(REG_PHY_MPLL_MULTIPLIER_MSK) & ~(REG_PHY_SSC_REF_CLK_SEL_MSK);
-		switch (otp_usb_xtal_phy) {
-		case 0x0:    // xtal = 24 MHz
-			value |= (0x2A << REG_PHY_FSEL_POS);
-			los_mask = 240;
-			break;
-		case 0x1:    // xtal = 19.2 MHz
-			value |= (0x38 << REG_PHY_FSEL_POS);
-			los_mask = 192;
-			break;
-		case 0x2:    // xtal = 20 MHz
-			value |= (0x31 << REG_PHY_FSEL_POS);
-			los_mask = 200;
-			break;
-		case 0x3:    // xtal = 40 MHz
-			value |= REG_PHY_REF_CLKDIV2 | (0x31 << REG_PHY_FSEL_POS);
-			los_mask = 200;
-			break;
-		}
-		writel(value, simple->reg_usbsys + REG_USB_SYS_REG_0C);
-
-		value = readl(simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1) & ~(REG_USB_PHY_PCS_RX_LOS_MASK_VAL_MSK);
-		value |= (los_mask << REG_USB_PHY_PCS_RX_LOS_MASK_VAL_POS);
-		writel(value, simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
-
 		simple->vbus_gpio = of_get_named_gpio(simple->dev->of_node, "vbus-gpio", 0);
 		dev_dbg(simple->dev, "get vbus_gpio number:%d\n", simple->vbus_gpio);
-		if (gpio_is_valid(simple->vbus_gpio)) {
-			if (devm_gpio_request_one(simple->dev, simple->vbus_gpio, GPIOF_OUT_INIT_HIGH, "vbus-gpio")) {
-				simple->vbus_gpio = -EINVAL;
-				dev_err(simple->dev, "request gpio fail!\n");
-			}
-		}
+
+		ret = dwc3_sophgo_start(simple);
+		if (ret)
+			return ret;
 	}
 #endif
 
@@ -262,6 +314,10 @@ static int __maybe_unused dwc3_of_simple_suspend(struct device *dev)
 {
 	struct dwc3_of_simple *simple = dev_get_drvdata(dev);
 
+	#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+	dwc3_sophgo_backup_registers(simple);
+#endif
+
 	if (simple->need_reset)
 		reset_control_assert(simple->resets);
 
@@ -271,6 +327,10 @@ static int __maybe_unused dwc3_of_simple_suspend(struct device *dev)
 static int __maybe_unused dwc3_of_simple_resume(struct device *dev)
 {
 	struct dwc3_of_simple *simple = dev_get_drvdata(dev);
+
+#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+	dwc3_sophgo_restore_registers(simple);
+#endif
 
 	if (simple->need_reset)
 		reset_control_deassert(simple->resets);

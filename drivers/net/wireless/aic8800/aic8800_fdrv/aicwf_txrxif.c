@@ -136,7 +136,7 @@ int aicwf_bus_init(uint bus_hdrlen, struct device *dev)
 	}
 	//waiting for rx/tx thread Initialization finish
 #endif
-	
+
 #ifdef CONFIG_USB_MSG_IN_EP
 	if(bus_if->bus_priv.usb->msg_in_pipe)
 	{
@@ -388,7 +388,7 @@ int aicwf_tasklet_rxframes(struct aicwf_rx_priv *rx_priv)
 			spin_unlock_irqrestore(&rx_priv->rxqlock,flags);
 			break;
 		}
-		skb = aicwf_frame_dequeue(&rx_priv->rxq);		
+		skb = aicwf_frame_dequeue(&rx_priv->rxq);
 		spin_unlock_irqrestore(&rx_priv->rxqlock, flags);
 		if (skb == NULL) {
 			txrx_err("skb_error\r\n");
@@ -422,7 +422,7 @@ int aicwf_tasklet_rxframes(struct aicwf_rx_priv *rx_priv)
 
 			skb_put(skb_inblock, aggr_len);
 			memcpy(skb_inblock->data, data, aggr_len);
-#if 0//AIDEN	
+#if 0//AIDEN
 			rwnx_frame_parser((char*)__func__, skb_inblock->data + 60, aggr_len - 60);
 #endif
 #endif
@@ -572,7 +572,7 @@ int aicwf_process_rxframes(struct aicwf_rx_priv *rx_priv)
             }
             buffer = rxbuff_dequeue(&rx_priv->rxq);
             spin_unlock_irqrestore(&rx_priv->rxqlock, flags);
-            
+
             if (buffer == NULL) {
                 txrx_err("skb_error\r\n");
                 ASSERT_ERR(1);
@@ -1058,11 +1058,13 @@ static void aicwf_recvframe_queue_deinit(struct list_head *q)
 #endif
 void aicwf_rx_deinit(struct aicwf_rx_priv* rx_priv)
 {
+	if (!rx_priv)
+		return;
 #ifdef AICWF_RX_REORDER
     struct reord_ctrl_info *reord_info, *tmp;
 
 	AICWFDBG(LOGINFO, "%s Enter\n", __func__);
-	
+
     list_for_each_entry_safe(reord_info, tmp,
         &rx_priv->stas_reord_list, list) {
         reord_deinit_sta(rx_priv, reord_info);
@@ -1121,8 +1123,10 @@ void aicwf_rx_deinit(struct aicwf_rx_priv* rx_priv)
 
 #ifdef AICWF_RX_REORDER
     aicwf_recvframe_queue_deinit(&rx_priv->rxframes_freequeue);
-    if (rx_priv->recv_frames)
+    if (rx_priv->recv_frames) {
         vfree(rx_priv->recv_frames);
+	rx_priv->recv_frames = NULL;
+    }
 #endif
 
 #ifdef CONFIG_PREALLOC_RX_SKB

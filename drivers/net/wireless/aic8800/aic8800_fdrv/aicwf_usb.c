@@ -553,8 +553,8 @@ static void aicwf_usb_rx_complete(struct urb *urb)
         }
         spin_unlock_irqrestore(&rx_priv->rxqlock, flags);
         atomic_inc(&rx_priv->rx_cnt);
-		
-#ifndef CONFIG_RX_TASKLET 
+
+#ifndef CONFIG_RX_TASKLET
 		//if(!rx_priv->rx_thread_working && (atomic_read(&rx_priv->rx_cnt)>0)){
 		if(atomic_read(&rx_priv->rx_cnt) == 1){
         	complete(&rx_priv->usbdev->bus_if->busrx_trgg);
@@ -562,7 +562,7 @@ static void aicwf_usb_rx_complete(struct urb *urb)
 #else
         tasklet_schedule(&rx_priv->usbdev->recv_tasklet);
 #endif
-		
+
         aicwf_usb_rx_buf_put(usb_dev, usb_buf);
         aicwf_usb_rx_submit_all_urb_(usb_dev);
         //schedule_work(&usb_dev->rx_urb_work);
@@ -1314,7 +1314,7 @@ int usb_busrx_thread(void *data)
     struct aicwf_rx_priv *rx_priv = (struct aicwf_rx_priv *)data;
     struct aicwf_bus *bus_if = rx_priv->usbdev->bus_if;
     int set_cpu_ret = 0;
-    
+
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0))
 	AICWFDBG(LOGINFO, "%s the cpu is:%d\n", __func__, current->thread_info.cpu);
@@ -2365,10 +2365,12 @@ static int aicwf_usb_chipmatch(struct aic_usb_dev *usb_dev, u16_l vid, u16_l pid
 int wf_reboot_notify(struct notifier_block *notifier, ulong pm_event,
 		     void *unused)
 {
-    struct aic_usb_dev *usb_dev;
+	struct aic_usb_dev *usb_dev;
+
 	usb_dev = container_of(notifier, struct aic_usb_dev, reboot_notifier);
-    aicwf_bus_deinit(usb_dev->dev);
-    aicwf_usb_deinit(usb_dev);
+	// aicwf_bus_deinit(usb_dev->dev);
+	// aicwf_usb_deinit(usb_dev);
+	aicwf_usb_exit();
 	return NOTIFY_DONE;
 }
 
@@ -2386,8 +2388,8 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
 
     usb_dev = kzalloc(sizeof(struct aic_usb_dev), GFP_ATOMIC);
 
-    AICWFDBG(LOGDEBUG, "%s usb_dev:%d usb_tx_buf:%d usb_rx_buf:%d\r\n", 
-        __func__, 
+    AICWFDBG(LOGDEBUG, "%s usb_dev:%d usb_tx_buf:%d usb_rx_buf:%d\r\n",
+        __func__,
         (int)sizeof(struct aic_usb_dev),
         (int)sizeof(struct aicwf_usb_buf) * AICWF_USB_TX_URBS,
         (int)sizeof(struct aicwf_usb_buf) * AICWF_USB_RX_URBS);
@@ -2405,11 +2407,11 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
         if(usb_dev->usb_tx_buf){
             vfree(usb_dev);
         }
-        
+
         if(usb_dev->usb_tx_buf){
             vfree(usb_dev);
         }
-        
+
         if(usb_dev){
             kfree(usb_dev);
         }
@@ -2417,12 +2419,12 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
         return -ENOMEM;
     }
 
-    memset(usb_dev->usb_tx_buf, 
-        0, 
+    memset(usb_dev->usb_tx_buf,
+        0,
         (int)(sizeof(struct aicwf_usb_buf) * AICWF_USB_TX_URBS));
 
-    memset(usb_dev->usb_rx_buf, 
-        0, 
+    memset(usb_dev->usb_rx_buf,
+        0,
         (int)(sizeof(struct aicwf_usb_buf) * AICWF_USB_RX_URBS));
 
 
@@ -2433,7 +2435,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
 	ret = aicwf_usb_chipmatch(usb_dev, id->idVendor, id->idProduct);
 
 	if (ret < 0) {
-        AICWFDBG(LOGERROR, "%s pid:0x%04X vid:0x%04X unsupport\n", 
+        AICWFDBG(LOGERROR, "%s pid:0x%04X vid:0x%04X unsupport\n",
 			__func__, id->idVendor, id->idProduct);
         goto out_free_bus;
     }
@@ -2695,8 +2697,6 @@ void aicwf_usb_exit(void)
 	if(g_rwnx_plat){
 		g_rwnx_plat->wait_disconnect_cb = false;
 	}
-	
-
 
 	if(!g_rwnx_plat || !g_rwnx_plat->enabled){
 		AICWFDBG(LOGINFO, "g_rwnx_plat is not ready. waiting for 500ms\r\n");
@@ -2719,7 +2719,7 @@ void aicwf_usb_exit(void)
 	if(g_rwnx_plat){
     	kfree(g_rwnx_plat);
 	}
-	
+
 	AICWFDBG(LOGINFO, "%s exit\r\n", __func__);
 
 }

@@ -9,11 +9,9 @@
 #include <linux/delay.h>
 
 #define UPDATE_REMAP	(1 << 31)
-void __iomem *remap_subsys_base;
-u32 ch_remap[8] = {0};
-
 struct cvi_sysdma_remap_dev {
 	void __iomem *subsys_base;
+	u32 ch_remap[8];
 	struct device *dev;
 };
 
@@ -29,27 +27,27 @@ static int cv1835_sysdma_remap_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	dev->subsys_base = devm_ioremap_resource(&pdev->dev, res);
-	remap_subsys_base = dev->subsys_base;
 
 	if (IS_ERR(dev->subsys_base))
 		return PTR_ERR(dev->subsys_base);
 	dev->dev = &pdev->dev;
+	platform_set_drvdata(pdev, dev);
 
-	device_property_read_u32_array(&pdev->dev, "ch-remap", ch_remap, 8);
+	device_property_read_u32_array(&pdev->dev, "ch-remap", dev->ch_remap, 8);
 
 	val = UPDATE_REMAP
-		| (ch_remap[0])
-		| (ch_remap[1] << 8)
-		| (ch_remap[2] << 16)
-		| (ch_remap[3] << 24);
+		| (dev->ch_remap[0])
+		| (dev->ch_remap[1] << 8)
+		| (dev->ch_remap[2] << 16)
+		| (dev->ch_remap[3] << 24);
 
 	writel(val, dev->subsys_base);
 
 	val = UPDATE_REMAP
-		| (ch_remap[4])
-		| (ch_remap[5] << 8)
-		| (ch_remap[6] << 16)
-		| (ch_remap[7] << 24);
+		| (dev->ch_remap[4])
+		| (dev->ch_remap[5] << 8)
+		| (dev->ch_remap[6] << 16)
+		| (dev->ch_remap[7] << 24);
 
 	writel(val, dev->subsys_base + 0x4);
 
@@ -90,23 +88,25 @@ static int dma_remap_suspend_late(struct device *dev)
 static int dma_remap_resume_early(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
+	struct cvi_sysdma_remap_dev *remap_dev = platform_get_drvdata(pdev);
+
 	u32 val;
 
 	val = UPDATE_REMAP
-		| (ch_remap[0])
-		| (ch_remap[1] << 8)
-		| (ch_remap[2] << 16)
-		| (ch_remap[3] << 24);
+		| (remap_dev->ch_remap[0])
+		| (remap_dev->ch_remap[1] << 8)
+		| (remap_dev->ch_remap[2] << 16)
+		| (remap_dev->ch_remap[3] << 24);
 
-	writel(val, remap_subsys_base);
+	writel(val, remap_dev->subsys_base);
 
 	val = UPDATE_REMAP
-		| (ch_remap[4])
-		| (ch_remap[5] << 8)
-		| (ch_remap[6] << 16)
-		| (ch_remap[7] << 24);
+		| (remap_dev->ch_remap[4])
+		| (remap_dev->ch_remap[5] << 8)
+		| (remap_dev->ch_remap[6] << 16)
+		| (remap_dev->ch_remap[7] << 24);
 
-	writel(val, remap_subsys_base + 0x4);
+	writel(val, remap_dev->subsys_base + 0x4);
 
 	if (device_property_present(&pdev->dev, "int_mux_base") &&
 		device_property_present(&pdev->dev, "int_mux")) {
