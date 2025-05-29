@@ -33,6 +33,43 @@ struct proc_dir_entry *proc_audio_dir;
 static int cvi_i2s_suspend(struct snd_soc_dai *dai);
 static int cvi_i2s_resume(struct snd_soc_dai *dai);
 
+#define CVI_PCM_ALIGN(x, a)      (((x) + ((a) - 1)) & ~((a) - 1))
+static int snd_pcm_hw_rule_period_size(struct snd_pcm_hw_params *params,
+				       struct snd_pcm_hw_rule *rule)
+{
+	struct snd_interval t;
+	int refine = 0;
+	int ret = 0;
+	struct snd_pcm_substream *substream = rule->private;
+	struct snd_interval *a = hw_param_interval_c(params, rule->deps[0]);
+
+	snd_interval_copy(&t, a);
+	if (a->max < CVI_PCM_ALIGN(a->max, 64)) {
+		refine = 1;
+		t.max = a->max - a->max % 64;
+//		t.min = a->min;
+	}
+	if (t.min < CVI_PCM_ALIGN(a->min, 64)) {
+		refine = 1;
+		t.min = CVI_PCM_ALIGN(a->min, 64);
+//        t.max = a->max;
+	}
+	if (refine) {
+		if (t.min > t.max)
+			t.max = t.min;
+		ret = snd_interval_refine(hw_param_interval(params, rule->var), &t);
+		if (ret < 0) {
+			pr_err("ret=%d rule_var:%d=%d, t info: t_max %d t_min %d,t_empty:%d\n",
+			       ret, rule->deps[0], rule->var, t.max, t.min, t.empty);
+			pr_err("a info: min:%d max:%d openmin:%d openmax:%d,a_empty:%d\n",
+			       a->min, a->max, a->openmin, a->openmax, a->empty);
+		}
+		return ret;
+	}
+
+	return 0;
+}
+
 static inline void i2s_write_reg(void __iomem *io_base, int reg, u32 val)
 {
 	writel(val, io_base + reg);
@@ -258,6 +295,7 @@ static int cvi_i2s_startup(struct snd_pcm_substream *substream,
 {
 	struct cvi_i2s_dev *dev = snd_soc_dai_get_drvdata(cpu_dai);
 	union cvi_i2s_snd_dma_data *dma_data = NULL;
+	int ret = 0;
 
 	dev_dbg(dev->dev, "%s start *cpu_dai = %p name = %s\n", __func__, cpu_dai, cpu_dai->name);
 	if (!(dev->capability & CVI_I2S_RECORD) &&
@@ -284,6 +322,12 @@ static int cvi_i2s_startup(struct snd_pcm_substream *substream,
 	snd_soc_dai_set_dma_data(cpu_dai, substream, (void *)dma_data);
 	dev_dbg(dev->dev, "%s end cpu_dai->playback_dma_data = %p\n",
 		__func__, cpu_dai->playback_dma_data);
+	ret = snd_pcm_hw_rule_add(substream->runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+				  snd_pcm_hw_rule_period_size, substream,
+				  SNDRV_PCM_HW_PARAM_PERIOD_BYTES, -1);
+	if (ret < 0)
+		return ret;
+
 	return 0;
 }
 
