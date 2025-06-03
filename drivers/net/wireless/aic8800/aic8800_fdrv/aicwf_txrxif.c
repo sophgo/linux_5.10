@@ -1058,8 +1058,6 @@ static void aicwf_recvframe_queue_deinit(struct list_head *q)
 #endif
 void aicwf_rx_deinit(struct aicwf_rx_priv* rx_priv)
 {
-	if (!rx_priv)
-		return;
 #ifdef AICWF_RX_REORDER
     struct reord_ctrl_info *reord_info, *tmp;
 
@@ -1123,10 +1121,8 @@ void aicwf_rx_deinit(struct aicwf_rx_priv* rx_priv)
 
 #ifdef AICWF_RX_REORDER
     aicwf_recvframe_queue_deinit(&rx_priv->rxframes_freequeue);
-    if (rx_priv->recv_frames) {
+    if (rx_priv->recv_frames)
         vfree(rx_priv->recv_frames);
-	rx_priv->recv_frames = NULL;
-    }
 #endif
 
 #ifdef CONFIG_PREALLOC_RX_SKB

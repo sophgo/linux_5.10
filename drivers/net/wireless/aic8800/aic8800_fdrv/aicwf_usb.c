@@ -2365,12 +2365,10 @@ static int aicwf_usb_chipmatch(struct aic_usb_dev *usb_dev, u16_l vid, u16_l pid
 int wf_reboot_notify(struct notifier_block *notifier, ulong pm_event,
 		     void *unused)
 {
-	struct aic_usb_dev *usb_dev;
-
+    struct aic_usb_dev *usb_dev;
 	usb_dev = container_of(notifier, struct aic_usb_dev, reboot_notifier);
-	// aicwf_bus_deinit(usb_dev->dev);
-	// aicwf_usb_deinit(usb_dev);
-	aicwf_usb_exit();
+    aicwf_bus_deinit(usb_dev->dev);
+    aicwf_usb_deinit(usb_dev);
 	return NOTIFY_DONE;
 }
 
