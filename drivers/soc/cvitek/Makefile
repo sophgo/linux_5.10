@@ -1,0 +1,17 @@
+obj-$(CONFIG_CVI_SYSDMA_REMAP)	+= sysdma/cvi_dma_remap.o
+obj-$(CONFIG_CVI_WIFI_PIN)	+= wifi_pin/cvi_wifi_pin.o
+obj-$(CONFIG_CVI_BT_PIN)	+= bt_pin/cvi_bt_pin.o
+obj-$(CONFIG_CVI_TPU)	+= tpu/
+obj-$(CONFIG_CVI_CLK_COOLING)	+= clock_cooling/
+obj-$(CONFIG_CVI_AXIMON)	+= aximon/
+obj-$(CONFIG_CVI_RTOS_CMDQU)	+= rtos_cmdqu/
+obj-$(CONFIG_CVI_IRRX)	+= irrx/
+obj-$(CONFIG_CVI_KEYSCAN)	+= keyscan/
+obj-$(CONFIG_CVI_WIEGAND)	+= wiegand/
+obj-$(CONFIG_CVI_SARADC)	+= saradc/
+obj-$(CONFIG_CVI_FAST_IMAGE)	+= fast_image/
+obj-$(CONFIG_CVI_MON)	+= mon/
+obj-$(CONFIG_CVI_PWM)	+= pwm/
+obj-$(CONFIG_CVI_RTC)	+= rtc/
+obj-$(CONFIG_CVI_TRNG)	+= trng/
+obj-$(CONFIG_CVI_WDT)	+= wdt/

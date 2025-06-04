@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CVI_SARADC
+	tristate "cvitek saradc dirver"
+	default m
+	depends on ION_CVITEK && IIO
+	help
+		"sar adc"

@@ -1,0 +1,106 @@
+#
+# CVITEK Audio Sound SoC drivers
+#
+
+config SND_CVITEK_I2S
+    tristate "CVITEK I2S Device Driver"
+    depends on CLKDEV_LOOKUP
+	select SND_SOC_GENERIC_DMAENGINE_PCM
+    help
+     Say y or m if you want to add support for I2S driver for
+     CVITEK I2S device. The device supports up to maximum of
+     2 channels each for play and record.
+     Say N, if not support
+
+config SND_CVITEK_I2S_SUBSYS
+    tristate "CVITEK I2S TDM sub-system driver"
+    depends on SND
+    help
+     Enable CVITEK I2S TDM sub-system driver to do I2S TDM configuration.
+     One needs to set this sub-system for multi-record at the same time
+     or TX/RX simultaneously. ex. set I2S0 as RX and I2S1 as TX.
+     Due to 1 I2S IP only has 1 FIFO, one must do this setting.
+
+# PDM Configuration
+config SND_SOC_CVITEK_PDM
+    tristate "CVITEK PDM codec driver"
+    depends on SND
+    help
+     Say y or m if you want to add support for CVITEK PDM codec driver.
+     The device supports digital external MICs.
+     Say N, if not support
+
+config SND_SOC_CVITEK_CARD_PDM
+    tristate "CVITEK PDM sound card driver"
+    depends on SND
+    select SND_CVITEK_I2S
+    select SND_CVITEK_I2S_SUBSYS
+    select SND_SOC_CVITEK_PDM
+    help
+     Say Y or M if you want to add support for CVITEK PDM sound card.
+     This will enable the PDM sound card along with required I2S and
+     PDM codec drivers.
+     Say N, if not support
+
+# ADC Configuration
+config SND_SOC_CVITEK_ADC
+    tristate "CVITEK ADC codec driver"
+    depends on SND
+    help
+     Say y or m if you want to add support for CVITEK ADC codec driver.
+     The device supports analog external MICs.
+     Say N, if not support
+
+config SND_SOC_CVITEK_CARD_ADC
+    tristate "CVITEK ADC sound card driver"
+    depends on SND
+    select SND_CVITEK_I2S
+    select SND_CVITEK_I2S_SUBSYS
+    select SND_SOC_CVITEK_ADC
+    help
+     Say Y or M if you want to add support for CVITEK ADC sound card.
+     This will enable the ADC sound card along with required I2S and
+     ADC codec drivers.
+     Say N, if not support
+
+# DAC Configuration
+config SND_SOC_CVITEK_DAC
+    tristate "CVITEK DAC codec driver"
+    depends on SND
+    help
+     Say y or m if you want to add support for CVITEK DAC codec driver.
+     The device supports analog audio output devices.
+     Say N, if not support
+
+config SND_SOC_CVITEK_CARD_DAC
+    tristate "CVITEK DAC sound card driver"
+    depends on SND
+    select SND_CVITEK_I2S
+    select SND_CVITEK_I2S_SUBSYS
+    select SND_SOC_CVITEK_DAC
+    help
+     Say Y or M if you want to add support for CVITEK DAC sound card.
+     This will enable the DAC sound card along with required I2S and
+     DAC codec drivers.
+     Say N, if not support
+
+# Other Configuration
+config SND_SOC_CVITEK_CODEC_DUMMY
+    tristate "CVITEK dummy codec driver"
+    depends on SND
+    help
+     Say y or m if you want to add support for CVITEK dummy codec driver.
+     This is used for testing or special purposes without actual codec hardware.
+     Say N, if not support
+
+config SND_SOC_CVITEK_CARD_DUMMY
+    tristate "CVITEK dummy sound card driver"
+    depends on SND
+    select SND_CVITEK_I2S
+    select SND_CVITEK_I2S_SUBSYS
+    select SND_SOC_CVITEK_CODEC_DUMMY
+    help
+     Say Y or M if you want to add support for CVITEK dummy sound card.
+     This will enable the dummy sound card along with required I2S driver.
+     Typically used for testing or special purposes.
+     Say N, if not support

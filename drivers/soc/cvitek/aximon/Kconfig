@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Generic aximon drivers configuration
+#
+# When adding new entries keep the list in alphabetical order
+
+config CVI_AXIMON
+	tristate "monitor dirver"
+	default y
+	depends on ARCH_CVITEK
+	help
+		"cvitek monitor"
