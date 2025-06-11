@@ -655,6 +655,11 @@ struct cv181xdac_context {
 };
 #endif
 
+struct dac_mute_pin {
+	u32 mute_pin_l;
+	u32 mute_pin_r;
+};
+
 struct cv181xadc {
 	void __iomem *adc_base;
 	struct clk *clk;
@@ -673,6 +678,7 @@ struct cv181xdac {
 	struct device *dev;
 	struct miscdevice miscdev;
 	struct mutex mutex;
+	struct dac_mute_pin mute_pin;
 #ifdef CONFIG_PM_SLEEP
 	struct cv181xdac_context *reg_ctx;
 #endif

@@ -27,43 +27,20 @@
 #include <linux/of_gpio.h>
 
 static DEFINE_MUTEX(cv181xdac_mutex);
-static int mute_pin_0L; // 486
-static int mute_pin_0R; // 486
-static int mute_pin_1L; // 487
-static int mute_pin_1R;
 static int dac_comp_num;
 
-static void mute_amp(bool enable)
+static void mute_amp(struct cv181xdac *dac, bool enable)
 {
 	if (enable) {
-		if (mute_pin_0L != -EINVAL) {
-			gpio_set_value(mute_pin_0L, 0);
-		}
-		if (mute_pin_0R != -EINVAL) {
-			gpio_set_value(mute_pin_0R, 0);
-		}
-
-		if (mute_pin_1L != -EINVAL) {
-			gpio_set_value(mute_pin_1L, 0);
-		}
-		if (mute_pin_1R != -EINVAL) {
-			gpio_set_value(mute_pin_1R, 0);
-		}
-
+		if (dac->mute_pin.mute_pin_l != -EINVAL)
+			gpio_set_value(dac->mute_pin.mute_pin_l, 0);
+		if (dac->mute_pin.mute_pin_r != -EINVAL)
+			gpio_set_value(dac->mute_pin.mute_pin_r, 0);
 	} else {
-		if (mute_pin_0L != -EINVAL) {
-			gpio_set_value(mute_pin_0L, 1);
-		}
-		if (mute_pin_0R != -EINVAL) {
-			gpio_set_value(mute_pin_0R, 1);
-		}
-
-		if (mute_pin_1L != -EINVAL) {
-			gpio_set_value(mute_pin_1L, 1);
-		}
-		if (mute_pin_1R != -EINVAL) {
-			gpio_set_value(mute_pin_1R, 1);
-		}
+		if (dac->mute_pin.mute_pin_l != -EINVAL)
+			gpio_set_value(dac->mute_pin.mute_pin_l, 1);
+		if (dac->mute_pin.mute_pin_r != -EINVAL)
+			gpio_set_value(dac->mute_pin.mute_pin_r, 1);
 	}
 }
 
@@ -266,7 +243,7 @@ static void cv181xdac_shutdown(struct snd_pcm_substream *substream,
 	struct cv181xdac *dac = snd_soc_dai_get_drvdata(dai);
 
 	dev_dbg(dac->dev, "dac_shutdown\n");
-	mute_amp(true);
+	mute_amp(dac, true);
 	cv182xa_reset_dac();
 }
 
@@ -284,7 +261,7 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		snd_pcm_stream_unlock_irq(substream);
 		cv181xdac_on(dac);
-		mute_amp(false);
+		mute_amp(dac, false);
 		snd_pcm_stream_lock_irq(substream);
 		break;
 
@@ -292,7 +269,8 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		snd_pcm_stream_unlock_irq(substream);
-		mute_amp(true);
+		mute_amp(dac, true);
+		usleep_range(1000, 3000);
 		cv181xdac_off(dac);
 		snd_pcm_stream_lock_irq(substream);
 		break;
@@ -642,8 +620,6 @@ static int cv181xdac_probe(struct platform_device *pdev)
 	int ret;
 	enum of_gpio_flags flags;
 	const struct snd_soc_component_driver *comp_drv;
-	unsigned int mute_pin_l =  -EINVAL;
-	unsigned int mute_pin_r =  -EINVAL;
 
 	dev_info(&pdev->dev, "cvitekadac_probe\n");
 
@@ -665,37 +641,34 @@ static int cv181xdac_probe(struct platform_device *pdev)
 		pr_err("dac: register device error\n");
 		return ret;
 	}
+	dac->mute_pin.mute_pin_l =  -EINVAL;
+	dac->mute_pin.mute_pin_r =  -EINVAL;
+	dac->mute_pin.mute_pin_l = of_get_named_gpio_flags(pdev->dev.of_node,
+							   "mute-gpio-l", 0, &flags);
+	dac->mute_pin.mute_pin_r = of_get_named_gpio_flags(pdev->dev.of_node,
+							   "mute-gpio-r", 0, &flags);
 
-	mute_pin_l = of_get_named_gpio_flags(pdev->dev.of_node,
-					     "mute-gpio-l", 0, &flags);
-	mute_pin_r = of_get_named_gpio_flags(pdev->dev.of_node,
-					     "mute-gpio-r", 0, &flags);
-
-	if (!gpio_is_valid(mute_pin_l)) {
+	if (!gpio_is_valid(dac->mute_pin.mute_pin_l)) {
 		pr_err("cvitekadac_probe gpio_is_valid mute_pin_l\n");
-		mute_pin_l =  -EINVAL;
+		dac->mute_pin.mute_pin_l =  -EINVAL;
 	} else {
-		gpio_request(mute_pin_l, "mute_pin_l");
-		gpio_direction_output(mute_pin_l, 1);
-		gpio_set_value(mute_pin_l, 0);
+		gpio_request(dac->mute_pin.mute_pin_l, "mute_pin_l");
+		gpio_direction_output(dac->mute_pin.mute_pin_l, 1);
+		gpio_set_value(dac->mute_pin.mute_pin_l, 0);
 	}
 
-	if (!gpio_is_valid(mute_pin_r)) {
+	if (!gpio_is_valid(dac->mute_pin.mute_pin_r)) {
 		pr_err("cvitekadac_probe gpio_is_valid mute_pin_r\n");
-		mute_pin_r =  -EINVAL;
+		dac->mute_pin.mute_pin_r =  -EINVAL;
 	} else {
-		gpio_request(mute_pin_r, "mute_pin_r");
-		gpio_direction_output(mute_pin_r, 1);
-		gpio_set_value(mute_pin_r, 0);
+		gpio_request(dac->mute_pin.mute_pin_r, "mute_pin_r");
+		gpio_direction_output(dac->mute_pin.mute_pin_r, 1);
+		gpio_set_value(dac->mute_pin.mute_pin_r, 0);
 	}
 
 	if (!dac_comp_num) {
-		mute_pin_0L = mute_pin_l;
-		mute_pin_0R = mute_pin_r;
 		comp_drv = &soc_component_dev_cv181xdac0;
 	} else {
-		mute_pin_1L = mute_pin_l;
-		mute_pin_1R = mute_pin_r;
 		comp_drv = &soc_component_dev_cv181xdac1;
 	}
 
@@ -708,7 +681,9 @@ static int cv181xdac_probe(struct platform_device *pdev)
 
 static int cv181xdac_remove(struct platform_device *pdev)
 {
-	mute_amp(true);
+	struct cv181xdac *dac = platform_get_drvdata(pdev);
+
+	mute_amp(dac, true);
 	dev_dbg(&pdev->dev, "cvitekadac_remove\n");
 	return 0;
 }
@@ -728,7 +703,7 @@ static int cv181xdac_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct cv181xdac *dac = platform_get_drvdata(pdev);
 
-	mute_amp(true);
+	mute_amp(dac, true);
 	if (!dac->reg_ctx) {
 		dac->reg_ctx = devm_kzalloc(dac->dev, sizeof(struct cv181xdac_context), GFP_KERNEL);
 		if (!dac->reg_ctx)
@@ -751,7 +726,7 @@ static int cv181xdac_resume(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct cv181xdac *dac = platform_get_drvdata(pdev);
 
-	mute_amp(false);
+	mute_amp(dac, false);
 	dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_CTRL0, dac->reg_ctx->ctl0);
 	dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_CTRL1, dac->reg_ctx->ctl1);
 	dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_AFE0, dac->reg_ctx->afe0);
