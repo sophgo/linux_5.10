@@ -66,6 +66,7 @@ static inline void sdvt_can_enable_all_interrupts(struct sdvt_can_classdev *cdev
 
 static inline void sdvt_can_disable_all_interrupts(struct sdvt_can_classdev *cdev, struct sdvt_can_config *cfg_o)
 {
+	// pr_info("disable_all_interrupts\n");
 	sdvt_mask_irq(cdev, cfg_o, SDVT_CAN_IRQ_ENABLE1, 1 << SDVT_CAN_IRQ_RX_DATA_FRAME);
 	sdvt_mask_irq(cdev, cfg_o, SDVT_CAN_IRQ_ENABLE0, 1 << SDVT_CAN_IRQ_REMOTE_FRAME);
 	sdvt_mask_irq(cdev, cfg_o, SDVT_CAN_IRQ_ENABLE4, 1 << SDVT_CAN_IRQ_RX_DATA_FIFO_OR);
@@ -306,6 +307,7 @@ static irqreturn_t sdvt_can_irq_handler(int irq, void *dev_id)
 		// pr_info("send done.\n");
 		sdvt_mask_irq(cdev, cfg_o, SDVT_CAN_IRQ_ENABLE0, 1 << SDVT_CAN_IRQ_INFO_EMPTY);
 		sdvt_can_enable_all_interrupts(cdev, cfg_o);
+		keep_ex_std(cdev, cfg_o);
 		/* TX done */
 	}
 	return IRQ_HANDLED;
@@ -443,7 +445,17 @@ static void sdvt_can_stop(struct net_device *dev)
 	struct sdvt_can_classdev *cdev = netdev_priv(dev);
 	struct sdvt_can_config *cfg_o = &cdev->cfg_o;
 	/* disable all interrupts */
+	int ret = 0;
 	sdvt_can_disable_all_interrupts(cdev, cfg_o);
+
+	ret = wait_tx_done(cdev);
+	if (ret != 0)
+		abort_tx(cdev);
+
+	sdvt_can_flush_fifo(cdev, SDVT_CAN_TX_DATA_FIFO_FLUSH);
+	sdvt_can_flush_fifo(cdev, SDVT_CAN_RX_DATA_FIFO_FLUSH);
+	sdvt_can_flush_fifo(cdev, SDVT_CAN_RX_LEN_FIFO_FLUSH);
+	sdvt_can_flush_fifo(cdev, SDVT_CAN_TX_RSP_FIFO_FLUSH);
 
 	/* set the state as STOPPED */
 	cdev->can.state = CAN_STATE_STOPPED;

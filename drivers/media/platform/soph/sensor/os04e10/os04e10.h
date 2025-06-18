@@ -7,9 +7,6 @@ struct os04e10_reg {
 	u8 val;
 };
 
-/* Configurations for supported link menu items */
-#define SNS_CFG_TYPE_MAX	21
-
 #define MAX_SENSOR_DEVICE   6
 #define MAX_I2C_BUS_NUM     7
 
@@ -33,11 +30,19 @@ static  s64 os04e10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		-1,                      //LANE_3
 		-1,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		0,                      //SWAP_3
 		0,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//s1 linear mode
 		SNS_CFG_TYPE_MAX,
@@ -56,11 +61,19 @@ static  s64 os04e10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		3,                      //LANE_2
 		-1,                     //LANE_3
 		-1,                     //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		0,                      //SWAP_0
 		0,                      //SWAP_1
 		0,                      //SWAP_2
 		0,                      //SWAP_3
 		0,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 

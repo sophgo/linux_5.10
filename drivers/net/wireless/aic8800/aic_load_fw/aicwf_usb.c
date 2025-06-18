@@ -845,7 +845,7 @@ static int aicwf_parse_usb(struct aic_usb_dev *usb_dev, struct usb_interface *in
 #endif
 #endif
 
-    printk("Aic %s speed USB device detected\n", 
+    printk("Aic %s speed USB device detected\n",
             (usb->speed == USB_SPEED_SUPER) ? "super" :
             (usb->speed == USB_SPEED_HIGH)  ? "high"  :
             (usb->speed == USB_SPEED_FULL)  ? "full"  :
@@ -1211,7 +1211,7 @@ static int patch_config(struct aic_usb_dev *usb_dev)
 	        if((ret = rwnx_send_dbg_mem_write_req(usb_dev, 0x1e5318, patch_addr))) {
 	            printk("%x write fail\n", 0x1e5318);
 	        }
-            
+
 			if(adap_test){
 				printk("%s for adaptivity test \r\n", __func__);
 				adap_patch_num = sizeof(adaptivity_patch_tbl)/4;
@@ -1381,7 +1381,7 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
 	int paring_id_num = 0;
 	int i = 0;
     const u32 fw_addr = RAM_FW_ADDR;
-    
+
 #ifdef CONFIG_M2D_OTA_AUTO_SUPPORT
         if(testmode == FW_M2D_OTA_MODE){
             rwnx_plat_m2d_flash_ota_android(usb_dev,FW_M2D_OTA_NAME);
@@ -1393,12 +1393,12 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
             if (rwnx_plat_bin_fw_upload_android(usb_dev, RAM_FW_ADDR, FW_RF_BASE_NAME)) {
                 return -1;
             }
-    
+
             if (chip_id == CHIP_REV_U03) {
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_ADID_BASE_ADDR, FW_ADID_BASE_NAME_U03)) {
                     return -1;;
                 }
-    
+
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_PATCH_BASE_ADDR_U03, FW_PATCH_BASE_NAME_U03)) {
                     return -1;;
                 }
@@ -1406,17 +1406,17 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_ADID_BASE_ADDR, FW_ADID_BASE_NAME)) {
                     return -1;;
                 }
-    
+
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_PATCH_BASE_ADDR, FW_PATCH_BASE_NAME)) {
                     return -1;;
                 }
             }
-    
+
 #if 0
             if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_ADID_BASE_ADDR, FW_RF_ADID_BASE_NAME)) {
                 goto out_free_bus;
             }
-    
+
             if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_PATCH_BASE_ADDR, FW_RF_PATCH_BASE_NAME)) {
                 goto out_free_bus;
             }
@@ -1548,7 +1548,7 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_ADID_BASE_ADDR, FW_ADID_BASE_NAME_U03)) {
                     return -1;;
                 }
-    
+
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_PATCH_BASE_ADDR_U03, FW_PATCH_BASE_NAME_U03)) {
                     return -1;;
                 }
@@ -1556,7 +1556,7 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_ADID_BASE_ADDR, FW_ADID_BASE_NAME)) {
                     return -1;;
                 }
-    
+
                 if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_RAM_PATCH_BASE_ADDR, FW_PATCH_BASE_NAME)) {
                     return -1;;
                 }
@@ -1571,7 +1571,7 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
                 return -1;;
             }
         }
-    
+
 #if 0
         if(testmode == FW_TEST_MODE){
             if(rwnx_plat_bin_fw_upload_android(usb_dev, FW_PATCH_TEST_BASE_ADDR, FW_PATCH_TEST_BASE_NAME)) {
@@ -1579,22 +1579,22 @@ int aicfw_download_fw_8800(struct aic_usb_dev *usb_dev){
             }
         }
 #endif
-    
+
         if (rwnx_plat_userconfig_upload_android(usb_dev, FW_USERCONFIG_NAME)){
             return -1;
         }
-    
+
         if (patch_config(usb_dev)) {
             return -1;;
         }
-    
+
         if (rf_config(usb_dev)){
             return -1;;
         }
         if (rwnx_send_dbg_start_app_req(usb_dev, fw_addr, HOST_START_APP_AUTO)) {
             return -1;
         }
-        
+
     return 0;
 }
 
@@ -1621,7 +1621,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
     struct device *dev = NULL;
     struct aicwf_rx_priv* rx_priv = NULL;
     struct aic_usb_dev *usb_dev = NULL;
-    
+
 
 	AICWFDBG(LOGINFO, "%s vid:0x%X pid:0x%X icl:0x%X isc:0x%X ipr:0x%X \r\n", __func__,
 		id->idVendor,
@@ -1630,8 +1630,8 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
 		id->bInterfaceSubClass,
 		id->bInterfaceProtocol);
 
-	if(fw_loaded == 1 && 
-        (id->idProduct == USB_DEVICE_ID_AIC_8801 || 
+	if(fw_loaded == 1 &&
+        (id->idProduct == USB_DEVICE_ID_AIC_8801 ||
         id->idProduct == USB_DEVICE_ID_AIC_8800D81 ||
 	    id->idProduct == USB_DEVICE_ID_AIC_8800D41 ||
 	    id->idProduct == USB_DEVICE_ID_AIC_8800D81X2 ||
@@ -1651,7 +1651,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
         AICWFDBG(LOGERROR, "%s chip unsupport.\r\n", __func__);
         goto out_free;
     }
-    
+
     usb_set_intfdata(intf, usb_dev);
 
     ret = aicwf_parse_usb(usb_dev, intf, id->idProduct);
@@ -1708,7 +1708,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
         goto out_free_bus;
     }
 
-	if(fw_loaded == 0 && 
+	if(fw_loaded == 0 &&
         (usb_dev->chipid == PRODUCT_ID_AIC8801 ||
         usb_dev->chipid == PRODUCT_ID_AIC8800D81||
         usb_dev->chipid == PRODUCT_ID_AIC8800D81X2 ||
@@ -1724,7 +1724,7 @@ static int aicwf_usb_probe(struct usb_interface *intf, const struct usb_device_i
     if (aicfw_download_fw(usb_dev)){
         goto out_free_bus;
     }
-    
+
     usb_dev->app_cmp = true;
 	fw_loaded = 1;
 

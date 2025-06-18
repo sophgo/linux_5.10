@@ -30,11 +30,19 @@ static s64 lt6911_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		3,                      //LANE_2
 		1,                      //LANE_3
 		0,                      //LANE_4
+		-1,                      //LANE_1
+		-1,                      //LANE_2
+		-1,                      //LANE_3
+		-1,                      //LANE_4
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_1
+		0,                      //SWAP_2
+		0,                      //SWAP_3
+		0,                      //SWAP_4
 	},
 };
 

@@ -178,10 +178,10 @@ static int cif_get_sensor_clk_input_info(struct v4l2_subdev *sd,
 		}  else if (qm.index == SNS_CFG_TYPE_PHY_MODE) {
 			attr->cif_mode = qm.value;
 			CIF_PR(CIF_DEBUG, "cif_mode [%lld]\n", qm.value);
-		} else if (qm.index >= lane_start && qm.index < lane_start + 5) {
+		} else if (qm.index >= lane_start && qm.index < lane_start + 9) {
 			attr->mipi_attr.lane_id[qm.index - lane_start] = qm.value;
 			CIF_PR(CIF_DEBUG, "lane_id [%d] = [%lld]\n", qm.index - lane_start, qm.value);
-		} else if (qm.index >= swap_start && qm.index < swap_start + 5) {
+		} else if (qm.index >= swap_start && qm.index < swap_start + 9) {
 			if (qm.value == 1 || qm.value == 0) {
 				attr->mipi_attr.pn_swap[qm.index - swap_start] = qm.value;
 				CIF_PR(CIF_DEBUG, "lane_swap [%d] = [%lld]\n", qm.index - swap_start, qm.value);
@@ -279,16 +279,20 @@ static int cif_s_stream(struct v4l2_subdev *sd, int enable)
 	int ret = 0, i = 0;
 
 	if (sd) {
-		CIF_PR(CIF_DEBUG, "cif set stream(%d)\n", enable);
+		CIF_PR(CIF_DEBUG, "cif set stream (%s)\n", enable == 0? "off" : "on");
 
 		for (i = 0; i < sns_number; i++) {
+			CIF_PR(CIF_DEBUG, "sensor (%d)/(%d) cif_s_stream\n", i, sns_number);
 			if (enable) {
+				CIF_PR(CIF_DEBUG, "cif set stream (%s), enable flow\n", enable == 0? "off" : "on");
 				g_attr[i] = &ex_attr[i];
 				if (cif_get_sensor_clk_input_info(sd, &ex_attr[i], i)) {
 					CIF_PR(CIF_ERROR, "cif get sns[%d] clk & input info fail!\n", i);
+					return -1;
 				}
 
 				if (g_attr[i] != NULL) {
+					CIF_PR(CIF_DEBUG, "sensor (%d)/(%d) cif_start_stream\n", i, sns_number);
 					ret = cif_start_stream(dev, g_attr[i]);
 					if (ret) {
 						break;
@@ -297,6 +301,8 @@ static int cif_s_stream(struct v4l2_subdev *sd, int enable)
 					return -EINVAL;
 				}
 			} else {
+				CIF_PR(CIF_DEBUG, "cif set stream (%s), disable flow\n", enable == 0? "off" : "on");
+				ret = _cif_enable_snsr_clk(dev, g_attr[i]->mclk.cam, 0);
 				cif_reset_mipi(dev, i);
 			}
 		}
@@ -304,7 +310,7 @@ static int cif_s_stream(struct v4l2_subdev *sd, int enable)
 		for (i = 0; i < sns_number; i++) {
 			sensor = get_remote_sensor(sd, CIF_PAD_SNS0 + i);
 			if (!sensor) {
-				CIF_PR(CIF_ERROR, "sensor subdev is NULL!\n");
+				CIF_PR(CIF_ERROR, "In cif_s_stream, sensor subdev is NULL!\n");
 				return -1;
 			}
 
@@ -343,7 +349,7 @@ static int cif_enum_frame_size(struct v4l2_subdev *sd,
 	struct v4l2_subdev *sensor = get_remote_sensor(sd, CIF_PAD_SNS0);
 
 	if (!sensor) {
-		CIF_PR(CIF_ERROR, "sensor subdev is NULL!\n");
+		CIF_PR(CIF_ERROR, "In cif_enum_frame_size, sensor subdev is NULL!\n");
 		return -1;
 	}
 
@@ -399,6 +405,7 @@ static int get_sensor_index(struct v4l2_subdev *sd)
 
 	ret = kstrtouint(name, 10, &index); //cmaX
 
+	CIF_PR(CIF_DEBUG, "index = %s", name);
 	return index;
 }
 
@@ -430,7 +437,7 @@ static int cif_attach_ispdev(struct cvi_cif_dev *dev)
  	dev->isp_sd = list_first_entry(&isp_v4l2->subdevs,
 									struct v4l2_subdev, list);
 
-	printk("attach %s done\n", dev->isp_sd->name);
+	CIF_PR(CIF_DEBUG, "attach %s done in cif_attach_ispdev()\n", dev->isp_sd->name);
 
 	return 0;
 }
@@ -507,9 +514,36 @@ static void cif_notifier_unbind(struct v4l2_async_notifier *notifier,
 						  struct cvi_cif_dev,
 						  notifier);
 	struct cif_sensor_info *sensor = sd_to_sensor(dev, sd);
+	int i;
+
+	CIF_PR(CIF_DEBUG, "cif_notifier_unbind sensor[%s],index:%d\n", sd->name, get_sensor_index(sd));
+
+	media_entity_remove_links(&dev->sd.entity);
+	CIF_PR(CIF_DEBUG, "media_entity_remove_links from isp finish\n");
+
+	media_entity_remove_links(&sensor->sd->entity);
+	CIF_PR(CIF_DEBUG, "media_entity_remove_links from cif finish\n");
+
+	v4l2_device_unregister_subdev(sensor->sd);
+	CIF_PR(CIF_DEBUG, "v4l2_device_unregister_subdev finish\n");
 
 	if (sensor)
 		sensor->sd = NULL;
+
+	if (dev)
+		dev->num_sensors = 0;
+
+	if (sns_number) {
+		CIF_PR(CIF_DEBUG, "sns_number = %d\n", sns_number);
+		sns_number = 0;
+	}
+
+	for (i = 0; i < MAX_LINK_NUM; i++) {
+		if (g_attr[i] != NULL)
+			g_attr[i] = NULL;
+	}
+
+	CIF_PR(CIF_DEBUG, "cif_notifier_unbind finish \n");
 }
 
 static int subdev_notifier_complete(struct v4l2_async_notifier *notifier)
@@ -556,6 +590,8 @@ static int cif_notifier(struct cvi_cif_dev *dev)
 {
 	struct v4l2_async_notifier *ntf = &dev->notifier;
 	int ret;
+
+	CIF_PR(CIF_DEBUG, "Into cif_notifier\n");
 
 	v4l2_async_notifier_init(ntf);
 
@@ -623,6 +659,8 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 {
 	int rc, i;
 	struct v4l2_device *v4l2_dev;
+
+	CIF_PR(CIF_DEBUG, "Into cif_init_subdev \n");
 
 	/*init v4l2 dev*/
 	v4l2_dev = &dev->v4l2_dev;

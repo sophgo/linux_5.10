@@ -221,7 +221,7 @@ enum {
 #define CIF_PR(level, fmt, args...) \
 do { \
 	if (level >= cif_log_lv) { \
-		printk(fmt, ##args); \
+		printk("%s:%d(): " fmt, __func__, __LINE__, ##args); \
 	} \
 } while(0)
 

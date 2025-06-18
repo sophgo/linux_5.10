@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
+#include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio/consumer.h>
 
@@ -42,7 +43,7 @@
 
 static const enum mipi_wdr_mode_e imx327_wdr_mode = MIPI_WDR_MODE_DOL;
 
-static int imx327_count;
+volatile int imx327_count = 0;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx327_count, 0644);
 
@@ -65,11 +66,11 @@ struct imx327_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t imx327_sync_info;
 	struct imx327_reg_list reg_list;
-	struct imx327_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -83,6 +84,8 @@ static struct imx327_mode supported_modes[] = {
 		.hts_def = 0x1130,
 		.vts_def = 1125,
 		.mipi_wdr_mode = MIPI_WDR_MODE_NONE,
+		.sns_type = V4L2_SONY_IMX327_2L_MIPI_2M_30FPS_12BIT,
+		.sns_type_name = "V4L2_SONY_IMX327_2L_MIPI_2M_30FPS_12BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 300000,
@@ -91,7 +94,23 @@ static struct imx327_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2l_regs),
 			.regs = mode_1920x1080_2l_regs,
 		},
-		.wdr_reg_list = {
+	},
+	{
+		.max_width = 1948,
+		.max_height = 1097,
+		.width = 1920,
+		.height = 1080,
+		.exp_def = 0x2000,
+		.hts_def = 0x1130,
+		.vts_def = 1125,
+		.mipi_wdr_mode = MIPI_WDR_MODE_DOL,
+		.sns_type = V4L2_SONY_IMX327_2L_MIPI_2M_30FPS_12BIT_WDR2TO1,
+		.sns_type_name = "V4L2_SONY_IMX327_2L_MIPI_2M_30FPS_12BIT_WDR2TO1",
+		.max_fps = {
+			.numerator = 10000,
+			.denominator = 300000,
+		},
+		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2l_wdr_regs),
 			.regs = mode_1920x1080_2l_wdr_regs,
 		},
@@ -278,13 +297,9 @@ static int enum_frame_interval(struct v4l2_subdev *sd,
 	fie->width  = imx327->cur_mode->width;
 	fie->height = imx327->cur_mode->height;
 
-	if (imx327->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {
-		fie->interval.numerator   = imx327->cur_mode->max_fps.numerator;
-		fie->interval.denominator = imx327->cur_mode->max_fps.denominator;
-	} else {
-		fie->interval.numerator   = imx327->cur_mode->wdr_max_fps.numerator;
-		fie->interval.denominator = imx327->cur_mode->wdr_max_fps.denominator;
-	}
+	fie->interval.numerator   = imx327->cur_mode->max_fps.numerator;
+	fie->interval.denominator = imx327->cur_mode->max_fps.denominator;
+
 	return 0;
 }
 
@@ -383,11 +398,7 @@ static int start_streaming(struct imx327 *imx327)
 	const sns_sync_info_t *sync_info;
 	int ret;
 
-	if (imx327->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
-		reg_list = &imx327->cur_mode->reg_list;
-	} else {//wdr
-		reg_list = &imx327->cur_mode->wdr_reg_list;
-	}
+	reg_list = &imx327->cur_mode->reg_list;
 
 	ret = imx327_write_regs(imx327, reg_list->regs, reg_list->num_of_regs);
 	if (ret) {
@@ -443,6 +454,14 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
+		//reset sensor
+		if (!IS_ERR(imx327->reset_gpio)) {
+			gpiod_set_value_cansleep(imx327->reset_gpio, 0);
+			msleep(100);
+			gpiod_set_value_cansleep(imx327->reset_gpio, 1);
+			msleep(100);
+		}
+
 		/*
 		 * Apply default & customized values
 		 * and then start streaming.
@@ -458,7 +477,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	imx327->streaming = enable;
 	mutex_unlock(&imx327->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -604,6 +623,126 @@ error:
 	return ret;
 }
 
+static int imx327_get_info_form_dts(struct imx327 *imx327, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&imx327->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_err(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_err(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_err(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_err(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+    }
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		imx327_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		imx327_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	imx327_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			imx327->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct imx327_mode), GFP_KERNEL);
+			memcpy(imx327->cur_mode, &supported_modes[i], sizeof(struct imx327_mode));
+		}
+	}
+
+	imx327->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(imx327->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(imx327->power_gpio, 1);
+
+	imx327->reset_gpio = devm_gpiod_get(&client->dev,
+			"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(imx327->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+
+	return 0;
+}
+
+
 static long imx327_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct imx327 *imx327 = to_imx327(sd);
@@ -649,10 +788,12 @@ static long imx327_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 		memcpy(&hdr_on, arg, sizeof(int));
 
-		if (hdr_on)
-			imx327->cur_mode->mipi_wdr_mode = imx327_wdr_mode;
-		else
-			imx327->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+		if (hdr_on) {
+			memcpy(imx327->cur_mode, &supported_modes[1], sizeof(struct imx327_mode));
+		}
+		else {
+			memcpy(imx327->cur_mode, &supported_modes[0], sizeof(struct imx327_mode));
+		}
 
 		imx327_update_link_menu(imx327);
 		break;
@@ -740,6 +881,8 @@ static int imx327_init_controls(struct imx327 *imx327, int index_id)
 		return ret;
 	}
 
+	imx327_get_info_form_dts(imx327, index_id);
+
 	mutex_init(&imx327->mutex);
 	ctrl_hdlr->lock = &imx327->mutex;
 	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
@@ -795,7 +938,7 @@ static int imx327_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = imx327_probe_index;
 	int addr_num = sizeof(imx327_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -813,6 +956,27 @@ static int imx327_probe(struct i2c_client *client,
 		return -ENOMEM;
 
 	sd = &imx327->sd;
+
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!imx327_count) {
+
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		imx327->client = client;
+		v4l2_i2c_subdev_init(sd, client, &imx327_subdev_ops);
+	/* Check module identity */
+		ret = imx327_identify_module(imx327);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
 
 	for (i = 0; i < addr_num; i++) {
 		if (force_bus[index_id] < 0)
@@ -847,15 +1011,9 @@ static int imx327_probe(struct i2c_client *client,
 
 	imx327->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		imx327->cur_mode = devm_kzalloc(&client->dev,
-						sizeof(struct imx327_mode), GFP_KERNEL);
-		memcpy(imx327->cur_mode, &supported_modes[0], sizeof(struct imx327_mode));
-	} else {
-		imx327->cur_mode = devm_kzalloc(&client->dev,
-						sizeof(struct imx327_mode), GFP_KERNEL);
-		memcpy(imx327->cur_mode, &supported_modes[index_id], sizeof(struct imx327_mode));
-	}
+	imx327->cur_mode = devm_kzalloc(&client->dev,
+					sizeof(struct imx327_mode), GFP_KERNEL);
+	memcpy(imx327->cur_mode, &supported_modes[0], sizeof(struct imx327_mode));
 
 	memset(&imx327->cur_mode->imx327_sync_info, 0, sizeof(sns_sync_info_t));
 
@@ -896,6 +1054,9 @@ static int imx327_probe(struct i2c_client *client,
 	pm_runtime_enable(&client->dev);
 	pm_runtime_idle(&client->dev);
 
+	if (!IS_ERR(imx327->power_gpio))
+		gpiod_set_value_cansleep(imx327->power_gpio, 1);
+
 	dev_info(dev, "sensor_%d probe success\n", index_id);
 
 	return 0;
@@ -916,23 +1077,27 @@ static int imx327_remove(struct i2c_client *client)
 	struct imx327 *imx327 = to_imx327(sd);
 
 	imx327_probe_index = 0;
+	pr_info("== imx327_remove_index = %d ==\n", imx327_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	imx327_free_controls(imx327);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", imx327_probe_index);
 	return 0;
 }
 
 static const struct of_device_id imx327_of_match[] = {
-	{ .compatible = "cvitek,sensor0" },
-	{ .compatible = "cvitek,sensor1" },
-	{ .compatible = "cvitek,sensor2" },
-	{ .compatible = "cvitek,sensor3" },
-	{ .compatible = "cvitek,sensor4" },
-	{ .compatible = "cvitek,sensor5" },
+	{ .compatible = "v4l2,sensor0" },
+	{ .compatible = "v4l2,sensor1" },
+	{ .compatible = "v4l2,sensor2" },
+	{ .compatible = "v4l2,sensor3" },
+	{ .compatible = "v4l2,sensor4" },
+	{ .compatible = "v4l2,sensor5" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, imx327_of_match);
@@ -961,6 +1126,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== imx327 mod rmmod ==\n");
 	i2c_del_driver(&imx327_i2c_driver);
 }
 

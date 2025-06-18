@@ -129,6 +129,7 @@ struct sop_vi_dev {
 	u8				api_buf_swap[ISP_PRERAW_MAX];
 	u8				tpu_thd_bind[ISP_PRERAW_MAX];
 	u8				is_clk_enable[ISP_PRERAW_MAX];
+	u8				is_user_crop[VI_MAX_CHN_NUM];
 	atomic_t			splt_state[ISP_SPLT_MAX][ISP_SPLT_CHN_MAX];
 	atomic_t			pre_fe_state[ISP_PRERAW_MAX][ISP_FE_CHN_MAX];
 	atomic_t			pre_be_state[ISP_BE_CHN_MAX];

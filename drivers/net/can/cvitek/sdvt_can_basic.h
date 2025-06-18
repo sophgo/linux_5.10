@@ -54,6 +54,9 @@ extern u8  read_reg (uint32_t p_addr_32b);
 //           p_config_st :#Pointer to config object
 void sdvt_init_chip (struct sdvt_can_classdev *cdev, struct sdvt_can_config* p_config_st);
 
+
+void keep_ex_std(struct sdvt_can_classdev *cdev, struct sdvt_can_config *p_config_st);
+
 // send_command :#This method is used for sending command
 //              p_cmd_st :# Pointer to command object
 //           p_config_st :# Pointer to config object

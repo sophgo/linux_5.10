@@ -30,11 +30,19 @@ static s64 imx585_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_2
 		4,                      //LANE_3
 		1,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//s1 linear mode
 		SNS_CFG_TYPE_MAX,
@@ -53,11 +61,19 @@ static s64 imx585_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		14,                      //LANE_2
 		16,                      //LANE_3
 		13,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		1,                      //SWAP_0
 		1,                      //SWAP_1
 		1,                      //SWAP_2
 		1,                      //SWAP_3
 		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 

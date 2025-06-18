@@ -28,13 +28,21 @@ static s64 os04a10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		2,                      //LANE_0
 		0,                      //LANE_1
 		1,                      //LANE_2
-		-1,                      //LANE_3
-		-1,                      //LANE_4
+		-1,                     //LANE_3
+		-1,                     //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		0,                      //SWAP_0
 		0,                      //SWAP_1
 		0,                      //SWAP_2
 		0,                      //SWAP_3
 		0,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 	{//s1 linear mode
 		SNS_CFG_TYPE_MAX,
@@ -51,13 +59,21 @@ static s64 os04a10_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
 		3,                      //LANE_0
 		5,                      //LANE_1
 		4,                      //LANE_2
-		-1,                      //LANE_3
-		-1,                      //LANE_4
+		-1,                     //LANE_3
+		-1,                     //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
 		0,                      //SWAP_0
 		0,                      //SWAP_1
 		0,                      //SWAP_2
 		0,                      //SWAP_3
 		0,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
 	},
 };
 

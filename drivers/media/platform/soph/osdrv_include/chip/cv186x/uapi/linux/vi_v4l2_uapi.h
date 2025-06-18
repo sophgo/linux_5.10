@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 	extern "C" {
 #endif
-
+#include <stdbool.h>
 #include <linux/version.h>
 #if (KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE)
 #include <linux/time_types.h>
@@ -296,6 +296,7 @@ typedef struct ai_isp_api {
 typedef struct ai_isp_bnr_cfg {
 	__u64 swap_buf_index; // __32 *
 	__u32 swap_buf_count;
+	bool ai_rgbmap;
 } ai_isp_bnr_cfg_t;
 
 typedef struct ai_isp_cfg {

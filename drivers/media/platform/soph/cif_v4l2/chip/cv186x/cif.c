@@ -144,10 +144,10 @@ static int _init_resource(struct platform_device *pdev)
 		reg_base[i] = devm_ioremap_nocache(&pdev->dev, res->start, res->end - res->start);
 #endif
 
-		// dev_info(&pdev->dev,
-		// 	 "(%d) res-reg: start: 0x%llx, end: 0x%llx.",
-		// 	 i, res->start, res->end);
-		// dev_info(&pdev->dev, " virt-addr(%p)\n", reg_base[i]);
+		dev_info(&pdev->dev,
+			 "(%d) res-reg: start: 0x%llx, end: 0x%llx.",
+			 i, res->start, res->end);
+		dev_info(&pdev->dev, " virt-addr(%p)\n", reg_base[i]);
 	}
 	if (i > 1)
 		cif_set_base_addr(0, reg_base[0], reg_base[1]);
@@ -165,8 +165,6 @@ static int _init_resource(struct platform_device *pdev)
 		cif_set_base_addr(6, reg_base[7], reg_base[1]);
 	if (i > 8)
 		cif_set_base_addr(7, reg_base[8], reg_base[1]);
-	if (i > 9)
-		cif_set_base_addr(8, reg_base[9], reg_base[1]);
 	/* init pad_ctrl. */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, i);
 	if (!res) {

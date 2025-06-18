@@ -24,6 +24,7 @@
 #include <linux/gpio/consumer.h>
 
 #include <linux/comm_cif.h>
+#include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
 
 #include "lt6911.h"
@@ -52,7 +53,7 @@ int LT6911_SNS_TYPE_SDR = V4L2_LONTIUM_MIPI_LT6911_8M_60FPS_8BIT;
 
 static const enum mipi_wdr_mode_e lt6911_wdr_mode = MIPI_WDR_MODE_NONE;
 
-static int lt6911_count;
+volatile int lt6911_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &lt6911_count, 0644);
 
@@ -65,6 +66,22 @@ struct lt6911_reg_list {
 	const struct lt6911_reg *regs;
 };
 
+struct lt6911_yuv_format {
+	vi_isp_yuv_scene_e	yuv_scene_mode;
+	vi_intf_mode_e	inf_mode;
+	vi_work_mode_e	mux_mode;
+	vi_yuv_data_seq_e data_seq;
+};
+
+static struct lt6911_yuv_format yuv_format[] = {
+	{
+		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
+		.inf_mode = VI_MODE_MIPI_YUV422,
+		.mux_mode = VI_WORK_MODE_1MULTIPLEX,
+		.data_seq = VI_DATA_SEQ_YUYV,
+	}
+};
+
 /* Mode : resolution and related config&values */
 struct lt6911_mode {
 	u32 max_width;
@@ -75,11 +92,12 @@ struct lt6911_mode {
 	u32 vts_def;
 	u32 exp_def;
 	u32 mipi_wdr_mode;
+	u32 sns_type;
+	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	struct v4l2_fract wdr_max_fps;
 	sns_sync_info_t lt6911_sync_info;
+	struct lt6911_yuv_format yuv_format;
 	struct lt6911_reg_list reg_list;
-	struct lt6911_reg_list wdr_reg_list;
 };
 
 /* Mode configs */
@@ -92,6 +110,8 @@ static struct lt6911_mode supported_modes[] = {
 		.exp_def = 0x2000,
 		.hts_def = 2160,
 		.vts_def = 3840,
+		.sns_type = V4L2_LONTIUM_MIPI_LT6911_8M_60FPS_8BIT,
+		.sns_type_name = "V4L2_LONTIUM_MIPI_LT6911_8M_60FPS_8BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 600000,
@@ -273,7 +293,8 @@ static int lt6911_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	try_fmt->height = lt6911->cur_mode->height;
 	try_fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
 	try_fmt->field = V4L2_FIELD_NONE;
-
+	memcpy(&lt6911->cur_mode->yuv_format, &yuv_format[0],
+		sizeof(struct lt6911_yuv_format));
 	/* No crop or compose */
 	mutex_unlock(&lt6911->mutex);
 
@@ -396,6 +417,12 @@ static void update_pad_format(const struct lt6911_mode *mode, struct v4l2_subdev
 	fmt->format.height = mode->height;
 	fmt->format.code = MEDIA_BUS_FMT_SGRBG10_1X10;
 	fmt->format.field = V4L2_FIELD_NONE;
+
+	//set yuv format
+	fmt->format.reserved[YUV_SCENCE_MODE] = mode->yuv_format.yuv_scene_mode;
+	fmt->format.reserved[YUV_INF_MODE] = mode->yuv_format.inf_mode;
+	fmt->format.reserved[YUV_MUX_MODE] = mode->yuv_format.mux_mode;
+	fmt->format.reserved[YUV_DATA_SEQ] = mode->yuv_format.data_seq;
 }
 
 static int get_pad_format(struct v4l2_subdev *sd,
@@ -455,6 +482,8 @@ static void lt6911uxe_reset(struct lt6911 *lt6911)
 {
 	static int cnt = 0;
 	if (!cnt) {
+		if (IS_ERR(lt6911->reset_gpio))
+			return;
 		gpiod_set_value(lt6911->reset_gpio, 0);
 		usleep_range(20000, 21000);
 		gpiod_set_value(lt6911->reset_gpio, 1);
@@ -472,7 +501,7 @@ static int start_streaming(struct lt6911 *lt6911)
 	const struct lt6911_reg_list *reg_list;
 	int ret;
 	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
-	
+
 	lt6911uxe_reset(lt6911);
 
 	if (lt6911->cur_mode->mipi_wdr_mode == MIPI_WDR_MODE_NONE) {//linear
@@ -548,7 +577,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 	lt6911->streaming = enable;
 	mutex_unlock(&lt6911->mutex);
 
-	dev_info(&client->dev, "set stream(%d) success\n", enable);
+	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
 	return ret;
 
@@ -670,6 +699,120 @@ error:
 	return ret;
 }
 
+static int lt6911_get_info_form_dts(struct lt6911 *lt6911, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
+	struct device_node *np = client->dev.of_node;
+	u32 i, ret, len, num_lanes, num_lanes_swap;
+	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
+	u32 mipi_dev, mclk_num, wdr_mode, hs_settle, cif_mode;
+	u32	dphy_enable;
+	const char *type_name;
+	struct property *prop;
+
+	prop = of_find_property(np, "lanes", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes, using default\n");
+		return -1;
+	}
+
+	num_lanes = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes",
+				lane, num_lanes);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes\n");
+		return -1;
+	}
+
+	prop = of_find_property(np, "lanes-swap", &len);
+	if (!prop) {
+		dev_err(&client->dev, "not set lanes-swap, using default\n");
+		return -1;
+	}
+
+	num_lanes_swap = len / sizeof(u32);
+
+	ret = of_property_read_u32_array(np, "lanes-swap",
+				lane_swap, num_lanes_swap);
+	if (ret) {
+		dev_err(&client->dev, "failed to lanes-swap, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mipi-dev", &mipi_dev);
+	if (ret) {
+		dev_err(&client->dev, "failed to mipi-dev, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "mclk-num", &mclk_num);
+	if (ret) {
+		dev_err(&client->dev, "failed to mclk-num, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "wdr-mode", &wdr_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to wdr-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "hs-settle", &hs_settle);
+	if (ret) {
+		dev_err(&client->dev, "failed to hs-settle, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "dphy-enable", &dphy_enable);
+	if (ret) {
+		dev_err(&client->dev, "failed to dphy-enable, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_u32(np, "cif-mode", &cif_mode);
+	if (ret) {
+		dev_err(&client->dev, "failed to cif-mode, using default\n");
+		return -1;
+	}
+
+	ret = of_property_read_string(np, "sns-type", &type_name);
+	if (ret < 0) {
+		dev_err(&client->dev, "Failed to read sns-type property\n");
+		return -1;
+	}
+
+	for (i = 0; i < LANE_MAX_NUM; i++) {
+		lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+			i >= num_lanes ? -1 : lane[i];
+		lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+			i >= num_lanes_swap ? 0 : lane_swap[i];
+	}
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	lt6911_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	//type_mode
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		if (!strcmp(type_name, supported_modes[i].sns_type_name)) {
+			lt6911->cur_mode = devm_kzalloc(&client->dev,
+						 sizeof(struct lt6911_mode), GFP_KERNEL);
+			memcpy(lt6911->cur_mode, &supported_modes[i], sizeof(struct lt6911_mode));
+		}
+	}
+
+	lt6911->power_gpio = devm_gpiod_get(&client->dev,
+			"power", GPIOD_OUT_LOW);
+	if (IS_ERR(lt6911->power_gpio))
+		dev_err(&client->dev, "failed to get power-gpios\n");
+	else
+		gpiod_set_value_cansleep(lt6911->power_gpio, 1);
+
+	return 0;
+}
+
 static long lt6911_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	struct lt6911 *lt6911 = to_lt6911(sd);
@@ -717,7 +860,7 @@ static long lt6911_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		if (hdr_on)
 			dev_warn(&client->dev, "Not support HDR!\n");
 		else
-			lt6911->cur_mode->mipi_wdr_mode = MIPI_WDR_MODE_NONE;
+			memcpy(lt6911->cur_mode, &supported_modes[0], sizeof(struct lt6911_mode));
 
 		lt6911_update_link_menu(lt6911);
 		break;
@@ -799,6 +942,9 @@ static int lt6911_init_controls(struct lt6911 *lt6911, int index_id)
 
 	ctrl_hdlr = &lt6911->ctrl_handler;
 	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
+
+	lt6911_get_info_form_dts(lt6911, index_id);
+
 	if (ret) {
 		dev_err(&client->dev, "%s ctrl handler init failed (%d)\n",
 			__func__, ret);
@@ -860,7 +1006,7 @@ static int lt6911_probe(struct i2c_client *client,
 	struct device *dev = &client->dev;
 	int index_id = lt6911_probe_index;
 	int addr_num = sizeof(lt6911_i2c_list) / sizeof(unsigned short);
-	int bus_id;
+	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 	int i;
 
@@ -879,7 +1025,27 @@ static int lt6911_probe(struct i2c_client *client,
 
 	sd = &lt6911->sd;
 
-	for (i = 0; i < addr_num; i++) {
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!lt6911_count) {
+		client->addr = i2c_addr;
+		client->adapter = i2c_get_adapter(bus_id);
+		lt6911->client = client;
+		v4l2_i2c_subdev_init(sd, client, &lt6911_subdev_ops);
+		/* Check module identity */
+		ret = lt6911_identify_module(lt6911);
+		if (ret) {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[%d][0x%x] no sensor found,use default\n",
+				index_id, bus_id, i, client->addr);
+			use_defualt = 1;
+		} else {
+			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
+				index_id, bus_id, client->addr);
+			use_defualt = 0;
+		}
+	}
+
+	for (i = 0; i < addr_num && use_defualt; i++) {
 		if (force_bus[index_id] < 0)
 			bus_id = lt6911_bus_map[index_id];
 		else
@@ -912,15 +1078,10 @@ static int lt6911_probe(struct i2c_client *client,
 
 	lt6911->module_index = index_id;
 
-	if (index_id >= ARRAY_SIZE(supported_modes)) {
-		lt6911->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct lt6911_mode), GFP_KERNEL);
-		memcpy(lt6911->cur_mode, &supported_modes[0], sizeof(struct lt6911_mode));
-	} else {
-		lt6911->cur_mode = devm_kzalloc(&client->dev,
-						 sizeof(struct lt6911_mode), GFP_KERNEL);
-		memcpy(lt6911->cur_mode, &supported_modes[index_id], sizeof(struct lt6911_mode));
-	}
+
+	lt6911->cur_mode = devm_kzalloc(&client->dev,
+					sizeof(struct lt6911_mode), GFP_KERNEL);
+	memcpy(lt6911->cur_mode, &supported_modes[0], sizeof(struct lt6911_mode));
 
 	memset(&lt6911->cur_mode->lt6911_sync_info, 0, sizeof(sns_sync_info_t));
 
@@ -985,12 +1146,12 @@ static int lt6911_probe(struct i2c_client *client,
 
 	lt6911_gpio_irq_thread_handler(client->irq, lt6911);
 
-	lt6911->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
-	if (IS_ERR(lt6911->reset_gpio)) {
-		dev_err(dev, "cannot get reset gpio property\n");
-		return PTR_ERR(lt6911->reset_gpio);
-	}
-	dev_info(dev, "sensor_%d request_reset success\n", index_id);
+	lt6911->reset_gpio = devm_gpiod_get(&client->dev,
+		"reset", GPIOD_OUT_HIGH);
+	if (IS_ERR(lt6911->reset_gpio))
+		dev_err(&client->dev, "failed to get reset_gpio\n");
+	else
+		dev_info(dev, "sensor_%d reset_gpio success\n", index_id);
 
 	return 0;
 
@@ -1010,13 +1171,17 @@ static int lt6911_remove(struct i2c_client *client)
 	struct lt6911 *lt6911 = to_lt6911(sd);
 
 	lt6911_probe_index = 0;
+	pr_info("== lt6911_remove_index = %d ==\n", lt6911_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	lt6911_free_controls(lt6911);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
 
+	dev_info(&client->dev, "sensor_%d remove success\n", lt6911_probe_index);
 	return 0;
 }
 
@@ -1055,6 +1220,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== lt6911 mod rmmod ==\n");
 	i2c_del_driver(&lt6911_i2c_driver);
 }
 

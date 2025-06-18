@@ -26,49 +26,28 @@ static int cvi_pinctrl_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	// alloc group ip mux regs
-	for (i = 0; i < 9; ++i) {
-		pinctrl->regs[i].saved_regs = devm_kzalloc(&pdev->dev, GROUP_PINMUX_REG_SIZE, GFP_KERNEL);
-		if (!pinctrl->regs[i].saved_regs)
-			return -ENOMEM;
+	for (i = 0; i < 12; ++i) {
+	    res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+	    if (!res) {
+	        dev_err(&pdev->dev, "Failed to get pinctrl io resource %d\n", i);
+	        return -EINVAL;
+	    }
 
-		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
-		if (!res) {
-			dev_err(&pdev->dev, "Failed to get pinctrl io resource.\n");
-			return -EINVAL;
+	    pinctrl->regs[i].regs_size = resource_size(res);
+	    pinctrl->regs[i].saved_regs = devm_kzalloc(&pdev->dev, pinctrl->regs[i].regs_size, GFP_KERNEL);
+	    if (!pinctrl->regs[i].saved_regs) {
+			dev_err(&pdev->dev, "Failed to devm_kzalloc for saved_regs %d\n", i);
+			return -ENOMEM;
 		}
 
-		pinctrl->regs[i].regs_size = GROUP_PINMUX_REG_SIZE;
-		pinctrl->regs[i].base = devm_ioremap_resource(&pdev->dev, res);
-		if (!pinctrl->regs[i].base)
-			return -ENOMEM;
-	}
-
-	// alloc ip mux regs
-	pinctrl->regs[i].saved_regs = devm_kzalloc(&pdev->dev, CORE_IP_MUX_REG_SIZE, GFP_KERNEL);
-	if (!pinctrl->regs[i].saved_regs)
-		return -ENOMEM;
-	pinctrl->regs[i].regs_size = CORE_IP_MUX_REG_SIZE;
-
-	pinctrl->regs[i + 1].saved_regs = devm_kzalloc(&pdev->dev, RTC_IP_MUX_REG_SIZE, GFP_KERNEL);
-	if (!pinctrl->regs[i + 1].saved_regs)
-		return -ENOMEM;
-	pinctrl->regs[i + 1].regs_size = RTC_IP_MUX_REG_SIZE;
-
-	pinctrl->regs[i + 2].saved_regs = devm_kzalloc(&pdev->dev, PHY_IP_MUX_REG_SIZE, GFP_KERNEL);
-	if (!pinctrl->regs[i + 2].saved_regs)
-		return -ENOMEM;
-	pinctrl->regs[i + 2].regs_size = PHY_IP_MUX_REG_SIZE;
-
-	for (; i < 12; ++i) {
-		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
-		if (!res) {
-			dev_err(&pdev->dev, "Failed to get pinctrl io resource.\n");
-			return -EINVAL;
+	    pinctrl->regs[i].base = devm_ioremap_resource(&pdev->dev, res);
+	    if (IS_ERR(pinctrl->regs[i].base)) {
+			 dev_err(&pdev->dev, "Failed to devm_ioremap_resource for regs %d\n", i);
+			 return PTR_ERR(pinctrl->regs[i].base);
 		}
 
-		pinctrl->regs[i].base = devm_ioremap_resource(&pdev->dev, res);
-		if (!pinctrl->regs[i].base)
-			return -ENOMEM;
+		dev_info(&pdev->dev, "Reg %d: base=%p, size=0x%x, saved_regs=%p\n",
+         i, pinctrl->regs[i].base, pinctrl->regs[i].regs_size, pinctrl->regs[i].saved_regs);
 	}
 
 	platform_set_drvdata(pdev, pinctrl);
@@ -92,7 +71,7 @@ static int cvitek_pinctrl_suspend(struct device *dev)
 
 	for (i = 0; i < 12; ++i)
 		memcpy_fromio(pinctrl->regs[i].saved_regs, pinctrl->regs[i].base,
-				GROUP_PINMUX_REG_SIZE);
+				pinctrl->regs[i].regs_size);
 	dev_info(dev, "%s()\n", __func__);
 	return 0;
 }
@@ -105,7 +84,7 @@ static int cvitek_pinctrl_resume(struct device *dev)
 
 	for (i = 0; i < 12; ++i)
 		memcpy_fromio(pinctrl->regs[i].base, pinctrl->regs[i].saved_regs,
-				GROUP_PINMUX_REG_SIZE);
+				pinctrl->regs[i].regs_size);
 	dev_info(dev, "%s()\n", __func__);
 	return 0;
 }
