@@ -11,7 +11,7 @@
 #define CRYPTODMA_DES_KEY           0x100
 #define CRYPTODMA_DES_IV            0x180
 #define CRYPTODMA_SHA_PARA		    0x1C0
-
+#define CRYPTODMA_SM3_PARA          0x1E0
 // DMA Descriptor
 #define CRYPTODMA_CTRL              0x00
 #define CRYPTODMA_CIPHER            0x01
@@ -34,6 +34,7 @@
 #define DES_USE_SM4                 BIT(11)
 #define DES_USE_SHA                 BIT(12)
 #define DES_USE_BASE64              BIT(13)
+#define DES_USE_SM3                 BIT(14)
 #define DES_USE_KEY0                BIT(16)
 #define DES_USE_KEY1                BIT(17)
 #define DES_USE_KEY2                BIT(18)

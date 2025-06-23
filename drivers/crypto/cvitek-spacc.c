@@ -30,7 +30,7 @@
 #include <linux/interrupt.h>
 #include <linux/cvitek_spacc.h>
 #include <cvitek-spacc-regs.h>
-
+#include <linux/delay.h>
 #define DEVICE_NAME    "spacc"
 
 static char flag = 'n';
@@ -100,7 +100,17 @@ static inline void cvi_sha256_init(struct cvi_spacc *spacc)
 	spacc->state[6] = cpu_to_be32(0x1F83D9AB);
 	spacc->state[7] = cpu_to_be32(0x5BE0CD19);
 }
-
+static inline void cvi_sm3_init(struct cvi_spacc *spacc)
+{
+	spacc->state[0] = 0x7380166f;
+	spacc->state[1] = 0x4914b2b9;
+	spacc->state[2] = 0x172442d7;
+	spacc->state[3] = 0xda8a0600;
+	spacc->state[4] = 0xa96f30bc;
+	spacc->state[5] = 0x163138aa;
+	spacc->state[6] = 0xe38dee4d;
+	spacc->state[7] = 0xb0fb0e4e;
+}
 static inline void cvi_sha1_init(struct cvi_spacc *spacc)
 {
 	spacc->state[0] = cpu_to_be32(0x67452301);
@@ -112,20 +122,23 @@ static inline void cvi_sha1_init(struct cvi_spacc *spacc)
 
 static inline void trigger_cryptodma_engine_and_wait_finish(struct cvi_spacc *spacc)
 {
+
+	u32 status = 0;
 	// Set cryptodma control
-	iowrite32(0x3, spacc->spacc_base + CRYPTODMA_INT_MASK);
+	iowrite32(0x7, spacc->spacc_base + CRYPTODMA_INT_MASK);
 
 	// Clear interrupt
 	// Important!!! must do this
-	iowrite32(0x3, spacc->spacc_base + CRYPTODMA_WR_INT);
+	iowrite32(0x7, spacc->spacc_base + CRYPTODMA_WR_INT);
 
 	// Trigger cryptodma engine
 	iowrite32(DMA_WRITE_MAX_BURST << 24 |
 			  DMA_READ_MAX_BURST << 16 |
 			  DMA_DESCRIPTOR_MODE << 1 | DMA_ENABLE, spacc->spacc_base + CRYPTODMA_DMA_CTRL);
 
-	wait_event_interruptible(wq, flag == 'y');
-	flag = 'n';
+	do {
+		status = ioread32(spacc->spacc_base + CRYPTODMA_WR_INT);
+	} while (status == 0);
 }
 
 static inline void get_hash_result(struct cvi_spacc *spacc, int count)
@@ -135,6 +148,14 @@ static inline void get_hash_result(struct cvi_spacc *spacc, int count)
 
 	for (i = 0; i < count; i++)
 		result[i] = ioread32(spacc->spacc_base + CRYPTODMA_SHA_PARA + i * 4);
+}
+static inline void get_sm3_result(struct cvi_spacc *spacc, int count)
+{
+	u32 i;
+	u32 *result = (u32 *)spacc->buffer;
+
+	for (i = 0; i < count; i++)
+		result[i] = ioread32(spacc->spacc_base + CRYPTODMA_SM3_PARA + i * 4);
 }
 
 static inline void setup_dma_descriptor(struct cvi_spacc *spacc, uint32_t *dma_descriptor)
@@ -185,12 +206,12 @@ static inline void setup_mode(u32 *dma_descriptor, SPACC_ALGO_MODE_E mode, unsig
 	case SPACC_ALGO_MODE_CBC:
 		dma_descriptor[CRYPTODMA_CTRL] |= DES_USE_DESCRIPTOR_IV;
 		dma_descriptor[CRYPTODMA_CIPHER] = CBC_ENABLE << 1;
-		memcpy(&dma_descriptor[CRYPTODMA_IV], iv, 16);
+		copy_from_user(&dma_descriptor[CRYPTODMA_IV], iv, 16);
 		break;
 	case SPACC_ALGO_MODE_CTR:
 		dma_descriptor[CRYPTODMA_CTRL] |= DES_USE_DESCRIPTOR_IV;
 		dma_descriptor[CRYPTODMA_CIPHER] = 0x1 << 2;
-		memcpy(&dma_descriptor[CRYPTODMA_IV], iv, 16);
+		copy_from_user(&dma_descriptor[CRYPTODMA_IV], iv, 16);
 		break;
 	case SPACC_ALGO_MODE_ECB:
 	default:
@@ -202,19 +223,19 @@ static inline void setup_key_size(u32 *dma_descriptor, SPACC_KEY_SIZE_E size, un
 {
 	switch (size) {
 	case SPACC_KEY_SIZE_64BITS:
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], key, 8);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], key, 8);
 		break;
 	case SPACC_KEY_SIZE_128BITS:
 		dma_descriptor[CRYPTODMA_CIPHER] |= (0x1 << 5);
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], key, 16);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], key, 16);
 		break;
 	case SPACC_KEY_SIZE_192BITS:
 		dma_descriptor[CRYPTODMA_CIPHER] |= (0x1 << 4);
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], key, 24);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], key, 24);
 		break;
 	case SPACC_KEY_SIZE_256BITS:
 		dma_descriptor[CRYPTODMA_CIPHER] |= (0x1 << 3);
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], key, 32);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], key, 32);
 		break;
 	default:
 		break;
@@ -257,6 +278,25 @@ int spacc_sha256(struct cvi_spacc *spacc, uintptr_t src, uint32_t len)
 	trigger_cryptodma_engine_and_wait_finish(spacc);
 	return 0;
 }
+int spacc_sm3(struct cvi_spacc *spacc, uintptr_t src, uint32_t len){
+	__aligned(64) u32 dma_descriptor[22] = {0};
+	u32 i;
+	phys_addr_t src_phys;
+	src_phys = virt_to_phys(spacc->buffer);
+	arch_sync_dma_for_device(src_phys, spacc->used_size, DMA_TO_DEVICE);
+	// must mark DES_USE_DESCRIPTOR_KEY flag
+	dma_descriptor[CRYPTODMA_CTRL] = DES_USE_DESCRIPTOR_KEY|DES_USE_DESCRIPTOR_IV | DES_USE_SM3 | 0xF;
+	dma_descriptor[CRYPTODMA_CIPHER] =  0x1;
+
+	for (i = 0; i < 8; i++)
+		dma_descriptor[CRYPTODMA_KEY + i] = spacc->state[i];
+
+	setup_src_dst(dma_descriptor, src_phys, len);
+	setup_dma_descriptor(spacc, dma_descriptor);
+	
+	trigger_cryptodma_engine_and_wait_finish(spacc);
+	return 0;
+}
 
 int spacc_sha1(struct cvi_spacc *spacc, uintptr_t src, uint32_t len)
 {
@@ -277,13 +317,13 @@ int spacc_sha1(struct cvi_spacc *spacc, uintptr_t src, uint32_t len)
 	return 0;
 }
 
-int spacc_base64(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, SPACC_ACTION_E ation)
+int spacc_base64(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, u32 ation)
 {
-	__aligned(32) u32 dma_descriptor[22] = {0};
-
+	int i;
+	__aligned(64) u32 dma_descriptor[22] = {0};
 	dma_descriptor[CRYPTODMA_CTRL] = DES_USE_BASE64 | 0xF;
 
-	if (ation == SPACC_ACTION_ENCRYPTION) {
+	if (ation == 1) {
 		dma_descriptor[CRYPTODMA_CIPHER] = 0x1;
 		spacc->result_size = (len + (3 - 1)) / 3 * 4;
 		dma_descriptor[CRYPTODMA_DST_LEN] = spacc->result_size;
@@ -294,7 +334,6 @@ int spacc_base64(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, SPACC_A
 
 	setup_src_dst(dma_descriptor, src, len);
 	setup_dma_descriptor(spacc, dma_descriptor);
-
 	trigger_cryptodma_engine_and_wait_finish(spacc);
 	return 0;
 }
@@ -307,7 +346,7 @@ int spacc_aes(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, spacc_aes_
 	dma_descriptor[CRYPTODMA_CTRL] = DES_USE_DESCRIPTOR_KEY | DES_USE_AES | 0xF;
 
 	setup_mode(dma_descriptor, config.mode, config.iv);
-	setup_key_size(dma_descriptor, config.size, config.key);
+	setup_key_size(dma_descriptor, config.key_mode, config.key);
 	setup_action(dma_descriptor, config.action);
 
 	setup_src_dst(dma_descriptor, src, len);
@@ -325,7 +364,7 @@ int spacc_sm4(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, spacc_sm4_
 	dma_descriptor[CRYPTODMA_CTRL] = DES_USE_DESCRIPTOR_KEY | DES_USE_SM4 | 0xF;
 
 	setup_mode(dma_descriptor, config.mode, config.iv);
-	setup_key_size(dma_descriptor, config.size, config.key);
+	setup_key_size(dma_descriptor, config.key_mode, config.key);
 	setup_action(dma_descriptor, config.action);
 
 	setup_src_dst(dma_descriptor, src, len);
@@ -345,9 +384,9 @@ int spacc_des(struct cvi_spacc *spacc, phys_addr_t src, uint32_t len, spacc_des_
 	setup_mode(dma_descriptor, config.mode, config.iv);
 	if (is_tdes) {
 		dma_descriptor[CRYPTODMA_CIPHER] |= (0x1 << 3);
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], config.key, 24);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], config.key, 24);
 	} else {
-		memcpy(&dma_descriptor[CRYPTODMA_KEY], config.key, 8);
+		copy_from_user(&dma_descriptor[CRYPTODMA_KEY], config.key, 8);
 	}
 	setup_action(dma_descriptor, config.action);
 
@@ -439,7 +478,6 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct cvi_spacc *spacc = filp->private_data;
 	int ret;
-
 	switch (cmd) {
 	case IOCTL_SPACC_CREATE_MEMPOOL: {
 		unsigned int size = 0;
@@ -481,36 +519,15 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		spacc->used_size = 0;
 		break;
 	}
-	case IOCTL_SPACC_SHA1_ACTION: {
-		if (spacc->used_size & 0x3F) {
-			pr_err("spacc_dev->used_size : %d\n", spacc->used_size);
-			return -1;
-		}
-
-		cvi_sha1_init(spacc);
-
-		ret = spacc_sha1(spacc, (uintptr_t)spacc->buffer, spacc->used_size);
-		if (ret < 0) {
-			pr_err("plat_cryptodma_do failed\n");
-			return -1;
-		}
-
-		get_hash_result(spacc, 5);
-		spacc->result_size = 20;
-		spacc->used_size = 0;
-		break;
-	}
 	case IOCTL_SPACC_BASE64_ACTION: {
-		spacc_base64_action_s action = {0};
-		phys_addr_t src_phys;
-
-		ret = copy_from_user((unsigned char *)&action, (unsigned char *)arg, sizeof(action));
+		spacc_base64_config_s b64 = {0};
+		phys_addr_t src_phys = 0;
+		ret = copy_from_user((unsigned char *)&b64, (unsigned char *)arg, sizeof(b64));
 		if (ret != 0)
 			return -1;
-
 		src_phys = virt_to_phys(spacc->buffer);
 		arch_sync_dma_for_device(src_phys, spacc->used_size, DMA_TO_DEVICE);
-		ret = spacc_base64(spacc, src_phys, spacc->used_size, action.action);
+		ret = spacc_base64(spacc, src_phys, spacc->used_size, b64.action);
 		if (ret < 0) {
 			pr_err("plat_cryptodma_do failed\n");
 			return -1;
@@ -524,7 +541,6 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		spacc_aes_config_s config = {0};
 		phys_addr_t src_phys;
 		uint32_t len;
-
 		ret = copy_from_user((unsigned char *)&config, (unsigned char *)arg, sizeof(config));
 		if (ret != 0)
 			return -1;
@@ -635,6 +651,25 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		spacc->used_size = 0;
 		break;
 	}
+	case IOCTL_SPACC_SM3_ACTION: {
+		if (spacc->used_size & 0x3F) {
+			pr_err("used_size : %d\n", spacc->used_size);
+			return -1;
+		}
+		cvi_sm3_init(spacc);
+
+		ret = spacc_sm3(spacc, (uintptr_t)spacc->buffer, spacc->used_size);
+		if (ret < 0) {
+			pr_err("plat_cryptodma_do failed\n");
+			return -1;
+		}
+
+		get_sm3_result(spacc, 8);
+		pr_err("get_sm3_result done\n");
+		spacc->result_size = 32;
+		spacc->used_size = 0;
+		break;
+	}
 	default:
 		return -EINVAL;
 	}
@@ -706,6 +741,7 @@ static int cvitek_spacc_drv_probe(struct platform_device *pdev)
 	}
 
 	device_create(spacc->spacc_class, NULL, spacc->tdev, spacc, DEVICE_NAME);
+	platform_set_drvdata(pdev, spacc);
 	return ret;
 failed:
 	unregister_chrdev_region(spacc->tdev, 1);
@@ -715,12 +751,25 @@ failed:
 static int cvitek_spacc_drv_remove(struct platform_device *pdev)
 {
 	struct cvi_spacc *spacc = platform_get_drvdata(pdev);
+	if (!spacc) {
+           pr_err("spacc is NULL\n");
+           return -EINVAL;
+    }
+    if (spacc->spacc_class && !IS_ERR(spacc->spacc_class)) {
+        device_destroy(spacc->spacc_class, spacc->tdev);
+        class_destroy(spacc->spacc_class);
+    }
 
-	device_destroy(spacc->spacc_class, spacc->tdev);
 	cdev_del(&spacc->cdev);
 	unregister_chrdev_region(spacc->tdev, 1);
-	class_destroy(spacc->spacc_class);
+    if (spacc->buffer) {
+        free_pages((unsigned long)spacc->buffer, 
+                  get_order(spacc->buffer_size));
+        spacc->buffer = NULL;
+        spacc->buffer_size = 0;
+    }
 
+    platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 
