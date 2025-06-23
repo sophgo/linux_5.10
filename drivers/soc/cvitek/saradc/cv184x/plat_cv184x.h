@@ -10,7 +10,10 @@
 #include "cvi_saradc.h"
 #include "pinctrl-cv184x.h"
 
-#define	SARADC_CHAN_NUM	 6
+#define	SARADC_CHAN_NUM	 15
+
+#define SARADC_REGS_SIZE (0x40 + 0x4)
+#define SARADC_REGS_NUM (SARADC_REGS_SIZE / 4)
 
 struct cvi_saradc_device {
 	struct device *dev;
@@ -18,21 +21,22 @@ struct cvi_saradc_device {
 	struct iio_chan_spec iio_channels[SARADC_CHAN_NUM];
 	struct clk *clk_saradc;
 	void __iomem *saradc_vaddr;
-	void __iomem *top_saradc_base_addr;
-	void __iomem *rtcsys_saradc_base_addr;
+	void __iomem *top_saradc0_base_addr;
+	void __iomem *top_saradc1_base_addr;
+	void __iomem *top_saradc2_base_addr;
+	void __iomem *rtcsys_saradc0_base_addr;
+	void __iomem *rtcsys_saradc1_base_addr;
 	int	saradc_irq;
 	spinlock_t close_lock;
 	bool enable[SARADC_CHAN_NUM];
 	void *private_data;
 	int	channel_index;
-	u32 saradc_ctrl;
-	u32 saradc_cyc_set;
-	u32 saradc_intr_en;
-	u32 saradc_intr_clr;
-	u32 saradc_test;
-	u32 saradc_trim;
-	u32 saradc_period_cycle;
-	u32 saradc_test_force;
+	u32 top_saradc0_saved_regs[SARADC_REGS_NUM];
+	u32 top_saradc1_saved_regs[SARADC_REGS_NUM];
+	u32 top_saradc2_saved_regs[SARADC_REGS_NUM];
+	u32 rtcsys_saradc0_saved_regs[SARADC_REGS_NUM];
+	u32 rtcsys_saradc1_saved_regs[SARADC_REGS_NUM];
+
 };
 
 #endif /* __PLAT_CV184X_H__ */

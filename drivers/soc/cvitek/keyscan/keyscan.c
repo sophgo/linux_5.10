@@ -459,9 +459,8 @@ static int keyscan_suspend(struct device *dev)
 
 static int keyscan_resume(struct device *dev)
 {
-	struct cvi_keyscan *keypad = dev_get_drvdata(pdev);
+	struct cvi_keyscan *keypad = dev_get_drvdata(dev);
 	struct input_dev   *input = keypad->input_dev;
-	int		    retval = 0;
 
 	mutex_lock(&input->mutex);
 

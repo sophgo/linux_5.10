@@ -47,68 +47,138 @@
 #define DUAL_OS
 
 enum ADCChannel {
-	/* Top domain ADC ch1, ch2, ch3 */
-	ADC1 = 1,
-	ADC2,
-	ADC3,
-	/* no die domain ADC ch1, ch2, ch3 */
-	PWR_ADC1,/* ADC4 <== PWR_GPIO2 */
-	PWR_ADC2,/* ADC5 <== PWR_GPIO1 */
-	PWR_ADC3,/* ADC6 <== PWR_VBAT_DET */
+	/* Top domain ADC0~2, every ADC has 3 channels */
+	ADC1 = 1, /* ADC1 <== ADC1 */
+	ADC2, /* ADC2 <== ADC2 */
+	ADC3, /* ADC3 <== ADC3 */
+	ADC4, /* ADC4 <== PWM0_BUCK */
+	ADC5, /* ADC5 <== USB_VBUS_EN */
+	ADC6, /* ADC6 <== USB_ID */
+	ADC7, /* ADC7 <== IIC3_SDA */
+	ADC8, /* ADC8 <== IIC3_SCL */
+	ADC9, /* ADC9 <== CAM_MCLK1 */
+	/* RTC domain RTC_ADC0~1, every ADC has 3 channels */
+	PWR_ADC1,/* PWR_ADC1 <== PWR_SEQ3 */
+	PWR_ADC2,/* PWR_ADC2 <== PWR_SEQ1 */
+	PWR_ADC3,/* PWR_ADC3 <== PWR_VBAT_DET */
+	PWR_ADC4,/* PWR_ADC4 <== PWR_GPIO0 */
+	PWR_ADC5,/* PWR_ADC5 <== PWR_GPIO1 */
+	PWR_ADC6,/* PWR_ADC6 <== PWR_GPIO2 */
 };
 
 #define IOBLK_G1_REG_ADC1		0x03001810
 #define IOBLK_G1_REG_ADC2		0x0300180C
 #define IOBLK_G1_REG_ADC3		0x03001808
-#define IOBLK_GRTC_REG_PWR_GPIO1	0x05027030
-#define IOBLK_GRTC_REG_PWR_GPIO2	0x05027034
+
+#define IOBLK_G1_REG_PWM0_BUCK		0x03001804
+#define IOBLK_G1_REG_USB_VBUS_EN		0x03001818
+#define IOBLK_G1_REG_USB_ID		0x03001814
+
+#define IOBLK_G11_REG_IIC3_SDA		0x03001B18
+#define IOBLK_G11_REG_IIC3_SCL		0x03001B14
+#define IOBLK_G11_REG_CAM_MCLK1		0x03001B0c
+
+#define IOBLK_GRTC_REG_PWR_SEQ3		0x05027010
+#define IOBLK_GRTC_REG_PWR_SEQ1		0x05027008
+#define IOBLK_GRTC_REG_PWR_VBAT_DET		0x05027000
+
+#define IOBLK_GRTC_REG_PWR_GPIO0		0x0502702c
+#define IOBLK_GRTC_REG_PWR_GPIO1		0x05027030
+#define IOBLK_GRTC_REG_PWR_GPIO2		0x05027034
 
 static void io_config(u32 channel)
 {
 	void *vaddr = NULL;
-	u32 tmp;
 	switch (channel) {
 	case ADC1:
 		PINMUX_CONFIG(ADC1, XGPIOB_3);
 		vaddr = ioremap(IOBLK_G1_REG_ADC1, 0x4);
-		tmp = readl(vaddr);
-		tmp &= ~(1 << 14);
-		writel(tmp, vaddr);
+		iowrite32(0, vaddr);
 		iounmap(vaddr);
 		break;
 	case ADC2:
 		PINMUX_CONFIG(ADC2, XGPIOB_2);
 		vaddr = ioremap(IOBLK_G1_REG_ADC2, 0x4);
-		tmp = readl(vaddr);
-		tmp &= ~(1 << 14);
-		writel(tmp, vaddr);
+		iowrite32(0, vaddr);
 		iounmap(vaddr);
 		break;
 	case ADC3:
 		PINMUX_CONFIG(ADC3, XGPIOB_1);
 		vaddr = ioremap(IOBLK_G1_REG_ADC3, 0x4);
-		tmp = readl(vaddr);
-		tmp &= ~(1 << 14);
-		writel(tmp, vaddr);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC4:
+		PINMUX_CONFIG(PWM0_BUCK, XGPIOB_0);
+		vaddr = ioremap(IOBLK_G1_REG_PWM0_BUCK, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC5:
+		PINMUX_CONFIG(USB_VBUS_EN, XGPIOB_5);
+		vaddr = ioremap(IOBLK_G1_REG_USB_VBUS_EN, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC6:
+		PINMUX_CONFIG(USB_ID, XGPIOB_4);
+		vaddr = ioremap(IOBLK_G1_REG_USB_ID, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC7:
+		PINMUX_CONFIG(IIC3_SDA, XGPIOA_6);
+		vaddr = ioremap(IOBLK_G11_REG_IIC3_SDA, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC8:
+		PINMUX_CONFIG(IIC3_SCL, XGPIOA_5);
+		vaddr = ioremap(IOBLK_G11_REG_IIC3_SCL, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case ADC9:
+		PINMUX_CONFIG(CAM_MCLK1, XGPIOA_3);
+		vaddr = ioremap(IOBLK_G11_REG_CAM_MCLK1, 0x4);
+		iowrite32(0, vaddr);
 		iounmap(vaddr);
 		break;
 	case PWR_ADC1:
-		PINMUX_CONFIG(PWR_GPIO2, PWR_GPIO_2);
-		vaddr = ioremap(IOBLK_GRTC_REG_PWR_GPIO2, 0x4);
-		tmp = readl(vaddr);
-		tmp &= ~(1 << 14);
-		writel(tmp, vaddr);
+		PINMUX_CONFIG(PWR_SEQ3, PWR_GPIO_5);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_SEQ3, 0x4);
+		iowrite32(0, vaddr);
 		iounmap(vaddr);
 		break;
 	case PWR_ADC2:
-		PINMUX_CONFIG(PWR_GPIO1, PWR_GPIO_1);
-		vaddr = ioremap(IOBLK_GRTC_REG_PWR_GPIO1, 0x4);
-		tmp = readl(vaddr);
-		tmp &= ~(1 << 14);
-		writel(tmp, vaddr);
+		PINMUX_CONFIG(PWR_SEQ1, PWR_GPIO_3);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_SEQ1, 0x4);
+		iowrite32(0, vaddr);
 		iounmap(vaddr);
 		break;
 	case PWR_ADC3:
+		PINMUX_CONFIG(PWR_VBAT_DET, PWR_VBAT_DET);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_VBAT_DET, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case PWR_ADC4:
+		PINMUX_CONFIG(PWR_GPIO0, PWR_GPIO_0);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_GPIO0, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case PWR_ADC5:
+		PINMUX_CONFIG(PWR_GPIO1, PWR_GPIO_1);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_GPIO1, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
+		break;
+	case PWR_ADC6:
+		PINMUX_CONFIG(PWR_GPIO2, PWR_GPIO_2);
+		vaddr = ioremap(IOBLK_GRTC_REG_PWR_GPIO2, 0x4);
+		iowrite32(0, vaddr);
+		iounmap(vaddr);
 		break;
 	default:
 		pr_err("%s: invalid channel index\n", __func__);
@@ -171,18 +241,22 @@ static irqreturn_t cvi_saradc_irq(int irq, void	*data)
 
 static void	set_saradc_addr(struct cvi_saradc_device *ndev,	int	index)
 {
-	if (index >	ADC3)
-		ndev->saradc_vaddr = ndev->rtcsys_saradc_base_addr;
+	if (index <= ADC3)
+		ndev->saradc_vaddr = ndev->top_saradc0_base_addr;
+	else if (index <= ADC6)
+		ndev->saradc_vaddr = ndev->top_saradc1_base_addr;
+	else if (index <= ADC9)
+		ndev->saradc_vaddr = ndev->top_saradc2_base_addr;
+	else if (index <= PWR_ADC3)
+		ndev->saradc_vaddr = ndev->rtcsys_saradc0_base_addr;
 	else
-		ndev->saradc_vaddr = ndev->top_saradc_base_addr;
+		ndev->saradc_vaddr = ndev->rtcsys_saradc1_base_addr;
 	return;
 }
 
 static int get_saradc_idx(int chan)
 {
-	if (chan > ADC3)
-		return chan	- ADC3;
-	return chan;
+	return (chan - 1) % 3 + 1;
 }
 
 static void	cvi_saradc_cyc_setting(struct cvi_saradc_device	*ndev)
@@ -269,11 +343,14 @@ static void cvi_saradc_trim(struct cvi_saradc_device *ndev)
 	platform_saradc_clk_init(ndev);
 	pr_debug("Setting top_trim: 0x%x, rtc_trim: 0x%x\n", top_trim,
 		 rtc_trim);
-	writel(top_trim, ndev->top_saradc_base_addr + SARADC_TRIM);
-	writel(rtc_trim, ndev->rtcsys_saradc_base_addr + SARADC_TRIM);
+	writel(top_trim, ndev->top_saradc0_base_addr + SARADC_TRIM);
+	writel(top_trim, ndev->top_saradc1_base_addr + SARADC_TRIM);
+	writel(top_trim, ndev->top_saradc2_base_addr + SARADC_TRIM);
+	writel(rtc_trim, ndev->rtcsys_saradc0_base_addr + SARADC_TRIM);
+	writel(rtc_trim, ndev->rtcsys_saradc1_base_addr + SARADC_TRIM);
 	pr_debug("Getting top_trim: 0x%x, rtc_trim: 0x%x\n",
-		 readl(ndev->top_saradc_base_addr + SARADC_TRIM) & 0xf,
-		 readl(ndev->rtcsys_saradc_base_addr + SARADC_TRIM) & 0xf);
+		 readl(ndev->top_saradc0_base_addr + SARADC_TRIM) & 0xf,
+		 readl(ndev->rtcsys_saradc0_base_addr + SARADC_TRIM) & 0xf);
 	platform_saradc_clk_deinit(ndev);
 }
 
@@ -302,35 +379,62 @@ static int cvi_saradc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, indio_dev);
 
-	res	= platform_get_resource_byname(pdev, IORESOURCE_MEM, "top_domain_saradc");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "saradc0");
 	if (!res) {
-		dev_err(dev, "failed to	retrieve saradc	io\n");
+		dev_err(dev, "failed to retrieve saradc0 io\n");
 		return -ENXIO;
 	}
 
-	ndev->top_saradc_base_addr = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(ndev->top_saradc_base_addr))
-		return PTR_ERR(ndev->top_saradc_base_addr);
+	ndev->top_saradc0_base_addr = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ndev->top_saradc0_base_addr))
+		return PTR_ERR(ndev->top_saradc0_base_addr);
 
-	res	= platform_get_resource_byname(pdev, IORESOURCE_MEM, "rtc_domain_saradc");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "saradc1");
 	if (!res) {
-		dev_err(dev, "failed to	retrieve saradc	io\n");
+		dev_err(dev, "failed to retrieve saradc1 io\n");
 		return -ENXIO;
 	}
 
-	ndev->rtcsys_saradc_base_addr =	devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(ndev->rtcsys_saradc_base_addr))
-		return PTR_ERR(ndev->rtcsys_saradc_base_addr);
+	ndev->top_saradc1_base_addr = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ndev->top_saradc1_base_addr))
+		return PTR_ERR(ndev->top_saradc1_base_addr);
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "saradc2");
+	if (!res) {
+		dev_err(dev, "failed to retrieve saradc2 io\n");
+		return -ENXIO;
+	}
+
+	ndev->top_saradc2_base_addr = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ndev->top_saradc2_base_addr))
+		return PTR_ERR(ndev->top_saradc2_base_addr);
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "rtc_saradc0");
+	if (!res) {
+		dev_err(dev, "failed to retrieve rtc_saradc0 io\n");
+		return -ENXIO;
+	}
+
+	ndev->rtcsys_saradc0_base_addr = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ndev->rtcsys_saradc0_base_addr))
+		return PTR_ERR(ndev->rtcsys_saradc0_base_addr);
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "rtc_saradc1");
+	if (!res) {
+		dev_err(dev, "failed to retrieve rtc_saradc1 io\n");
+		return -ENXIO;
+	}
+
+	ndev->rtcsys_saradc1_base_addr = devm_ioremap_resource(&pdev->dev, res);
+	if (IS_ERR(ndev->rtcsys_saradc1_base_addr))
+		return PTR_ERR(ndev->rtcsys_saradc1_base_addr);
 
 	indio_dev->name	= "cvi_saradc";
 	indio_dev->info	= &saradc_info;
 	indio_dev->dev.parent =	dev;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	for	(i = 1;	i <= SARADC_CHAN_NUM; ++i) {
-		if (i >	ADC3)
-			SARADC_CHAN_VOLTAGE(ndev->iio_channels[i - 1], i, SARADC_CH1_RESULT	+ (i - 1 - 3) *	4);
-		if (i <= ADC3)
-			SARADC_CHAN_VOLTAGE(ndev->iio_channels[i - 1], i, SARADC_CH1_RESULT	+ (i - 1) *	4);
+		SARADC_CHAN_VOLTAGE(ndev->iio_channels[i - 1], i, SARADC_CH1_RESULT	+ ((i - 1) % 3) *	4);
 	}
 
 	indio_dev->channels	= ndev->iio_channels;
@@ -395,40 +499,29 @@ MODULE_DEVICE_TABLE(of,	cvi_saradc_match);
 #ifdef CONFIG_PM_SLEEP
 static int saradc_cv_suspend(struct	device *dev)
 {
-	struct cvi_saradc_device *ndev = dev_get_drvdata(dev);
-
+	struct cvi_saradc_device *ndev = iio_priv(dev_get_drvdata(dev));
 	platform_saradc_clk_init(ndev);
 	/*Save all registers*/
-	ndev->saradc_ctrl = readl(ndev->top_saradc_base_addr + SARADC_CTRL);
-	ndev->saradc_cyc_set = readl(ndev->top_saradc_base_addr + SARADC_CYC_SET);
-	ndev->saradc_intr_en = readl(ndev->top_saradc_base_addr + SARADC_INTR_EN);
-	ndev->saradc_intr_clr = readl(ndev->top_saradc_base_addr + SARADC_INTR_CLR);
-	ndev->saradc_test = readl(ndev->top_saradc_base_addr + SARADC_TEST);
-	ndev->saradc_trim = readl(ndev->top_saradc_base_addr + SARADC_TRIM);
-	ndev->saradc_period_cycle = readl(ndev->top_saradc_base_addr + SARADC_PERIOD_CYCLE);
-	ndev->saradc_test_force = readl(ndev->top_saradc_base_addr + SARADC_TEST_FORCE);
-
+	memcpy_fromio(ndev->top_saradc0_saved_regs, ndev->top_saradc0_base_addr, SARADC_REGS_SIZE);
+	memcpy_fromio(ndev->top_saradc1_saved_regs, ndev->top_saradc1_base_addr, SARADC_REGS_SIZE);
+	memcpy_fromio(ndev->top_saradc2_saved_regs, ndev->top_saradc2_base_addr, SARADC_REGS_SIZE);
+	memcpy_fromio(ndev->rtcsys_saradc0_saved_regs, ndev->rtcsys_saradc0_base_addr, SARADC_REGS_SIZE);
+	memcpy_fromio(ndev->rtcsys_saradc1_saved_regs, ndev->rtcsys_saradc1_base_addr, SARADC_REGS_SIZE);
 	platform_saradc_clk_deinit(ndev);
-
 	return 0;
 }
 
 static int saradc_cv_resume(struct device *dev)
 {
-	struct cvi_saradc_device *ndev = dev_get_drvdata(dev);
-
+	struct cvi_saradc_device *ndev = iio_priv(dev_get_drvdata(dev));
 	platform_saradc_clk_init(ndev);
 	/*Restore register settings*/
-	writel(ndev->saradc_ctrl, ndev->top_saradc_base_addr + SARADC_CTRL);
-	writel(ndev->saradc_cyc_set, ndev->top_saradc_base_addr + SARADC_CYC_SET);
-	writel(ndev->saradc_intr_en, ndev->top_saradc_base_addr + SARADC_INTR_EN);
-	writel(ndev->saradc_intr_clr, ndev->top_saradc_base_addr + SARADC_INTR_CLR);
-	writel(ndev->saradc_test, ndev->top_saradc_base_addr + SARADC_TEST);
-	writel(ndev->saradc_trim, ndev->top_saradc_base_addr + SARADC_TRIM);
-	writel(ndev->saradc_period_cycle, ndev->top_saradc_base_addr + SARADC_PERIOD_CYCLE);
-	writel(ndev->saradc_test_force, ndev->top_saradc_base_addr + SARADC_TEST_FORCE);
+	memcpy_toio(ndev->top_saradc0_base_addr, ndev->top_saradc0_saved_regs, SARADC_REGS_SIZE);
+	memcpy_toio(ndev->top_saradc1_base_addr, ndev->top_saradc1_saved_regs, SARADC_REGS_SIZE);
+	memcpy_toio(ndev->top_saradc2_base_addr, ndev->top_saradc2_saved_regs, SARADC_REGS_SIZE);
+	memcpy_toio(ndev->rtcsys_saradc0_base_addr, ndev->rtcsys_saradc0_saved_regs, SARADC_REGS_SIZE);
+	memcpy_toio(ndev->rtcsys_saradc1_base_addr, ndev->rtcsys_saradc1_saved_regs, SARADC_REGS_SIZE);
 	platform_saradc_clk_deinit(ndev);
-
 	return 0;
 }
 #endif

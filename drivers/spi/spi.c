@@ -2715,7 +2715,7 @@ int spi_register_controller(struct spi_controller *ctlr)
 		dev_dbg(&ctlr->dev, "in change name, match cvi-spif paraent:devname:%s\n", dev_name(ctlr->dev.parent));
 		dev_set_name(&ctlr->dev, "dw-spif");
 	} else {
-		dev_err(&ctlr->dev, "cmp false cur:%s\n", dev_name(ctlr->dev.parent));
+		dev_dbg(&ctlr->dev, "cmp false cur:%s\n", dev_name(ctlr->dev.parent));
 		dev_set_name(&ctlr->dev, "spi%u", ctlr->bus_num);
 	}
 
