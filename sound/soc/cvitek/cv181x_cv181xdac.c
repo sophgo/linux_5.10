@@ -94,7 +94,7 @@ static int cv181x_dac_proc_show(struct seq_file *m, void *v)
 	i2s3 = ioremap(0x04130000, 0x100);
 	dac = ioremap(0x0300A000, 0x100);
 	sdma_pll = ioremap(0x3002004, 0x10);
-	audio_freq = cv1835_get_mclk(3);
+	audio_freq = cv1835_get_mclk("clk_sdma_aud3");
 
 	seq_puts(m, "\n------------- CVI AO ATTRIBUTE -------------\n");
 	seq_puts(m, "AoDev    Workmode    SampleRate    BitWidth\n");

@@ -132,7 +132,7 @@ static int cv181x_adc_proc_show(struct seq_file *m, void *v)
 	i2s0 = ioremap(0x04100000, 0x100);
 	adc = ioremap(0x0300A100, 0x100);
 	sdma_pll = ioremap(0x3002004, 0x10);
-	audio_freq = cv1835_get_mclk(0);
+	audio_freq = cv1835_get_mclk("clk_sdma_aud3");
 
 	seq_puts(m, "\n------------- CVI AI ATTRIBUTE -------------\n");
 	seq_puts(m, "AiDev    Workmode    SampleRate    BitWidth\n");

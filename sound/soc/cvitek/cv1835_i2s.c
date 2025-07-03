@@ -10,6 +10,7 @@
 
 
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/init.h>
 #include <linux/io.h>
@@ -556,7 +557,7 @@ static int cvi_i2s_hw_params(struct snd_pcm_substream *substream,
 	if (strcmp(substream->pcm->card->shortname, "cv182x_adc")) {
 		/* cv182x adc doesnot need to set apll*/
 		dev_info(dev->dev, "Audio system clk=%d, sample rate=%d\n", audio_clk, config->sample_rate);
-		cv1835_set_mclk(audio_clk);
+		cv1835_set_mclk(__clk_get_name(dev->clk), audio_clk);
 	}
 
 	if (!strcmp(substream->pcm->card->shortname, "cvi_adc")) {
@@ -1191,9 +1192,8 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 	} else {
 		clk_id = "i2sclk";
 		ret = cvi_configure_dai_by_dt(dev, cvi_i2s_dai, res);
-		device_property_read_u32(&pdev->dev, "dev-id",
-					 &dev->dev_id);
-		dev->clk = devm_clk_get(&pdev->dev, clk_id);
+		device_property_read_u32(&pdev->dev, "dev-id", &dev->dev_id);
+		dev->clk = of_clk_get(pdev->dev.of_node, 0);
 	}
 	if (ret < 0)
 		return ret;
@@ -1206,8 +1206,7 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 				return -ENODEV;
 			}
 		}
-		dev->clk = devm_clk_get(&pdev->dev, clk_id);
-
+		dev->clk = of_clk_get(pdev->dev.of_node, 0);
 		if (IS_ERR(dev->clk))
 			return PTR_ERR(dev->clk);
 

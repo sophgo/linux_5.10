@@ -14,6 +14,7 @@
 #include <linux/pm.h>
 #include <linux/mutex.h>
 #include <linux/miscdevice.h>
+#include <linux/clk-provider.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -145,7 +146,7 @@ static void cv181xadc_set_mclk(struct cv181xadc *adc, u32 rate)
 	}
 
 	dev_dbg(adc->dev, "Audio system clk=%d, sample rate=%d\n", audio_clk, rate);
-	cv1835_set_mclk(audio_clk);
+	cv1835_set_mclk(__clk_get_name(adc->clk), audio_clk);
 
 	/* cv182xa internal adc codec need dynamic MCLK frequency input */
 	switch (rate) {
@@ -871,7 +872,7 @@ static int cv181xadc_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, adc);
 	adc->dev = &pdev->dev;
-
+	adc->clk = of_clk_get(pdev->dev.of_node, 0);
 	ret = adc_device_register(adc);
 	if (ret < 0) {
 		pr_err("adc: register device error\n");

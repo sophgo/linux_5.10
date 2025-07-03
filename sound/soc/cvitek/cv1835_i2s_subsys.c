@@ -13,7 +13,6 @@
 
 struct cvi_i2s_subsys_dev *dev;
 void __iomem *master_reg;
-u32 current_freq;
 
 u32 i2s_subsys_query_master(void)
 {
@@ -64,52 +63,38 @@ void i2s_master_clk_switch_on(bool on)
 
 }
 
-void cv1835_set_mclk(u32 freq)
+void cv1835_set_mclk(char *clk_name, u32 freq)
 {
 	struct clk *clk_a0pll;
-	struct clk *clk_sdma_aud0;
-	struct clk *clk_sdma_aud1;
-	struct clk *clk_sdma_aud2;
-	struct clk *clk_sdma_aud3;
+	struct clk *clk_sdma_audx;
+	void __iomem *a24k_reg = ioremap(0x3002890, 12);
+	void __iomem *clk_sdma = ioremap(0x3002098, 14);
+	u8 src_id;
 #ifdef CONFIG_ARCH_CV183X_ASIC
 	void __iomem *gp_reg3 = ioremap(0x0300008c, 4);
 	u32 chip_id = readl(gp_reg3);
 #endif
 
-	if (current_freq != freq)
-		current_freq = freq;
-	else
-		return;
-
+	dev_info(dev->dev, "%s,%d:set clk_name:%s, clk:%d\n", __func__, __LINE__, clk_name, freq);
 	clk_a0pll = devm_clk_get(dev->dev, "clk_a0pll");
 	if (IS_ERR(clk_a0pll)) {
 		dev_err(dev->dev, "Get clk_a0pll failed\n");
 		return;
 	}
 
-	clk_sdma_aud0 = devm_clk_get(dev->dev, "clk_sdma_aud0");
-	if (IS_ERR(clk_sdma_aud0)) {
-		dev_err(dev->dev, "Get clk_sdma_aud0 failed\n");
+	clk_sdma_audx = devm_clk_get(dev->dev, clk_name);
+	if (IS_ERR(clk_sdma_audx)) {
+		dev_err(dev->dev, "Get %s failed\n", clk_name);
 		return;
 	}
 
-	clk_sdma_aud1 = devm_clk_get(dev->dev, "clk_sdma_aud1");
-	if (IS_ERR(clk_sdma_aud1)) {
-		dev_err(dev->dev, "Get clk_sdma_aud1 failed\n");
-		return;
+	if (kstrtou8(clk_name + strlen(clk_name) - 1, 10, &src_id)) {
+		dev_err(dev->dev, "please check input clk name:%s\n", clk_name);
 	}
 
-	clk_sdma_aud2 = devm_clk_get(dev->dev, "clk_sdma_aud2");
-	if (IS_ERR(clk_sdma_aud2)) {
-		dev_err(dev->dev, "Get clk_sdma_aud2 failed\n");
-		return;
-	}
-
-	clk_sdma_aud3 = devm_clk_get(dev->dev, "clk_sdma_aud3");
-	if (IS_ERR(clk_sdma_aud3)) {
-		dev_err(dev->dev, "Get clk_sdma_aud3 failed\n");
-		return;
-	}
+	writel(0x36EE8, a24k_reg + 0x4);
+	writel(0x1B8F8, a24k_reg + 0x8);
+	writel(0x3F, a24k_reg);
 
 	switch (freq) {
 	case CVI_16384_MHZ:
@@ -119,11 +104,8 @@ void cv1835_set_mclk(u32 freq)
 			clk_set_rate(clk_a0pll, 406425600);
 		}
 #endif
-		dev_info(dev->dev, "Set clk_sdma_aud0~3 to 16384000\n");
-		clk_set_rate(clk_sdma_aud0, 16384000);
-		clk_set_rate(clk_sdma_aud1, 16384000);
-		clk_set_rate(clk_sdma_aud2, 16384000);
-		clk_set_rate(clk_sdma_aud3, 16384000);
+		clk_set_rate(clk_sdma_audx, 16384000);
+		writel(readl(clk_sdma + src_id * 4) & ~(1 << 8), clk_sdma + src_id * 4);
 		break;
 	case CVI_22579_MHZ:
 #ifdef CONFIG_ARCH_CV183X_ASIC
@@ -132,11 +114,9 @@ void cv1835_set_mclk(u32 freq)
 			clk_set_rate(clk_a0pll, 406425600);
 		}
 #endif
-		dev_info(dev->dev, "Set clk_sdma_aud0~3 to 22579200\n");
-		clk_set_rate(clk_sdma_aud0, 22579200);
-		clk_set_rate(clk_sdma_aud1, 22579200);
-		clk_set_rate(clk_sdma_aud2, 22579200);
-		clk_set_rate(clk_sdma_aud3, 22579200);
+		writel(readl(clk_sdma + src_id * 4) | 1 << 8, clk_sdma + src_id * 4);
+		//clk_set_rate(clk_sdma_audx, 22579200);
+		clk_set_rate(clk_sdma_audx, 45158400);
 		break;
 	case CVI_24576_MHZ:
 #ifdef CONFIG_ARCH_CV183X_ASIC
@@ -145,28 +125,30 @@ void cv1835_set_mclk(u32 freq)
 			clk_set_rate(clk_a0pll, 417792000);
 		}
 #endif
-		dev_info(dev->dev, "Set clk_sdma_aud0~3 to 24576000\n");
-		clk_set_rate(clk_sdma_aud0, 24576000);
-		clk_set_rate(clk_sdma_aud1, 24576000);
-		clk_set_rate(clk_sdma_aud2, 24576000);
-		clk_set_rate(clk_sdma_aud3, 24576000);
+		writel(readl(clk_sdma + src_id * 4) & ~(1 << 8), clk_sdma + src_id * 4);
+		clk_set_rate(clk_sdma_audx, 24576000);
 		break;
 	default:
 		dev_info(dev->dev, "Unrecognised freq\n");
 		break;
 	}
-	dev->src_clk_freq[0] = freq;
-	dev->src_clk_freq[1] = freq;
-	dev->src_clk_freq[2] = freq;
-	dev->src_clk_freq[3] = freq;
+	iounmap(a24k_reg);
+	iounmap(clk_sdma);
 #ifdef CONFIG_ARCH_CV183X_ASIC
 	iounmap(gp_reg3);
 #endif
 }
 
-u32 cv1835_get_mclk(u32 id)
+u32 cv1835_get_mclk(char *clk_name)
 {
-	return dev->src_clk_freq[id];
+	struct clk *clk_sdma_audx;
+
+	clk_sdma_audx = devm_clk_get(dev->dev, clk_name);
+	if (IS_ERR(clk_sdma_audx)) {
+		dev_err(dev->dev, "Get %s failed\n", clk_name);
+		return -1;
+	}
+	return clk_get_rate(clk_sdma_audx);
 }
 
 static int i2s_subsys_probe(struct platform_device *pdev)
@@ -214,8 +196,10 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 
 	audio_clk = clk_get_rate(i2sclk);
 	pr_info("get audio clk=%d\n", audio_clk);
-	cv1835_set_mclk(audio_clk);
-
+	cv1835_set_mclk("clk_sdma_aud0", audio_clk);
+	cv1835_set_mclk("clk_sdma_aud1", audio_clk);
+	cv1835_set_mclk("clk_sdma_aud2", audio_clk);
+	cv1835_set_mclk("clk_sdma_aud3", audio_clk);
 #if (!defined(CONFIG_SND_SOC_CV1835_CONCURRENT_I2S) && !defined(CONFIG_SND_SOC_CV1835PDM))
 	/* normal operation, use I2S1 as TX and RX */
 	writel(0x7654, dev->subsys_base + SCLK_IN_SEL);
