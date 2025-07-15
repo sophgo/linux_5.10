@@ -270,7 +270,7 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		snd_pcm_stream_unlock_irq(substream);
 		mute_amp(dac, true);
-		usleep_range(1000, 3000);
+		udelay(1000);
 		cv181xdac_off(dac);
 		snd_pcm_stream_lock_irq(substream);
 		break;
