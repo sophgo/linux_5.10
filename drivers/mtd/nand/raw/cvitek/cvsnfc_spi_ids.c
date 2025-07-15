@@ -1500,8 +1500,10 @@ static int spi_nand_gd_qe_enable(struct cvsnfc_host *host)
 
 	/* check qe bit */
 	spi_feature_op(host, GET_OP, FEATURE_ADDR, &regval);
-	if (!(regval & FEATURE_ADDR))
+	if (!(regval & FEATURE_QE_ENABLE)) {
+		pr_info("cvsnfc: set qe failed! regval[%#x]\n", regval);
 		return -1;
+	}
 
 	return 0;
 }
