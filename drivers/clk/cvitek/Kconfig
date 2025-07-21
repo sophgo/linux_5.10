@@ -10,3 +10,9 @@ config COMMON_CLK_CV1832_TPU_500M
 	depends on COMMON_CLK_CVITEK
 	help
 	  Set TPU clock to 500MHz for CV1832.
+
+config CVI_DUAL_OS_CLK
+	bool "set clk for dual OS"
+	depends on COMMON_CLK_CVITEK
+	help
+		Adapt clock for dual OS

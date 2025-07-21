@@ -268,6 +268,18 @@ static irqreturn_t dw_spi_irq(int irq, void *dev_id)
 	return dws->transfer_handler(dws);
 }
 
+static irqreturn_t dw_spinor_irq(int irq, void *dev_id)
+{
+	struct spi_controller *master = dev_id;
+	struct dw_spi *dws = spi_controller_get_devdata(master);
+	u16 irq_status = dw_readl(dws, DW_SPI_ISR) & 0x3f;
+
+	if (!irq_status)
+		return IRQ_NONE;
+
+	return dws->transfer_handler(dws);
+}
+
 static u32 dw_spi_prepare_cr0(struct dw_spi *dws, struct spi_device *spi)
 {
 	u32 cr0 = 0;
@@ -616,6 +628,16 @@ void swap_a(u8 *a, u8 *b)
 	*b = temp;
 }
 
+bool can_dma(struct dw_spi *dws, const struct spi_mem_op *op)
+{
+	//FIXME: disabled temporarily, fix dma transfer later
+
+    // if ((op->data.dir == SPI_MEM_DATA_IN) && (op->data.nbytes > dws->fifo_len * dws->n_bytes))
+    // return true;
+
+	return false;
+}
+
 void handle_data_for_write(u8 *out, const struct spi_mem_op *op)
 {
 	u8 *buf = out;
@@ -633,44 +655,62 @@ void handle_data_for_write(u8 *out, const struct spi_mem_op *op)
 		}
 	}
 
-	// switch (len % 4) {
-	//     case 3:
-	//         swap_a(&buf[0], &buf[2]);
-	//     case 2:
-	//         swap_a(&buf[0], &buf[1]);
-	//         break;
-	//     case 1:
-	//	   default:
-	//         break;
-	// }
+	switch (len % 4) {
+    case 3:
+	    swap_a(&buf[0], &buf[2]);
+    case 2:
+	    swap_a(&buf[0], &buf[1]);
+        break;
+    case 1:
+        default:
+        break;
+	}
 }
 
 static int dw_spi_init_mem_buf(struct dw_spi *dws, const struct spi_mem_op *op)
 {
-	unsigned int len;
+	unsigned int i, j, len;
 	u8 *out;
 
-	if (op->data.buswidth > 1 && op->data.nbytes > 4)
-		dws->n_bytes = 4;
-	else
-		dws->n_bytes = 1;
 	/*
 	 * Calculate the total length of the EEPROM command transfer and
 	 * either use the pre-allocated buffer or create a temporary one.
 	 */
-	len = 0;
+	len = op->cmd.nbytes + op->addr.nbytes + op->dummy.nbytes;
+
 	if (op->data.dir == SPI_MEM_DATA_OUT)
 		len += op->data.nbytes;
 
 	if (len <= SPI_BUF_SIZE) {
 		out = dws->buf;
 	} else {
-		out = kzalloc(len, GFP_KERNEL | GFP_DMA);
+		out = kzalloc(len, GFP_KERNEL);
 		if (!out)
 			return -ENOMEM;
 	}
 
-	if (op->data.dir == SPI_MEM_DATA_OUT) {
+	/*
+	 * Collect the operation code, address and dummy bytes into the single
+	 * buffer. If it's a transfer with data to be sent, also copy it into the
+	 * single buffer in order to speed the data transmission up.
+	 */
+	for (i = 0; i < op->cmd.nbytes; ++i)
+		out[i] = SPI_GET_BYTE(op->cmd.opcode, op->cmd.nbytes - i - 1);
+	for (j = 0; j < op->addr.nbytes; ++i, ++j)
+		out[i] = SPI_GET_BYTE(op->addr.val, op->addr.nbytes - j - 1);
+	for (j = 0; j < op->dummy.nbytes; ++i, ++j)
+		out[i] = 0x0;
+
+	if (op->data.dir == SPI_MEM_DATA_OUT)
+		memcpy(&out[i], op->data.buf.out, op->data.nbytes);
+
+	if (op->data.buswidth > 1 && op->data.nbytes > 4)
+		dws->n_bytes = 4;
+	else
+		dws->n_bytes = 1;
+
+	//FIXME:
+	if (op->data.dir == SPI_MEM_DATA_OUT && can_dma(dws, op)) {
 		memcpy(out, op->data.buf.out, op->data.nbytes);
 		handle_data_for_write(out, op);
 	}
@@ -684,6 +724,7 @@ static int dw_spi_init_mem_buf(struct dw_spi *dws, const struct spi_mem_op *op)
 		dws->rx = NULL;
 		dws->rx_len = 0;
 	}
+
 	return 0;
 }
 
@@ -728,12 +769,6 @@ void write_addr_data(struct dw_spi *dws, const struct spi_mem_op *op)
 
 static inline u32 dw_swap(u32 x, u8 size)
 {
-	// return (((x) & 0x000000FF) << 24) |
-	//	((0x100) << 8)  |
-	//	(( 0x0020000) >> 8)  |
-	//	((0x03000000) >> 24);
-	// FF102030
-
 	switch (size) {
 	case 4: // 32-bit swap
 		return (((x) & 0x000000FF) << 24) |
@@ -749,36 +784,62 @@ static inline u32 dw_swap(u32 x, u8 size)
 		pr_err("Swap error: incorrect size\n");
 		return x;
 	}
-
 }
 
 static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi, const struct spi_mem_op *op)
 {
 	u32 room, entries, sts, val, tmp = 0;
 	unsigned int len;
-	u8 *buf;
+	void *in_buf;
+	const void *out_buf;
 
+	len = 0;
+	in_buf = NULL;
+	out_buf = NULL;
+
+	if (op->data.dir == SPI_MEM_DATA_OUT) {
+		out_buf = op->data.buf.out;
+		len = op->data.nbytes;
+	}
 	/*
 	 * At initial stage we just pre-fill the Tx FIFO in with no rush,
 	 * since native CS hasn't been enabled yet and the automatic data
 	 * transmission won't start til we do that.
 	 */
-	/* write cmd */
+
+	/* issue write cmd */
 	if (op->cmd.nbytes)
 		dw_write_io_reg(dws, DW_SPI_DR, op->cmd.opcode);
 
 	/* write addr */
 	write_addr_data(dws, op);
 
-	room = min((dws->fifo_len - readl_relaxed(dws->regs + DW_SPI_TXFLR)), (dws->tx_len) / dws->n_bytes);
-	buf = (u8 *)dws->tx;
-	for (; room; --room) {
-		if (dws->n_bytes == 1)
-			dw_write_io_reg(dws, DW_SPI_DR, *(u8 *)buf);
-		else
-			dw_write_io_reg(dws, DW_SPI_DR, *(u32 *)buf);
+	room = min((dws->fifo_len - readl_relaxed(dws->regs + DW_SPI_TXFLR)), (len + dws->n_bytes - 1) / dws->n_bytes);
 
-		buf += dws->n_bytes;
+	/* prefill the Tx FIFO */
+	while (room) {
+		if (len < dws->n_bytes) {
+			tmp = 0xffffffff;
+			memcpy(&tmp, out_buf, len);
+			tmp = dw_swap(tmp, dws->n_bytes);
+			dw_write_io_reg(dws, DW_SPI_DR, tmp);
+			len -= len;
+			out_buf += len;
+		} else {
+			if (dws->n_bytes == 1) {
+				dw_write_io_reg(dws, DW_SPI_DR, *(u8 *)out_buf);
+			}
+			else if (dws->n_bytes == 2) {
+				val = dw_swap(*(u16 *)out_buf, dws->n_bytes);
+				dw_write_io_reg(dws, DW_SPI_DR, val);
+			} else {
+				val = dw_swap(*(u32 *)out_buf, dws->n_bytes);
+				dw_write_io_reg(dws, DW_SPI_DR, val);
+			}
+			len -= dws->n_bytes;
+			out_buf += dws->n_bytes;
+		}
+		room -= 1;
 	}
 	/*
 	 * After setting any bit in the SER register the transmission will
@@ -788,7 +849,16 @@ static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi, co
 	 */
 	dw_spi_set_cs(spi, false);
 
-	len = dws->tx_len - ((void *)buf - dws->tx);
+	/*
+	* The TX FIFO entry count must never reach zero during an ongoing transmission.
+	* A zero entry count indicates the TX FIFO is empty while data transmission remains
+	* incomplete. This condition triggers an inherent behavior in the DesignWare SSI IP
+	* core: upon detecting an empty TX FIFO, the controller immediately deasserts the
+	* Chip Select (CS) line, prematurely terminating the transfer. To maintain transmission
+	* integrity, software must ensure the TX FIFO always contains pending data until the
+	* entire transfer completes (i.e., the length counter decrements to zero). Failure to
+	* uphold this requirement will result in corrupted transactions.
+	*/
 	while (len) {
 		entries = readl_relaxed(dws->regs + DW_SPI_TXFLR);
 		if (!entries) {
@@ -798,32 +868,41 @@ static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi, co
 		}
 
 		room = min(dws->fifo_len - entries, (len + dws->n_bytes - 1) / dws->n_bytes);
+
+		/* Fill remaining data to tx fifo, after enable tx transmission */
 		for (; room; --room) {
 			if (len < dws->n_bytes) {
-				memcpy(&tmp, buf, len);
+				tmp = 0xffffffff;
+				memcpy(&tmp, out_buf, len);
 				tmp = dw_swap(tmp, dws->n_bytes);
 				dw_write_io_reg(dws, DW_SPI_DR, tmp);
 				len -= len;
-				buf += len;
+				out_buf += len;
 			} else {
 				if (dws->n_bytes == 1)
-					dw_write_io_reg(dws, DW_SPI_DR, *(u8 *)buf);
-				else
-					dw_write_io_reg(dws, DW_SPI_DR, *(u32 *)buf);
-
+					dw_write_io_reg(dws, DW_SPI_DR, *(u8 *)out_buf);
+				else if (dws->n_bytes == 2) {
+					val = dw_swap(*(u16 *)out_buf, dws->n_bytes);
+					dw_write_io_reg(dws, DW_SPI_DR, val);
+				} else {
+					val = dw_swap(*(u32 *)out_buf, dws->n_bytes);
+					dw_write_io_reg(dws, DW_SPI_DR, val);
+				}
 				len -= dws->n_bytes;
-				buf += dws->n_bytes;
+				out_buf += dws->n_bytes;
 			}
 		}
 	}
-
 	/*
 	 * Data fetching will start automatically if the EEPROM-read mode is
 	 * activated. We have to keep up with the incoming data pace to
 	 * prevent the Rx FIFO overflow causing the inbound data loss.
 	 */
-	len = dws->rx_len;
-	buf = dws->rx;
+	if (op->data.dir == SPI_MEM_DATA_IN) {
+		len = op->data.nbytes;
+		in_buf = op->data.buf.in;
+	}
+
 	while (len) {
 		entries = readl_relaxed(dws->regs + DW_SPI_RXFLR);
 		if (!entries) {
@@ -835,26 +914,24 @@ static int dw_spi_write_then_read(struct dw_spi *dws, struct spi_device *spi, co
 			continue;
 		}
 
-		// entries = min(entries, len / dws->n_bytes);
 		for (; entries; --entries) {
 			if (dws->n_bytes == 4) {
 				if (len >= dws->n_bytes) {
-					*(u32 *)buf = dw_read_io_reg(dws, DW_SPI_DR);
-					buf += dws->n_bytes;
+					*(u32 *)in_buf = dw_read_io_reg(dws, DW_SPI_DR);
+					in_buf += dws->n_bytes;
 					len -=  dws->n_bytes;
 				} else {
 					val = dw_read_io_reg(dws, DW_SPI_DR);
-					memcpy(buf, &val, len);
+					memcpy(in_buf, &val, len);
 					len -=  len;
 				}
 			} else {
-				*(u8 *)buf++ = dw_read_io_reg(dws, DW_SPI_DR);
+				*(u8 *)in_buf++ = dw_read_io_reg(dws, DW_SPI_DR);
 				len -= dws->n_bytes;
 			}
 		}
 	}
 
-	//dev_err(&dws->master->dev, "finish memcpy tmp:%x\n",tmp);
 	return 0;
 }
 
@@ -900,21 +977,6 @@ static void dw_spi_stop_mem_op(struct dw_spi *dws, struct spi_device *spi)
 	spi_enable_chip(dws, 1);
 }
 
-/*
- * The SPI memory operation implementation below is the best choice for the
- * devices, which are selected by the native chip-select lane. It's
- * specifically developed to workaround the problem with automatic chip-select
- * lane toggle when there is no data in the Tx FIFO buffer. Luckily the current
- * SPI-mem core calls exec_op() callback only if the GPIO-based CS is
- * unavailable.
- */
-bool can_dma(struct dw_spi *dws, const struct spi_mem_op *op)
-{
-	if (/*(op->data.dir == SPI_MEM_DATA_IN) && */(op->data.nbytes > dws->fifo_len * dws->n_bytes))
-		return true;
-
-	return false;
-}
 
 int spi_dma_setup(struct dw_spi *dws, const struct spi_mem_op *op)
 {
@@ -1004,30 +1066,14 @@ err_clear_dmac:
 	return ret;
 }
 
-static int spi_dma_transfer(struct dw_spi *dws, const struct spi_mem_op *op)
+int dw_spinor_dma_transfer(struct dw_spi *dws, struct spi_device *spi, const struct spi_mem_op *op)
 {
 	int ret = 0;
-	u32 len;
-	struct dw_spi_mmio *dwsmmio = container_of(dws, struct dw_spi_mmio, dws);
-
-	if (op->data.dir == SPI_MEM_DATA_IN)
-		len = dws->rx_len;
-	else
-		len = dws->tx_len;
-
-	//pr_err("%d,%s\n",__LINE__,__func__);
-
-	ret = dw_spi_dma_wait(dws, len, dws->current_freq);
-	dma_unmap_sg(dwsmmio->dev, &dws->sgl, 1, DMA_BIDIRECTIONAL);
-	dw_writel(dws, DW_SPI_DMACR, 0);
-	return ret;
-}
-
-int media_handle_for_dma(struct dw_spi *dws, struct spi_device *spi, const struct spi_mem_op *op)
-{
 	u32 room = 0;
 	u8 *buf = NULL;
 	u16 dma_ctrl;
+	u32 len;
+	struct dw_spi_mmio *dwsmmio = container_of(dws, struct dw_spi_mmio, dws);
 
 	if (op->cmd.nbytes)
 		dw_write_io_reg(dws, DW_SPI_DR, op->cmd.opcode);
@@ -1050,7 +1096,7 @@ int media_handle_for_dma(struct dw_spi *dws, struct spi_device *spi, const struc
 		dws->tx = buf;
 	}
 
-	/* Submit the DMA Rx transfer if required */
+	/* Submit the DMA Rx/Tx transfer if required */
 	if (op->data.dir == SPI_MEM_DATA_IN)  {
 		dma_async_issue_pending(dws->rxchan);
 		dma_ctrl = SPI_DMA_RDMAE;
@@ -1062,14 +1108,32 @@ int media_handle_for_dma(struct dw_spi *dws, struct spi_device *spi, const struc
 	dw_writel(dws, DW_SPI_DMACR, dma_ctrl);
 
 	dw_spi_set_cs(spi, false);
-	return 0;
+	if (op->data.dir == SPI_MEM_DATA_IN)
+		len = dws->rx_len;
+	else
+		len = dws->tx_len;
+
+	ret = dw_spi_dma_wait(dws, len, dws->current_freq);
+	dma_unmap_sg(dwsmmio->dev, &dws->sgl, 1, DMA_BIDIRECTIONAL);
+	dw_writel(dws, DW_SPI_DMACR, 0);
+	return ret;
 }
+
+/*
+ * The SPI memory operation implementation below is the best choice for the
+ * devices, which are selected by the native chip-select lane. It's
+ * specifically developed to workaround the problem with automatic chip-select
+ * lane toggle when there is no data in the Tx FIFO buffer. Luckily the current
+ * SPI-mem core calls exec_op() callback only if the GPIO-based CS is
+ * unavailable.
+ */
 
 static int dw_spi_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 {
 	struct dw_spi *dws = spi_controller_get_devdata(mem->spi->controller);
 	struct dw_spi_cfg cfg;
 	int ret;
+	unsigned long flags;
 	bool support_dma = false;
 
 	/*
@@ -1095,20 +1159,18 @@ static int dw_spi_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 	}
 
 	spi_enable_chip(dws, 0);
+
 	dw_spi_update_config(dws, mem->spi, &cfg, op);
+
 	spi_mask_intr(dws, 0xff);
 
 	support_dma = can_dma(dws, op);
 	if (support_dma && spi_dma_setup(dws, op)) {
-		pr_err("!!!!dma not support or dma setup failed!\n");
+		dev_err(&dws->master->dev, "DW SPINOR DMA setup failed\n");
 		support_dma = false;
 	}
 
 	spi_enable_chip(dws, 1);
-	if (support_dma) {
-		if (media_handle_for_dma(dws, mem->spi, op))
-			return -EIO;
-	}
 
 	/*
 	 * DW APB SSI controller has very nasty peculiarities. First originally
@@ -1138,11 +1200,20 @@ static int dw_spi_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 	 * manually restricting the SPI bus frequency using the
 	 * dws->max_mem_freq parameter.
 	 */
+	local_irq_save(flags);
+	preempt_disable();
 
-	if (support_dma)
-		ret = spi_dma_transfer(dws, op);
-	else
+	if (support_dma) {
+		ret = dw_spinor_dma_transfer(dws, mem->spi, op);
+		dev_err(&dws->master->dev, "DW SPINOR DMA transfer failed\n");
+		goto out;
+	}
+	else {
 		ret = dw_spi_write_then_read(dws, mem->spi, op);
+	}
+
+	local_irq_restore(flags);
+	preempt_enable();
 
 	/*
 	 * Wait for the operation being finished and check the controller
@@ -1151,17 +1222,17 @@ static int dw_spi_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 	 * additional error message printing since any hw error flag being set
 	 * would be due to an error detected on the data transfer.
 	 */
-	if (!ret) {
+	if (unlikely(ret))
+		ret = dw_spi_check_status(dws, true);
+	else
 		ret = dw_spi_wait_mem_op_done(dws);
-		if (!ret)
-			ret = dw_spi_check_status(dws, true);
-	}
 
+out:
 	if (support_dma)
 		dws->dma_ops->dma_stop(dws);
-
 	dw_spi_stop_mem_op(dws, mem->spi);
 	dw_spi_free_mem_buf(dws);
+	spi_enable_chip(dws, 0);
 
 	return ret;
 }
@@ -1281,8 +1352,12 @@ int dw_spi_add_host(struct device *dev, struct dw_spi *dws)
 	/* Basic HW init */
 	spi_hw_init(dev, dws);
 
-	ret = request_irq(dws->irq, dw_spi_irq, IRQF_SHARED, dev_name(dev),
-			  master);
+	if (strcmp(dev_name(dev), "10000000.cvi-spif") == 0)
+		ret = request_irq(dws->irq, dw_spinor_irq, IRQF_SHARED, dev_name(dev),
+              master);
+	else
+		ret = request_irq(dws->irq, dw_spi_irq, IRQF_SHARED, dev_name(dev),
+              master);
 	if (ret < 0 && ret != -ENOTCONN) {
 		dev_err(dev, "can not get IRQ\n");
 		goto err_free_master;

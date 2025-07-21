@@ -2264,7 +2264,7 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 			size_t *retlen, u_char *buf)
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
-	ssize_t ret;
+	ssize_t ret, chunk_len;
 
 	dev_dbg(nor->dev, "from 0x%08x, len %zd\n", (u32)from, len);
 
@@ -2277,14 +2277,27 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 
 		addr = spi_nor_convert_addr(nor, addr);
 
-		ret = spi_nor_read_data(nor, addr, len, buf);
-		if (ret == 0) {
-			/* We shouldn't see 0-length reads */
-			ret = -EIO;
-			goto read_err;
+		if (len >= 4) {
+			chunk_len = len & ~0x03;
+
+			ret = spi_nor_read_data(nor, addr, chunk_len, buf);
+			if (ret == 0) {
+				/* We shouldn't see 0-length reads */
+				ret = -EIO;
+				goto read_err;
+			}
+			if (ret < 0)
+				goto read_err;
+		} else {
+			ret = spi_nor_read_data(nor, addr, len, buf);
+			if (ret == 0) {
+				/* We shouldn't see 0-length reads */
+				ret = -EIO;
+				goto read_err;
+			}
+			if (ret < 0)
+				goto read_err;
 		}
-		if (ret < 0)
-			goto read_err;
 
 		WARN_ON(ret > len);
 		*retlen += ret;
@@ -2354,8 +2367,11 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 			page_offset = do_div(aux, nor->page_size);
 		}
 		/* the size of data remaining on the first page */
-		page_remain = min_t(size_t,
-				    nor->page_size - page_offset, len - i);
+		if ((len - i) >= 4)
+			page_remain = min_t(size_t,
+					nor->page_size - page_offset, (len - i) & ~0x3);
+		else
+			page_remain = len - i;	//handle the last unaligned buffer
 
 		addr = spi_nor_convert_addr(nor, addr);
 

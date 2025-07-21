@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CVI_SYS
+	tristate "cv184x sys dirver"
+	depends on CVI_OSAL && CVI_BASE
+	help
+		"sys driver for cv184x"

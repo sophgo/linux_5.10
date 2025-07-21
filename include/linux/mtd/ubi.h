@@ -268,4 +268,8 @@ static inline int ubi_read_sg(struct ubi_volume_desc *desc, int lnum,
 {
 	return ubi_leb_read_sg(desc, lnum, sgl, offset, len, 0);
 }
+
+int ubi_get_device_by_part(char *part);
+bool find_vol_by_name(int ubi_num, const char *vol_name);
+
 #endif /* !__LINUX_UBI_H__ */

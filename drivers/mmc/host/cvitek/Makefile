@@ -9,3 +9,5 @@ sdhci-cvi-$(CONFIG_ARCH_CV183X)		+= sdhci-cv183x.o
 sdhci-cvi-$(CONFIG_ARCH_CV182X)		+= sdhci-cv182x.o
 sdhci-cvi-$(CONFIG_ARCH_CV181X)		+= sdhci-cv181x.o
 sdhci-cvi-$(CONFIG_ARCH_CV180X)		+= sdhci-cv180x.o
+
+obj-y += cvi_sdmmc_ops.o

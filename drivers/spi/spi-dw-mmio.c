@@ -25,7 +25,6 @@
 #include "spi-dw.h"
 
 #define DRIVER_NAME "dw_spi_mmio"
-#define ENV_NOT_IN_ASIC
 
 #define MSCC_CPU_SYSTEM_CTRL_GENERAL_CTRL	0x24
 #define OCELOT_IF_SI_OWNER_OFFSET		4
@@ -245,7 +244,7 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "dws->irq:%d\n", dws->irq);
 		return dws->irq; /* -ENXIO */
 	}
-#ifndef ENV_NOT_IN_ASIC
+
 	dwsmmio->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(dwsmmio->clk))
 		return PTR_ERR(dwsmmio->clk);
@@ -270,15 +269,11 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 		goto out_clk;
 	}
 	reset_control_deassert(dwsmmio->rstc);
-#endif
 
 	dws->bus_num = pdev->id;
 
-#ifndef ENV_NOT_IN_ASIC
 	dws->max_freq = clk_get_rate(dwsmmio->clk);
-#else
-	dws->max_freq = 300000000;
-#endif
+
 	dev_dbg(&pdev->dev, "%s,%d,maxfreq:%d\n", __func__, __LINE__, dws->max_freq);
 
 	device_property_read_u32(&pdev->dev, "reg-io-width", &dws->reg_io_width);
@@ -309,15 +304,12 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 	return 0;
 
 out:
-#ifndef ENV_NOT_IN_ASIC
 	pm_runtime_disable(&pdev->dev);
 	clk_disable_unprepare(dwsmmio->pclk);
-#endif
+
 out_clk:
-#ifndef ENV_NOT_IN_ASIC
 	clk_disable_unprepare(dwsmmio->clk);
 	reset_control_assert(dwsmmio->rstc);
-#endif
 
 	return ret;
 }

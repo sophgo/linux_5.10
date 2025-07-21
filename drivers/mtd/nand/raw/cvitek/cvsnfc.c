@@ -955,59 +955,60 @@ static int cvsnfc_read_page(struct nand_chip *chip,
 
 	return ret;
 }
-static int read_oob_data(struct mtd_info *mtd, uint8_t *buf, int row_addr)
+
+static int cvsnfc_read_page_raw(struct nand_chip *chip,
+							   uint8_t *buf, int oob_required, int page)
 {
-	struct nand_chip *chip = mtd->priv;
-	struct cvsnfc_host *host = chip->priv;
-	uint32_t col_addr = 0;
-	uint32_t blk_idx = row_addr / host->block_page_cnt;
 	int ret = 0;
-	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
+	uint32_t col_addr = 0;
+	struct cvsnfc_host *host = chip->priv;
+	uint32_t blk_idx = page / host->block_page_cnt;
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct cvsnfc_chip_info *spi_nand = &host->spi_nand;
+	struct spi_nand_driver *spi_driver = spi_nand->driver;
+	unsigned int die_id;
 
-	pr_debug("%s, row_addr 0x%x\n", __func__, row_addr);
-
-	host->last_row_addr = row_addr;
+	mutex_lock(&host->lock);
+	host->last_row_addr = page;
 
 	if (spi_driver->select_die) {
-		unsigned int die_id =
-			row_addr / (host->diesize / host->pagesize);
-
+		die_id = page / (host->diesize / host->pagesize);
 		spi_driver->select_die(host, die_id);
 	}
 
 	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
 
-	spi_nand_send_read_page_cmd(host, row_addr);
+	spi_nand_send_read_page_cmd(host, page);
 
 	if (host->flags & FLAGS_SET_PLANE_BIT && (blk_idx & BIT(0))) {
 		pr_debug("%s set plane bit for blkidx %d\n", __func__, blk_idx);
 		col_addr |= SPI_NAND_PLANE_BIT_OFFSET;
 	}
 
-	ret = spi_nand_read_from_cache(host, mtd, mtd->writesize, mtd->oobsize, host->buforg);
+	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize + mtd->oobsize, buf);
 
-	memcpy(buf, (void *)host->buforg, mtd->oobsize);
-
-	cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
-
-	if (ret) {
-		pr_err("%s row_addr 0x%x ret %d\n", __func__, row_addr, ret);
-	}
+	mutex_unlock(&host->lock);
 
 	return ret;
 }
 
-static int cvsnfc_read_oob(struct nand_chip *chip,
-			     int page)
+static int read_oob_data(struct mtd_info *mtd, uint8_t *buf, int page)
+{
+	struct nand_chip *chip = mtd->priv;
+	struct cvsnfc_host *host = chip->priv;
+	int ret = 0;
+
+	ret = cvsnfc_read_page_raw(chip, host->buforg, 1, page);
+
+	memcpy(buf, (void *)host->buforg + mtd->writesize, mtd->oobsize);
+
+	return ret;
+}
+
+static int cvsnfc_read_oob(struct nand_chip *chip, int page)
 {
     struct mtd_info *mtd = nand_to_mtd(chip);
 	return read_oob_data(mtd, chip->oob_poi, page);
-}
-
-static int cvsnfc_read_page_raw(struct nand_chip *chip,
-							   uint8_t *buf, int oob_required, int page)
-{
-	return 0;
 }
 
 static int cvsnfc_read_subpage(struct nand_chip *chip,
@@ -1308,6 +1309,78 @@ static int cvsnfc_write_otp(struct nand_chip *chip, loff_t to, size_t len, const
 	return ret;
 }
 
+static int cvsnfc_write_oob(struct nand_chip *chip, int page)
+{
+	int ret = 0;
+	u32 val, die_id, col_addr = 0;
+	u8 *buf = NULL;
+	struct cvsnfc_host *host = chip->priv;
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
+	u32 blk_idx = page / host->block_page_cnt;
+
+	buf = kmalloc(mtd->oobsize + mtd->writesize, GFP_KERNEL);
+
+	if (!buf)
+		return -ENOMEM;
+
+	ret = cvsnfc_read_page_raw(chip, buf, 1, page);
+
+	if (unlikely(ret < 0)) {
+		pr_err("%s: read page raw failed\n", __func__);
+		goto out;
+	}
+
+	memcpy(buf + mtd->writesize, chip->oob_poi, mtd->oobsize);
+
+	host->last_row_addr = page;
+
+	if (spi_driver->select_die) {
+		die_id = page / (host->diesize / host->pagesize);
+		spi_driver->select_die(host, die_id);
+	}
+
+	val = spi_driver->wait_ready(host);
+	if (val) {
+		pr_err("cvsnfc: write wait ready fail! status[%#x]\n", val);
+		ret = -1;
+		goto out;
+	}
+
+	if (spi_driver->write_enable(host)) {
+		pr_err("%s write enable failed!\n", __func__);
+		ret = -1;
+		goto out;
+	}
+
+	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
+
+	if (host->flags & FLAGS_SET_PLANE_BIT && (blk_idx & BIT(0))) {
+		pr_debug("%s set plane bit for blkidx %d\n", __func__, blk_idx);
+		col_addr |= SPI_NAND_PLANE_BIT_OFFSET;
+	}
+
+	ret = spi_nand_prog_load(host, buf, host->pagesize + mtd->oobsize, col_addr, 0);
+	if (ret) {
+		pr_err("%s spi_nand_prog_load failed!\n", __func__);
+		goto out;
+	}
+
+	ret = spi_nand_prog_exec(host, page);
+	if (ret) {
+		pr_err("%s spi_nand_prog_exec failed!\n", __func__);
+		goto out;
+	}
+
+	val = spi_driver->wait_ready(host);
+	if (val & STATUS_E_FAIL_MASK)
+		pr_err("cvsnfc: write failed! status[%#x]\n", val);
+
+out:
+	kfree(buf);
+	return ret;
+}
+
 static int cvsnfc_attach_chip(struct nand_chip *chip)
 {
 	//struct mtd_info *mtd = nand_to_mtd(chip);
@@ -1355,6 +1428,7 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 	chip->ecc.read_page_raw = cvsnfc_read_page_raw;
 	chip->ecc.read_subpage = cvsnfc_read_subpage;
 	chip->ecc.write_page = cvsnfc_write_page;
+	chip->ecc.write_oob = cvsnfc_write_oob;
 
 	chip->options |= NAND_NO_SUBPAGE_WRITE;
 

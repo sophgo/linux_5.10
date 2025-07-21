@@ -50,6 +50,24 @@ static int add_part(int slot, struct cmdline_subpart *subpart, void *param)
 	return 0;
 }
 
+struct cmdline_subpart *cmdline_subparts_find(const char *subpartname)
+{
+	while (bdev_parts) {
+		struct cmdline_subpart *subpart = bdev_parts->subpart;
+
+		while (subpart && strncmp(subpartname, subpart->name, sizeof(subpart->name)))
+			subpart = subpart->next_subpart;
+
+		if (subpart)
+			return subpart;
+
+		bdev_parts = bdev_parts->next_parts;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL(cmdline_subparts_find);
+
 static int __init cmdline_parts_setup(char *s)
 {
 	cmdline = s;

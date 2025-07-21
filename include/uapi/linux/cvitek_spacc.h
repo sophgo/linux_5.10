@@ -37,24 +37,24 @@ typedef enum SPACC_KEY_SOURCE {
 } SPACC_KEY_SOURCE_E;
 
 typedef struct spacc_base64 {
-	u32 customer_code;
-	u32 action; // 0: Decode, 1: Encode
+	uint32_t customer_code;
+	uint32_t action; // 0: Decode, 1: Encode
 } spacc_base64_config_s;
 
 typedef struct spacc_base64_inner {
-	u64 src;
-	u64 dst;
-	u64 len;
-	u32 customer_code;
-	u32 action; // 0: Decode, 1: Encode
+	uint64_t src;
+	uint64_t dst;
+	uint64_t len;
+	uint32_t customer_code;
+	uint32_t action; // 0: Decode, 1: Encode
 } spacc_base64_inner_config_s;
 
 typedef struct spacc_aes_config {
 	// data config
-	size_t len;
+	uint64_t len;
 	// spacc config
-	uintptr_t key;
-	uintptr_t iv;
+	uint64_t key;
+	uint64_t iv;
 	SPACC_ALGO_MODE_E mode;
 	SPACC_KEY_SIZE_E key_mode;
 	SPACC_ACTION_E action;
@@ -62,8 +62,8 @@ typedef struct spacc_aes_config {
 } spacc_aes_config_s;
 
 typedef struct spacc_des_config {
-	uintptr_t key;
-	uintptr_t iv;
+	uint64_t key;
+	uint64_t iv;
 	SPACC_ALGO_MODE_E mode;
 	SPACC_ACTION_E action;
 } spacc_des_config_s;

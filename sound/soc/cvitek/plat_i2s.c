@@ -78,7 +78,6 @@ static void i2s_fifo_reset(struct i2s_obj *i2s, u32 stream)
 static void i2s_debug(struct i2s_obj *i2s)
 {
 	pr_err("[i2s_reg]\n");
-
 	pr_err("BLK_MODE_SETTING:0x%x\n", i2s_read_reg(i2s->i2s_base, 0x0));
 	pr_err("FRAME_SETTING:0x%x\n", i2s_read_reg(i2s->i2s_base, 0x4));
 	pr_err("SLOT_SETTING1:0x%x\n", i2s_read_reg(i2s->i2s_base, 0x8));
@@ -691,7 +690,7 @@ static int i2s_trigger(struct snd_pcm_substream *substream, int cmd, struct snd_
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 //		snd_pcm_stream_unlock_irq(substream);
 		i2s->active--;
-		i2s_debug(i2s);
+		//i2s_debug(i2s);
 		i2s_stop(i2s, substream);
 		i2s_suspend(dai);
 //		snd_pcm_stream_lock_irq(substream);

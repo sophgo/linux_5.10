@@ -1,0 +1,39 @@
+menu "vendor_storage options"
+
+config CVITEK_VENDOR_STORAGE
+	tristate "Cvitek vendor storage support"
+	help
+	  Say y here to enable cvitek vendor storage support.
+
+config CVITEK_MMC_VENDOR_STORAGE
+	tristate "Cvitek mmc vendor storage support"
+	depends on CVITEK_VENDOR_STORAGE && MMC
+	help
+	  Say y here to enable cvitek mmc vendor storage support.
+
+config CVITEK_FLASH_VENDOR_STORAGE
+	tristate "Cvitek flash vendor storage support"
+	depends on CVITEK_VENDOR_STORAGE
+	help
+	  Say y here to enable cvitek flash vendor storage support.
+
+config CVITEK_MTD_VENDOR_STORAGE
+	tristate "Cvitek mtd vendor storage support"
+	depends on CVITEK_VENDOR_STORAGE && MTD
+	help
+	  Say y here to enable cvitek mtd vendor storage support.
+
+config CVITEK_UBI_VENDOR_STORAGE
+	tristate "Cvitek ubi vendor storage support"
+	depends on CVITEK_VENDOR_STORAGE && MTD
+	help
+	  Say y here to enable cvitek mtd vendor storage support.
+
+config CVITEK_VENDOR_STORAGE_UPDATE_LOADER
+	bool "Cvitek vendor storage update loader support"
+	default n
+	help
+	  Say y here to enable cvitek vendor storage update loader support.
+	  The /dev/vendor_storage must set root user access only.
+
+endmenu

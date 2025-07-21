@@ -19,9 +19,6 @@
 #include "rtos_cmdqu.h"
 #include "cvi_mailbox.h"
 #include "cvi_spinlock.h"
-#include <base_cb.h>
-#include "cmdqu_cb.h"
-#include "rtos_cmdqu_cb.h"
 
 //#define pr_debug
 struct cvi_rtos_cmdqu_device {
@@ -323,38 +320,36 @@ EXPORT_SYMBOL(rtos_cmdqu_send);
 int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id)
 {
 	unsigned long flags;
-	struct rtos_cmdqu_wait_list_t *wait_list;
+	struct rtos_cmdqu_wait_list_t *wait_list, *tmp_wait_list;
 	struct list_head *pos;
 	int delaytime;
 	int ret = 0;
 
 	pr_debug("%s %d\n", __func__, __LINE__);
 
+	wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);
+
+	if (!wait_list)
+		return -ENOMEM;
+
 	spin_lock_irqsave(&send_queue_lock, flags);
 	/* check list with same commands? if yes, ignore it */
 	list_for_each(pos, &rtos_cmdqu_wait_head.list) {
-		wait_list = list_entry(pos, struct rtos_cmdqu_wait_list_t, list);
-		pr_debug("list->cmdq.ip_id=%d\n", wait_list->cmdq.ip_id);
-		pr_debug("list->cmdq.cmd_id=%d\n", wait_list->cmdq.cmd_id);
-		if (cmdq->ip_id == wait_list->cmdq.ip_id &&
-			wait_cmd_id == wait_list->cmdq.cmd_id) {
+		tmp_wait_list = list_entry(pos, struct rtos_cmdqu_wait_list_t, list);
+		pr_debug("list->cmdq.ip_id=%d\n", tmp_wait_list->cmdq.ip_id);
+		pr_debug("list->cmdq.cmd_id=%d\n", tmp_wait_list->cmdq.cmd_id);
+		if (cmdq->ip_id == tmp_wait_list->cmdq.ip_id &&
+			wait_cmd_id == tmp_wait_list->cmdq.cmd_id) {
 
-			pr_debug("exist : wait_list->cmdq.ip_id=%d\n", wait_list->cmdq.ip_id);
-			pr_debug("exist : wait_list->cmdq.cmd_id=%d\n", wait_list->cmdq.cmd_id);
-			pr_debug("exist : wait_list->cmdq.param_ptr=%d\n", wait_list->cmdq.param_ptr);
+			pr_debug("exist : wait_list->cmdq.ip_id=%d\n", tmp_wait_list->cmdq.ip_id);
+			pr_debug("exist : wait_list->cmdq.cmd_id=%d\n", tmp_wait_list->cmdq.cmd_id);
+			pr_debug("exist : wait_list->cmdq.param_ptr=%d\n", tmp_wait_list->cmdq.param_ptr);
 			spin_unlock_irqrestore(&send_queue_lock, flags);
 			return -EEXIST;
 
 		}
 	}
 	cmdq->block = 1;
-
-	wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);
-
-	if (!wait_list) {
-		spin_unlock_irqrestore(&send_queue_lock, flags);
-		return -ENOMEM;
-	}
 
 	*((unsigned long long *) &wait_list->cmdq) = *((unsigned long long *) cmdq);
 	wait_list->cmdq.cmd_id = wait_cmd_id;
@@ -501,22 +496,6 @@ static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
 	return 0;
 }
 
-static int cvi_rtos_cmdqu_register_cb(struct cvi_rtos_cmdqu_device *ndev)
-{
-	struct base_m_cb_info reg_cb;
-
-	reg_cb.module_id = E_MODULE_RTOS_CMDQU;
-	reg_cb.dev = (void *)ndev;
-	reg_cb.cb = rtos_cmdqu_cb;
-
-	return base_reg_module_cb(&reg_cb);
-}
-
-static int cvi_rtos_cmdqu_rm_cb(void)
-{
-	return base_rm_module_cb(E_MODULE_RTOS_CMDQU);
-}
-
 static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -548,17 +527,12 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
 //	}
 //	printk("regs=%x\n", regs);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+#ifdef _LP64
 	reg_base = (__u64)devm_ioremap(&pdev->dev, res->start,
 		res->end - res->start);
 #else
-#ifdef _LP64
-	reg_base = (__u64)ioremap_nocache((unsigned long)res->start,
-		(unsigned long)(res->end - res->start + 1));
-#else
-	reg_base = (__u32)ioremap_nocache((unsigned long)res->start,
-		(unsigned long)(res->end - res->start + 1));
-#endif
+	reg_base = (__u32)devm_ioremap(&pdev->dev, res->start,
+		res->end - res->start);
 #endif
 
 	pr_info("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%llx).\n",
@@ -580,12 +554,6 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
 		return -1;
 	}
 
-	/* rtos cmdqu register cb */
-	if (cvi_rtos_cmdqu_register_cb(ndev)) {
-		pr_err("fail to register rtos_cmdqu cb\n");
-		return -EINVAL;
-	}
-
 	pr_info("%s DONE\n", __func__);
 	return 0;
 
@@ -597,16 +565,12 @@ static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
 {
 	struct cvi_rtos_cmdqu_device *ndev = platform_get_drvdata(pdev);
 
-	/* rtos cmdqu rm cb */
-	if (cvi_rtos_cmdqu_rm_cb()) {
-		pr_err("Failed to rm rtos cmdqu cb\n");
-	}
 	misc_deregister(&ndev->miscdev);
 	platform_set_drvdata(pdev, NULL);
 	/* remove irq handler*/
 	free_irq(mailbox_irq, ndev);
 	rtos_cmdqu_deinit();
-	pr_debug("%s DONE\n", __func__);
+	pr_info("%s DONE\n", __func__);
 
 	return 0;
 }
@@ -638,6 +602,9 @@ static void cvi_rtos_cmdqu_exit(void)
 static int cvi_rtos_cmdqu_init(void)
 {
 	int rc;
+	int ret = 0;
+	cmdqu_t cmdq;
+
 	pr_debug("cvi_rtos_cmdqu_init");
 	pbase_class = class_create(THIS_MODULE, RTOS_CMDQU_DEV_NAME);
 	if (IS_ERR(pbase_class)) {
@@ -649,6 +616,17 @@ static int cvi_rtos_cmdqu_init(void)
 	platform_driver_register(&cvi_rtos_cmdqu_driver);
 	pr_debug("%s done\n", __func__);
 	cvi_spinlock_init();
+
+	cmdq.ip_id = IP_SYSTEM;
+	cmdq.cmd_id = SYS_CMD_INFO_LINUX_INIT_DONE;
+	cmdq.param_ptr = 0;
+	cmdq.resv.mstime = 200;
+	ret = rtos_cmdqu_send_wait(&cmdq, SYS_CMD_INFO_RTOS_INIT_DONE);
+	if (ret)
+		pr_err("SYS_CMD_INFO_LINUX_INIT_DONE fail\n");
+	else
+		pr_info("##### SYS_CMD_INFO_LINUX_INIT_DONE success #####\n");
+
 	return 0;
 cleanup:
 	cvi_rtos_cmdqu_exit();

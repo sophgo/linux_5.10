@@ -29,6 +29,7 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/major.h>
+#include <linux/mtd/ubi.h>
 #include "ubi.h"
 
 /* Maximum length of the 'mtd=' parameter */
@@ -265,6 +266,47 @@ struct ubi_device *ubi_get_device(int ubi_num)
 
 	return ubi;
 }
+
+int ubi_get_device_by_part(char *part)
+{
+	int i, ret = -ENODEV;
+	struct ubi_device *ubi;
+	struct mtd_info *mtd;
+
+	spin_lock(&ubi_devices_lock);
+	for (i = 0; i < UBI_MAX_DEVICES; i++) {
+		ubi = ubi_devices[i];
+		if (ubi) {
+			mtd = ubi->mtd;
+			if (!strncmp(mtd->name, "VENDOR", strlen("VENDOR"))) {
+				ret = ubi->ubi_num;
+				break;
+			}
+		}
+	}
+	spin_unlock(&ubi_devices_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ubi_get_device_by_part);
+
+bool find_vol_by_name(int ubi_num, const char *vol_name)
+{
+	int i, ret = false;
+	struct ubi_device *ubi = ubi_get_device(ubi_num);
+
+	for (i = 0; i < ubi->vtbl_slots; i++) {
+		if (ubi->volumes[i]) {
+			if (!strncmp(ubi->volumes[i]->name, vol_name, strlen(vol_name))) {
+				ret = true;
+				break;
+			}
+		}
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(find_vol_by_name);
 
 /**
  * ubi_put_device - drop an UBI device reference.

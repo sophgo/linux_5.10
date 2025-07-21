@@ -252,7 +252,7 @@ config ARM_PATCH_PHYS_VIRT
 
 config KERNEL_TEXT_OFFSET
 	hex "The byte offset of the kernel image in RAM from the start of RAM."
-	default 0x0108000
+	default 0x0208000
 	help
 	  The byte offset of the kernel image in RAM from the start of RAM.
 	  The arm constant number is 24bit, the least significant 16 bits to be 0x8000,

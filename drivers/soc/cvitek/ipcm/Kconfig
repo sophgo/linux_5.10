@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CVI_IPCM
+	tristate "cv184x ipcm dirver"
+	help
+		"CVI_IPCM for cv184x"

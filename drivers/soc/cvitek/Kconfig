@@ -36,7 +36,6 @@ config CVITEK_FASTBOOT
 	help
 	  This enables some features for cvitek dual_os fastboot
 
-
 source "drivers/soc/cvitek/tpu/Kconfig"
 source "drivers/soc/cvitek/clock_cooling/Kconfig"
 source "drivers/soc/cvitek/aximon/Kconfig"
@@ -49,4 +48,10 @@ source "drivers/soc/cvitek/pwm/Kconfig"
 source "drivers/soc/cvitek/rtc/Kconfig"
 source "drivers/soc/cvitek/trng/Kconfig"
 source "drivers/soc/cvitek/wdt/Kconfig"
+source "drivers/soc/cvitek/sys/Kconfig"
+source "drivers/soc/cvitek/osal/Kconfig"
+source "drivers/soc/cvitek/base/Kconfig"
+source "drivers/soc/cvitek/ipcm/Kconfig"
+source "drivers/soc/cvitek/tde/Kconfig"
+source "drivers/soc/cvitek/vendor/Kconfig"
 endmenu

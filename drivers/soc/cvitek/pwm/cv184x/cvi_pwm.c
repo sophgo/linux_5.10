@@ -230,8 +230,9 @@ static int pwm_cv_config(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	struct cv_pwm_channel *channel = pwm_get_chip_data(pwm_dev);
 	u64 cycles;
 	unsigned long value;
+	u32 toggle_mask = 0x3 << pwm_dev->hwpwm * 0x2;
 	/*make sure polarity is original*/
-	// _pwm_cv_reset_polarity(chip, pwm_dev, POLARITY_RESTORE);
+	writel(our_chip->polarity_mask, our_chip->base + REG_POLARITY);
 
 	cycles = clk_get_rate(our_chip->base_clk);
 	pr_debug("clk_get_rate=%llu\n", cycles);
@@ -244,21 +245,24 @@ static int pwm_cv_config(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	do_div(cycles, period_ns);
 
 	channel->hlperiod = channel->period - cycles;
-	if (cycles == 0)
-		/* when hlperiod >hlperiod, duty_cycle=0%, recommended value is 32'h10*/
-		channel->hlperiod = channel->period + 16;
-
+	if (cycles == 0) {
+		/* end point force to 0*/
+		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) | toggle_mask, our_chip->base + REG_PWM_END_TOGGLE);
+	}
 	if (cycles == channel->period) {
 		/* if want duty_cycle = 100% ,set duty_cycle = 0% and polarity inversed*/
-		channel->hlperiod = channel->period + 16;
-		_pwm_cv_reset_polarity(chip, pwm_dev, POLARITY_MODIFY);
+		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) | toggle_mask, our_chip->base + REG_PWM_END_TOGGLE);
+		/*set polarity to inversed*/
+		writel(readl(our_chip->base + REG_POLARITY) ^ (1 << pwm_dev->hwpwm), our_chip->base + REG_POLARITY);
+
 	}
 	pr_debug("%s: period_ns=%d, duty_ns=%d\n", __func__, period_ns, duty_ns);
 
 	writel(channel->period, our_chip->base + 0x8 * pwm_dev->hwpwm + REG_PERIOD0);
-	if (channel->hlperiod != 0) {
-		writel(channel->hlperiod, our_chip->base + 0x8 * pwm_dev->hwpwm + REG_HLPERIOD0);
-		writel(0x0, our_chip->base + 0x8 * pwm_dev->hwpwm + REG_PWM0_START_POINT);
+	writel(readl(our_chip->base + REG_PWM_START_TOGGLE) | toggle_mask, our_chip->base + REG_PWM_START_TOGGLE);
+	if (channel->hlperiod != 0 && channel->hlperiod != channel->period) {
+		/*start point force to 0*/
+		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) & ~toggle_mask, our_chip->base + REG_PWM_END_TOGGLE);
 		writel(channel->hlperiod, our_chip->base + 0x8 * pwm_dev->hwpwm + REG_PWM0_END_POINT);
 	}	
 	pr_debug("%s: REG_PERIOD = 0x%x, REG_HLPERIOD = 0x%x\n", __func__,
@@ -316,32 +320,22 @@ static int pwm_cv_set_polarity(struct pwm_chip *chip,
 				    enum pwm_polarity polarity)
 {
 	struct cv_pwm_chip *our_chip = to_cv_pwm_chip(chip);
-	struct cv_pwm_channel *channel = pwm_get_chip_data(pwm_dev);
-	u64  period_ns, chip_clk;
-
+	u32 val = readl(our_chip->base + REG_POLARITY);
 	if (our_chip->no_polarity) {
 		dev_err(chip->dev, "no polarity\n");
 		return -ENOTSUPP;
 	}
 
-	if (polarity == PWM_POLARITY_NORMAL)
+	if (polarity == PWM_POLARITY_NORMAL) {
+		if (our_chip->polarity_mask & (1 << pwm_dev->hwpwm))
+			val ^= (1 << pwm_dev->hwpwm);
 		our_chip->polarity_mask &= ~(1 << pwm_dev->hwpwm);
-	else
+	} else {
+		if (!(our_chip->polarity_mask & (1 << pwm_dev->hwpwm)))
+			val ^= (1 << pwm_dev->hwpwm);
 		our_chip->polarity_mask |= 1 << pwm_dev->hwpwm;
-
-	writel(our_chip->polarity_mask, our_chip->base + REG_POLARITY);
-
-	/*
-	 *when duty_cycle = 100%,the polarity is special,
-	 *need to reset pwm_cv_config if the polarity changed
-	 */
-	if (test_bit(pwm_dev->hwpwm, (unsigned long *)&our_chip->special_polarity_flag)) {
-		pr_debug("%s: special_polarity!, reset pwm_cv_config\n", __func__);
-		chip_clk = clk_get_rate(our_chip->base_clk);
-		period_ns = channel->period * NSEC_PER_SEC;
-		do_div(period_ns, chip_clk);
-		pwm_cv_config(chip, pwm_dev, period_ns, period_ns);
 	}
+	writel(val, our_chip->base + REG_POLARITY);
 	return 0;
 }
 
@@ -536,7 +530,7 @@ static SIMPLE_DEV_PM_OPS(pwm_cv_pm_ops, pwm_cv_suspend,
 
 static struct platform_driver pwm_cv_driver = {
 	.driver		= {
-		.name	= "cvtek-pwm",
+		.name	= "cvitek-pwm",
 		.pm	= &pwm_cv_pm_ops,
 		.of_match_table = of_match_ptr(cv_pwm_match),
 	},

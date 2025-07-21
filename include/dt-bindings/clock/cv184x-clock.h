@@ -187,5 +187,6 @@
 // #define CV184X_CLK_SARADC            (CV184X_CLK_FAB_100M + 158)
 // #define CV184X_CLK_PM                (CV184X_CLK_FAB_100M + 159)
 // #define CV184X_CLK_APB_GPIO          (CV184X_CLK_FAB_100M + 160)
+#define CV184X_CLK_OENC                 (CV184X_CLK_FAB_100M + 161)
 
 #endif /* __DT_BINDINGS_CLK_CV184X_H__ */

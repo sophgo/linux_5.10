@@ -214,10 +214,15 @@ static struct cv184x_pll_hw_clock cv184x_pll_clks[] = {
 	// 	REG_CAM0PLL_SSC_SYN_CTRL, 3, CLK_IGNORE_UNUSED),
 };
 
-#ifdef CONFIG_DUAL_OS
-#define CV184X_CLK_STATE (CLK_IGNORE_UNUSED)
+#ifdef CONFIG_CVI_DUAL_OS_CLK
+/*
+* If it is a dual system, configure this clk as CLK-IGNORE-UNUSED.
+* Even without a user, keep the clock on to prevent critical clocks 
+* from being accidentally turned off.
+*/
+#define CVI_CLK_FLAG_FOR_OS (CLK_IGNORE_UNUSED)
 #else
-#define CV184X_CLK_STATE 0
+#define CVI_CLK_FLAG_FOR_OS (CLK_SET_RATE_GATE)
 #endif
 
 /*
@@ -368,7 +373,7 @@ static struct cv184x_hw_clock cv184x_clks[] = {
 		REG_CLK_BYP_0, 15,
 		REG_CLK_SEL_0, 5,
 		REG_DIV_VC_CLK_VC_SRC0_0, 8,
-		CLK_IS_CRITICAL),
+		CVI_CLK_FLAG_FOR_OS),
 	CV184X_CLK(CV184X_CLK_VC_SRC1, "clk_vc_src1",
 		((const char *[]) {"osc", "clk_cam1pll", "", "clk_fpll", ""}),
 		REG_CLK_EN_0, 16,
@@ -377,7 +382,7 @@ static struct cv184x_hw_clock cv184x_clks[] = {
 		REG_CLK_BYP_0, 16,
 		REG_CLK_SEL_0, 6,
 		REG_DIV_VC_CLK_VC_SRC1_0, 8,
-		CLK_IS_CRITICAL),
+		CVI_CLK_FLAG_FOR_OS),
 	CV184X_CLK(CV184X_CLK_X2P,  "clk_x2p",
 		((const char *[]) {"clk_fab_100M"}),
 		REG_CLK_EN_0, 17,
@@ -958,7 +963,7 @@ static struct cv184x_hw_clock cv184x_clks[] = {
 		0, -1,
 		0, -1,
 		0, -1,
-		CLK_IS_CRITICAL),
+		CVI_CLK_FLAG_FOR_OS),
 	CV184X_CLK(CV184X_CLK_CAM0_VIP, "clk_cam0_vip",
 		((const char *[]) {"clk_cam0pll", "clk_disppll", "clk_mpll", "clk_mipipll_d3"}),
 		REG_CLK_EN_2, 16,
@@ -1322,6 +1327,15 @@ static struct cv184x_hw_clock cv184x_clks[] = {
 		0, -1,
 		0, -1,
 		CLK_IS_CRITICAL),
+	CV184X_CLK(CV184X_CLK_OENC, "clk_oenc",
+		((const char *[]) {"clk_raw_axi"}),
+		REG_CLK_EN_4, 0,
+		0, -1, 0, 0,
+		0, -1, 0, 0,
+		0, -1,
+		0, -1,
+		0, -1,
+		CVI_CLK_FLAG_FOR_OS),
 };
 
 static int __init cvi_clk_flags_setup(char *arg)

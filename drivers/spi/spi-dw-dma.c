@@ -211,7 +211,6 @@ int dw_spi_dma_wait(struct dw_spi *dws, unsigned int len, u32 speed)
 	if (ms > UINT_MAX)
 		ms = UINT_MAX;
 
-	ms = ms * 100;
 	ms = wait_for_completion_timeout(&dws->dma_completion,
 					 msecs_to_jiffies(ms));
 
