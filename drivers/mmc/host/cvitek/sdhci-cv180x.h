@@ -91,6 +91,7 @@ struct sdhci_cvi_host {
 	u8 final_tap;
 	u8 sdio0_voltage_1_8_v;
 	int sd_save_count;
+	struct clk *clk_sdhci;
 	struct mmc_gpio *cvi_gpio;
 	struct delayed_work cd_debounce_work;
 	spinlock_t cd_debounce_lock;

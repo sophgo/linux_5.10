@@ -1,8 +1,10 @@
 obj-$(CONFIG_CV1835_SYSDMA_REMAP)	+= sysdma/cv1835_dma_remap.o
 obj-$(CONFIG_CVI_WIFI_PIN)	+= wifi_pin/cvi_wifi_pin.o
 obj-$(CONFIG_CVI_BT_PIN)	+= bt_pin/cvi_bt_pin.o
+obj-$(CONFIG_CVI_TICK_TIME)	+= tick/cvi_tick_time.o
 obj-$(CONFIG_CV181X_SYS)	+= sys/
 obj-$(CONFIG_CV181X_TPU)	+= tpu/
 obj-$(CONFIG_CV181X_IPCM)	+= ipcm/
 obj-$(CONFIG_CV181X_CLK_COOLING)	+= clock_cooling/
 obj-$(CONFIG_CV181X_IVE)	+= ive/
+obj-$(CONFIG_CV181X_FB)	+= fb/

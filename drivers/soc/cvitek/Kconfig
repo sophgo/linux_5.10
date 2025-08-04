@@ -30,6 +30,15 @@ config CVI_BT_PIN
 	  GPIO number to do certain action, ex. power on
 	  or wakeup pin.
 
+config CVI_TICK_TIME
+	bool "CVITEK SoC TICK TIME specific proc definition"
+	depends on ARCH_CVITEK
+	depends on CVITEK_FASTBOOT
+	help
+	  Enables proc for TICK TIME on CviTek SoC.
+	  Enable this configuration to enable API to get
+	  TICK TIME of SoC.
+
 config CVITEK_FASTBOOT
 	depends on ARCH_CVITEK
 	bool "Support cvitek fastboot"
@@ -42,4 +51,5 @@ source "drivers/soc/cvitek/tpu/Kconfig"
 source "drivers/soc/cvitek/ipcm/Kconfig"
 source "drivers/soc/cvitek/clock_cooling/Kconfig"
 source "drivers/soc/cvitek/ive/Kconfig"
+source "drivers/soc/cvitek/fb/Kconfig"
 endmenu

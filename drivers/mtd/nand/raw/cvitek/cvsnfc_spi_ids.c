@@ -126,6 +126,8 @@ short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, 
  */
 short ECC_XT26G02CWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, -1};
 
+short ECC_GSS01GSAX1_remap[4] = {0, 1, -1, 0xff};
+
 struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	{
 		{	.name = "GSS01GSAK1",
@@ -469,7 +471,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
-		{       .name = "XT26G12D",
+		{       .name = "XT26G12D-X",
 			.id = {0x0b, 0x35},
 			.pagesize = SZ_2K,
 			.chipsize = SZ_256,
@@ -488,7 +490,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.ecc_bits = 4,
 			.ecc_bit_shift = 4,
 			.uncorr_val = 0x2,
-			.remap = ECC_XTX_4bit_remap
+			.remap = NULL
 		},
 		.driver = &spi_nand_driver_gd,
 		{
@@ -865,8 +867,8 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		},
 		.driver = &spi_nand_driver_gd,
 		{
-			.start = 0,
-			.length = 0,
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
 			.locked = 0,
 		},
 		.flags = 0
@@ -1526,7 +1528,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
-		{	.name = "F35SQA001G",
+		{	.name = "F35SQx001G",
 			.id = {0xcd, 0x71, 0x71},
 			.pagesize = SZ_2K,
 			.chipsize = SZ_128,
@@ -1549,8 +1551,8 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		},
 		.driver = &spi_nand_driver_general,
 		{
-			.start = 0,
-			.length = 0,
+			.start = 2 * SZ_2K,
+			.length = 62 * SZ_2K,
 			.locked = 0,
 		},
 		.flags = 0
@@ -1582,6 +1584,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		{
 			.start = 0,
 			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "F35SQB002G",
+			.id = {0xCD, 0x52, 0x52},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0x0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 3,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x7,
+			.remap = NULL
+		},
+		.driver = &spi_nand_driver_general,
+		{
+			.start = 2 * SZ_2K,
+			.length = 62 * SZ_2K,
 			.locked = 0,
 		},
 		.flags = 0
@@ -1797,6 +1830,36 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		.flags = 0
 	},
 
+	{
+		{       .name = "GSS01GSAX1-W8NMI0",
+			.id = {0x52, 0xca, 0x13},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 3,
+			.oobsize = SZ_128,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_GSS01GSAX1_remap
+		},
+		.driver = &spi_nand_driver_general,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
 	{ NULL }
 };
 
@@ -1815,8 +1878,10 @@ static int spi_nand_gd_qe_enable(struct cvsnfc_host *host)
 
 	/* check qe bit */
 	spi_feature_op(host, GET_OP, FEATURE_ADDR, &regval);
-	if (!(regval & FEATURE_ADDR))
+	if (!(regval & FEATURE_QE_ENABLE)) {
+		pr_info("cvsnfc: set qe failed! regval[%#x]\n", regval);
 		return -1;
+	}
 
 	return 0;
 }
