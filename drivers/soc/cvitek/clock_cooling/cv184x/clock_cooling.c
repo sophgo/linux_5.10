@@ -4,6 +4,10 @@
 #include <linux/platform_device.h>
 #include <linux/thermal.h>
 #include <linux/clk.h>
+#include <linux/io.h>
+
+/* Clock Bypass Registers */
+#define PLL_G6_CTRL 0x03002900
 
 struct dev_freq {
 	unsigned long cpu_freq;
@@ -103,6 +107,9 @@ static int cv184x_cooling_set_cur_state(struct thermal_cooling_device *cdev,
 					unsigned long state)
 {
 	struct cv184x_cooling_device *cvcdev = cdev->devdata;
+	void __iomem *pll_g6_ctrl = NULL;
+	u32 val;
+	int ret = 0;
 
 	dev_dbg(&cdev->device, "set cur_state=%ld\n", state);
 	dev_dbg(&cdev->device, "clk_cpu=%ld Hz\n", clk_get_rate(cvcdev->clk_cpu));
@@ -110,25 +117,61 @@ static int cv184x_cooling_set_cur_state(struct thermal_cooling_device *cdev,
 
 	mutex_lock(&cvcdev->lock);
 
-	if (state <= cvcdev->max_clk_state && state != cvcdev->clk_state) {
-		dev_dbg(&cdev->device, "dev_freq[%ld].cpu_freq=%ld\n", state, cvcdev->dev_freqs[state].cpu_freq);
-		dev_dbg(&cdev->device, "dev_freq[%ld].tpu_freq=%ld\n", state, cvcdev->dev_freqs[state].tpu_freq);
+	if (state > cvcdev->max_clk_state || state == cvcdev->clk_state)
+		goto unlock_and_exit;
 
-		if (cvcdev->dev_freqs[state].cpu_freq != clk_get_rate(cvcdev->clk_cpu)) {
-			dev_dbg(&cdev->device, "set cpu freq=%ld\n", cvcdev->dev_freqs[state].cpu_freq);
-			clk_set_rate(cvcdev->clk_cpu, cvcdev->dev_freqs[state].cpu_freq);
-		}
+	dev_dbg(&cdev->device, "dev_freq[%ld].cpu_freq=%ld\n", state, cvcdev->dev_freqs[state].cpu_freq);
+	dev_dbg(&cdev->device, "dev_freq[%ld].tpu_freq=%ld\n", state, cvcdev->dev_freqs[state].tpu_freq);
 
-		if (cvcdev->dev_freqs[state].tpu_freq != clk_get_rate(cvcdev->clk_tpu)) {
-			dev_dbg(&cdev->device, "set tpu freq=%ld\n", cvcdev->dev_freqs[state].tpu_freq);
-			clk_set_rate(cvcdev->clk_tpu, cvcdev->dev_freqs[state].tpu_freq);
-		}
-
-		cvcdev->clk_state = state;
+	pll_g6_ctrl = ioremap(PLL_G6_CTRL, 4);
+	if (!pll_g6_ctrl) {
+		dev_err(&cdev->device, "Failed to ioremap for pll_g6_ctrl.\n");
+		ret = -ENOMEM;
+		goto unmap_and_exit;
 	}
 
+	if (cvcdev->dev_freqs[state].cpu_freq != clk_get_rate(cvcdev->clk_cpu)) {
+		dev_dbg(&cdev->device, "set cpu freq=%ld\n", cvcdev->dev_freqs[state].cpu_freq);
+
+		val = readl(pll_g6_ctrl);
+		/* Bit 13: Bypass clk_cpu to bypass before changing PLL */
+		val |= (1 << 13);
+		writel(val, pll_g6_ctrl);
+		dev_dbg(&cdev->device, "clk_cpu clock to bypass, val=%x.\n", readl(pll_g6_ctrl));
+
+		clk_set_rate(cvcdev->clk_cpu, cvcdev->dev_freqs[state].cpu_freq);
+
+		val = readl(pll_g6_ctrl);
+		/* Clear bypass, switch clk_cpu back to PLL */
+		val &= ~(1 << 13);
+		writel(val, pll_g6_ctrl);
+	}
+
+	if (cvcdev->dev_freqs[state].tpu_freq != clk_get_rate(cvcdev->clk_tpu)) {
+		dev_dbg(&cdev->device, "set tpu freq=%ld\n", cvcdev->dev_freqs[state].tpu_freq);
+
+		val = readl(pll_g6_ctrl);
+		/* Bit 5: Bypass clk_tpu to bypass before changing PLL */
+		val |= (1 << 5);
+		writel(val, pll_g6_ctrl);
+		dev_dbg(&cdev->device, "clk_tpu clock to bypass, val=%x.\n", readl(pll_g6_ctrl));
+
+		clk_set_rate(cvcdev->clk_tpu, cvcdev->dev_freqs[state].tpu_freq);
+
+		val = readl(pll_g6_ctrl);
+		/* Clear bypass, switch clk_tpu back to PLL */
+		val &= ~(1 << 5);
+		writel(val, pll_g6_ctrl);
+	}
+
+	cvcdev->clk_state = state;
+
+unmap_and_exit:
+	if (pll_g6_ctrl)
+		iounmap(pll_g6_ctrl);
+unlock_and_exit:
 	mutex_unlock(&cvcdev->lock);
-	return 0;
+	return ret;
 }
 
 /* Bind clock callbacks to thermal cooling device ops */
