@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <linux/kdev_t.h>
 #include <linux/pwm.h>
+#include "cvi_pwm.h"
 
 struct pwm_export {
 	struct device child;
@@ -221,12 +222,112 @@ static DEVICE_ATTR_RW(enable);
 static DEVICE_ATTR_RW(polarity);
 static DEVICE_ATTR_RO(capture);
 
+#ifdef CONFIG_ARCH_CVITEK
+
+static ssize_t count_mode_show(struct device *child,
+			   struct device_attribute *attr,
+			   char *buf)
+{
+	struct pwm_device *pwm = child_to_pwm_device(child);
+	struct cv_pwm_channel *channel = pwm_get_chip_data(pwm);
+
+	return sprintf(buf, "%u\n", channel->count_mode);
+}
+
+static ssize_t count_mode_store(struct device *child,
+			    struct device_attribute *attr,
+			    const char *buf, size_t size)
+{
+	struct pwm_export *export = child_to_pwm_export(child);
+	struct pwm_device *pwm = export->pwm;
+	struct cv_pwm_channel *channel;
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	mutex_lock(&export->lock);
+	channel = pwm_get_chip_data(pwm);
+
+	switch (val) {
+	case 0:
+		channel->count_mode = false;
+		break;
+	case 1:
+		channel->count_mode = true;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	mutex_unlock(&export->lock);
+	return ret ? : size;
+}
+static DEVICE_ATTR_RW(count_mode);
+
+static ssize_t out_count_show(struct device *child,
+			   struct device_attribute *attr,
+			   char *buf)
+{
+	struct pwm_device *pwm = child_to_pwm_device(child);
+	struct cv_pwm_channel *channel = pwm_get_chip_data(pwm);
+
+	if (!channel->count_mode) {
+		pr_err("Not in count mode!\n");
+		return -EINVAL;
+	}
+
+	return sprintf(buf, "%u\n", pwm->chip->ops->get_out_count(pwm->chip, pwm));
+}
+
+static ssize_t out_count_store(struct device *child,
+			    struct device_attribute *attr,
+			    const char *buf, size_t size)
+{
+	struct pwm_export *export = child_to_pwm_export(child);
+	struct pwm_device *pwm = export->pwm;
+	struct cv_pwm_channel *channel;
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	if (val <= 0) {
+		pr_err("Out count must be more than zero!\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&export->lock);
+	channel = pwm_get_chip_data(pwm);
+	if (!channel->count_mode) {
+		mutex_unlock(&export->lock);
+		pr_err("[%s][%d] Please enable count mode first!\n",
+		       __func__, __LINE__);
+		return -EINVAL;
+	}
+	channel->out_count = val;
+
+	mutex_unlock(&export->lock);
+
+	return size;
+}
+
+static DEVICE_ATTR_RW(out_count);
+
+#endif /* CONFIG_ARCH_CVITEK */
+
 static struct attribute *pwm_attrs[] = {
 	&dev_attr_period.attr,
 	&dev_attr_duty_cycle.attr,
 	&dev_attr_enable.attr,
 	&dev_attr_polarity.attr,
 	&dev_attr_capture.attr,
+#ifdef CONFIG_ARCH_CVITEK
+	&dev_attr_count_mode.attr,
+	&dev_attr_out_count.attr,
+#endif
 	NULL
 };
 ATTRIBUTE_GROUPS(pwm);
@@ -365,10 +466,125 @@ static ssize_t npwm_show(struct device *parent, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(npwm);
 
+#ifdef CONFIG_ARCH_CVITEK
+
+static ssize_t shift_mode_show(struct device *parent, struct device_attribute *attr,
+			 char *buf)
+{
+	const struct pwm_chip *chip = dev_get_drvdata(parent);
+	struct cv_pwm_chip *cv_chip = container_of(chip, struct cv_pwm_chip, chip);
+
+	return sprintf(buf, "%u\n", cv_chip->shift_mode);
+}
+
+static ssize_t shift_mode_store(struct device *parent,
+			      struct device_attribute *attr,
+			      const char *buf, size_t len)
+{
+	struct pwm_chip *chip = dev_get_drvdata(parent);
+	struct cv_pwm_chip *cv_chip = container_of(chip, struct cv_pwm_chip, chip);
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	switch (val) {
+	case 0:
+		cv_chip->shift_mode = false;
+		break;
+	case 1:
+		cv_chip->shift_mode = true;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	chip->ops->shift_config(chip);
+
+	return ret ? : len;
+}
+static DEVICE_ATTR_RW(shift_mode);
+
+static ssize_t shift_enable_show(struct device *parent, struct device_attribute *attr,
+			 char *buf)
+{
+	const struct pwm_chip *chip = dev_get_drvdata(parent);
+	struct cv_pwm_chip *cv_chip = container_of(chip, struct cv_pwm_chip, chip);
+
+	return sprintf(buf, "%u\n", cv_chip->shift_enable);
+}
+
+static ssize_t shift_enable_store(struct device *parent,
+			      struct device_attribute *attr,
+			      const char *buf, size_t len)
+{
+	struct pwm_chip *chip = dev_get_drvdata(parent);
+	int ret, val;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	switch (val) {
+	case 0:
+		chip->ops->shift_disable(chip);
+		break;
+	case 1:
+		ret = chip->ops->shift_enable(chip);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret ? : len;
+}
+static DEVICE_ATTR_RW(shift_enable);
+
+static ssize_t shift_show(struct device *parent, struct device_attribute *attr,
+			 char *buf)
+{
+	struct pwm_chip *chip = dev_get_drvdata(parent);
+	struct cv_pwm_chip *cv_chip = container_of(chip, struct cv_pwm_chip, chip);
+
+	return sprintf(buf, "%u %u %u %u\n", cv_chip->shift[0],
+		       cv_chip->shift[1], cv_chip->shift[2], cv_chip->shift[3]);
+}
+
+static ssize_t shift_store(struct device *parent,
+			      struct device_attribute *attr,
+			      const char *buf, size_t len)
+{
+	struct pwm_chip *chip = dev_get_drvdata(parent);
+	struct cv_pwm_chip *cv_chip = container_of(chip, struct cv_pwm_chip, chip);
+	int ret;
+
+	ret = sscanf(buf, "%u %u %u %u", cv_chip->shift,
+		     cv_chip->shift + 1, cv_chip->shift + 2,
+		     cv_chip->shift + 3);
+	if (ret == 0) {
+		pr_err("[%s][%d] invalid argument (shift0, shift1, shift2, shift3) ns\n",
+		       __func__, __LINE__);
+		return -EINVAL;
+	}
+	if(cv_chip->shift_enable) {
+		chip->ops->shift_enable(chip);
+	}
+	return len;
+}
+static DEVICE_ATTR_RW(shift);
+
+#endif /* CONFIG_ARCH_CVITEK */
+
 static struct attribute *pwm_chip_attrs[] = {
 	&dev_attr_export.attr,
 	&dev_attr_unexport.attr,
 	&dev_attr_npwm.attr,
+#ifdef CONFIG_ARCH_CVITEK
+	&dev_attr_shift.attr,
+	&dev_attr_shift_mode.attr,
+	&dev_attr_shift_enable.attr,
+#endif
 	NULL,
 };
 ATTRIBUTE_GROUPS(pwm_chip);

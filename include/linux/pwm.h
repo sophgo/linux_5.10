@@ -273,6 +273,13 @@ struct pwm_ops {
 			    enum pwm_polarity polarity);
 	int (*enable)(struct pwm_chip *chip, struct pwm_device *pwm);
 	void (*disable)(struct pwm_chip *chip, struct pwm_device *pwm);
+
+#ifdef CONFIG_ARCH_CVITEK
+	void (*shift_config)(struct pwm_chip *chip);
+	int (*shift_enable)(struct pwm_chip *chip);
+	void (*shift_disable)(struct pwm_chip *chip);
+	int (*get_out_count)(struct pwm_chip *chip, struct pwm_device *pwm);
+#endif
 };
 
 /**

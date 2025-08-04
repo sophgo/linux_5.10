@@ -1234,6 +1234,7 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	int ret;
 	int gpio_cd = -EINVAL;
 	u32 extra;
+	char *clkname = NULL;
 
 	pr_info(DRIVER_NAME ":%s\n", __func__);
 
@@ -1262,6 +1263,25 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	ret = mmc_of_parse(host->mmc);
 	if (ret)
 		goto pltfm_free;
+
+	if (!strcmp(match->compatible, "cvitek,cv180x-sd"))
+		clkname = "clk_sd";
+	else if (!strcmp(match->compatible, "cvitek,cv180x-sdio"))
+		clkname = "clk_wifisd";
+	else
+		pr_warn("can't not find clkname %s with compatible %s\n", clkname, match->compatible);
+
+	if (clkname) {
+		cvi_host->clk_sdhci = devm_clk_get(&pdev->dev, clkname);
+		if (IS_ERR(cvi_host->clk_sdhci)) {
+			pr_err("failed to retrieve %s, ret %d\n", clkname, PTR_ERR(cvi_host->clk_sdhci));
+			cvi_host->clk_sdhci = NULL;
+		}
+
+		if (clk_get_rate(cvi_host->clk_sdhci) != host->mmc->f_src)
+			clk_set_rate(cvi_host->clk_sdhci, host->mmc->f_src);
+
+	}
 
 	sdhci_get_of_property(pdev);
 
