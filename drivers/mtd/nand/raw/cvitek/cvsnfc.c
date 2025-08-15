@@ -1220,6 +1220,25 @@ static int cvsnfc_attach_chip(struct nand_chip *chip)
 static const struct nand_controller_ops cvsnfc_controller_ops = {
 	.attach_chip = cvsnfc_attach_chip,
 };
+
+static int cvsnfc_suspend(struct nand_chip *chip)
+{
+	struct cvsnfc_host *host = nand_get_controller_data(chip);
+
+	host->trx_ctrl1_reg = readl(host->regbase + REG_SPI_NAND_TRX_CTRL1);
+	host->boot_ctrl_reg = readl(host->regbase + REG_SPI_NAND_BOOT_CTRL);
+
+	return 0;
+}
+
+static void cvsnfc_resume(struct nand_chip *chip)
+{
+	struct cvsnfc_host *host = nand_get_controller_data(chip);
+
+	writel(host->boot_ctrl_reg, host->regbase + REG_SPI_NAND_BOOT_CTRL);
+	writel(host->trx_ctrl1_reg, host->regbase + REG_SPI_NAND_TRX_CTRL1);
+	cvsnfc_spi_nand_init(host);
+}
 /*****************************************************************************/
 void cvsnfc_nand_init(struct nand_chip *chip)
 {
@@ -1253,6 +1272,9 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 	chip->options |= NAND_NO_SUBPAGE_WRITE;
 
 	chip->legacy.dummy_controller.ops = &cvsnfc_controller_ops;
+
+	chip->ops.suspend = cvsnfc_suspend;
+	chip->ops.resume = cvsnfc_resume;
 }
 
 static void cvsnfc_clear_interrupt(struct cvsnfc_host *host, struct cvsnfc_irq_status_t *irq_status)
