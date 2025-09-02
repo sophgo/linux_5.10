@@ -579,6 +579,9 @@ struct cvsnfc_host {
 
 	int add_partition;
 
+	/* Used for suspend/resume */
+	uint32_t boot_ctrl_reg;
+	uint32_t trx_ctrl1_reg;
 	/* BOOTROM read two bytes to detect the bad block flag */
 	unsigned char *bbm;  /* nand bad block mark */
 	unsigned short *epm;  /* nand empty page mark */

@@ -39,6 +39,14 @@ struct cvi_wiegand_device {
 	int wiegand_irq;
 	spinlock_t close_lock;
 	uint64_t tx_data;
+#ifdef CONFIG_PM_SLEEP
+	uint32_t rx_cfg0;
+	uint32_t rx_cfg1;
+	uint32_t rx_cfg2;
+	uint32_t tx_cfg0;
+	uint32_t tx_cfg1;
+	uint32_t tx_cfg2;
+#endif
 	void *private_data;
 };
 #endif /* __CVI_WIEGAND_H__ */

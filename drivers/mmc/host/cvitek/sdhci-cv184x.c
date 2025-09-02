@@ -1231,10 +1231,10 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	struct sdhci_cvi_host *cvi_host;
 	const struct of_device_id *match;
 	const struct sdhci_pltfm_data *pdata;
-	struct clk *clk_sd;
 	int ret;
 	int gpio_cd = -EINVAL;
 	u32 extra;
+	char *clkname = NULL;
 
 	pr_info(DRIVER_NAME ":%s\n", __func__);
 
@@ -1258,10 +1258,6 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	cvi_host->pinmuxbase = ioremap(PINMUX_BASE, 0x1000);
 	cvi_host->clkgenbase = ioremap(CLKGEN_BASE, 0x100);
 
-	clk_sd = devm_clk_get(&pdev->dev, "clk_sd");
-	if (!IS_ERR(clk_sd))
-		clk_set_rate(clk_sd, 400000000);
-
 #ifdef CONFIG_MMC_SKIP_TUNING
 	if (strstr(dev_name(mmc_dev(host->mmc)), "cv-emmc")) {
 		void __iomem *emmc_ctrl_reg;
@@ -1277,6 +1273,27 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	ret = mmc_of_parse(host->mmc);
 	if (ret)
 		goto pltfm_free;
+
+	if (!strcmp(match->compatible, "cvitek,cv184x-emmc"))
+		clkname = "clk_emmc";
+	else if (!strcmp(match->compatible, "cvitek,cv184x-sd"))
+		clkname = "clk_sd";
+	else if (!strcmp(match->compatible, "cvitek,cv184x-sdio"))
+		clkname = "clk_wifisd";
+	else
+		pr_warn("can't not find clkname %s with compatible %s\n", clkname, match->compatible);
+
+	if (clkname) {
+		cvi_host->clk_sdhci = devm_clk_get(&pdev->dev, clkname);
+		if (IS_ERR(cvi_host->clk_sdhci)) {
+			pr_err("failed to retrieve %s, ret %d\n", clkname, PTR_ERR(cvi_host->clk_sdhci));
+			cvi_host->clk_sdhci = NULL;
+		}
+
+		if (clk_get_rate(cvi_host->clk_sdhci) != host->mmc->f_src)
+			clk_set_rate(cvi_host->clk_sdhci, host->mmc->f_src);
+
+	}
 
 	sdhci_get_of_property(pdev);
 

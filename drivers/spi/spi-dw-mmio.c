@@ -352,19 +352,22 @@ MODULE_DEVICE_TABLE(acpi, dw_spi_mmio_acpi_match);
 #ifdef CONFIG_PM_SLEEP
 static int dw_spi_suspend(struct device *dev)
 {
-	struct dw_spi *dws = dev_get_drvdata(dev);
+	struct dw_spi_mmio *dwsmmio = dev_get_drvdata(dev);
+	struct dw_spi *dws  = &dwsmmio->dws;
 
 	dws->dw_spi_div = dw_readl(dws, DW_SPI_BAUDR);
-	dw_spi_remove(dws);
+	dw_spi_suspend_host(dws);
 	return 0;
 }
 
 static int dw_spi_resume(struct device *dev)
 {
-	struct dw_spi *dws = dev_get_drvdata(dev);
+	struct dw_spi_mmio *dwsmmio = dev_get_drvdata(dev);
+	struct dw_spi *dws  = &dwsmmio->dws;
 
 	spi_set_clk(dws, dws->dw_spi_div);
-	return dw_spi_add_host(dev, dws);
+	dw_spi_resume_host(dws);
+	return 0;
 }
 #endif
 

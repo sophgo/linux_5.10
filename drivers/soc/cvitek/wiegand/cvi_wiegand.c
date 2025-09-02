@@ -505,6 +505,52 @@ static int cvi_wiegand_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+static int cvi_wiegand_suspend(struct device *dev)
+{
+	struct cvi_wiegand_device *ndev = dev_get_drvdata(dev);
+
+	/* enable clock */
+	clk_prepare_enable(ndev->clk_wiegand);
+	/* save config reigster */
+	ndev->rx_cfg0 = readl(ndev->wiegand_vaddr + RX_CONFIG0);
+	ndev->rx_cfg1 = readl(ndev->wiegand_vaddr + RX_CONFIG1);
+	ndev->rx_cfg2 = readl(ndev->wiegand_vaddr + RX_CONFIG2);
+	ndev->tx_cfg0 = readl(ndev->wiegand_vaddr + TX_CONFIG0);
+	ndev->tx_cfg1 = readl(ndev->wiegand_vaddr + TX_CONFIG1);
+	ndev->tx_cfg2 = readl(ndev->wiegand_vaddr + TX_CONFIG2);
+
+	/* disable clock */
+	clk_disable_unprepare(ndev->clk_wiegand);
+
+	return 0;
+}
+
+static int cvi_wiegand_resume(struct device *dev)
+{
+	struct cvi_wiegand_device *ndev = dev_get_drvdata(dev);
+	
+	/* enable clock */
+	clk_prepare_enable(ndev->clk_wiegand);
+	/* restore tx/rx config reigster */
+	writel(ndev->rx_cfg0, ndev->wiegand_vaddr + RX_CONFIG0);
+	writel(ndev->rx_cfg1, ndev->wiegand_vaddr + RX_CONFIG1);
+	writel(ndev->rx_cfg2, ndev->wiegand_vaddr + RX_CONFIG2);
+	writel(ndev->tx_cfg0, ndev->wiegand_vaddr + TX_CONFIG0);
+	writel(ndev->tx_cfg1, ndev->wiegand_vaddr + TX_CONFIG1);
+	writel(ndev->tx_cfg2, ndev->wiegand_vaddr + TX_CONFIG2);
+
+	/* disable clock */
+	clk_disable_unprepare(ndev->clk_wiegand);
+
+	return 0;
+}
+static SIMPLE_DEV_PM_OPS(cvi_wiegand_dev_pm_ops, cvi_wiegand_suspend, cvi_wiegand_resume);
+#else
+static SIMPLE_DEV_PM_OPS(cvi_wiegand_dev_pm_ops, NULL, NULL);
+#endif
+
+
 static const struct of_device_id cvi_wiegand_match[] = {
 	{ .compatible = "cvitek,wiegand" },
 	{},
@@ -518,6 +564,7 @@ static struct platform_driver cvi_wiegand_driver = {
 			.owner = THIS_MODULE,
 			.name = "cvi-wiegand",
 			.of_match_table = cvi_wiegand_match,
+			.pm = &cvi_wiegand_dev_pm_ops,
 		},
 };
 

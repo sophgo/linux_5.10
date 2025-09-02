@@ -19,11 +19,17 @@ unsigned int read_count_tick(void)
 #endif
 }
 
+unsigned int read_time_us(void)
+{
+	return read_count_tick();
+}
+EXPORT_SYMBOL(read_time_us);
+
 unsigned int read_time_ms(void)
 {
 	return DIV_ROUND_UP(read_count_tick(), 1000);
 }
-
+EXPORT_SYMBOL(read_time_ms);
 /**
  * @brief print cost time
  *

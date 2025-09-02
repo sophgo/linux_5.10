@@ -79,6 +79,7 @@
 #define REG_CLK_EN_2			0x0F0
 #define REG_CLK_EN_3			0x0F4
 #define REG_CLK_EN_4			0x0F8
+#define REG_CLK_EN_5			0x0FC
 // --- sel reg ---
 #define REG_CLK_SEL_0			0x100
 // --- bypass reg ---
@@ -166,16 +167,16 @@
 #define REG_PLL_G2_CSR_NUM                  (REG_CAM1PLL_CSR / 4 - REG_MIPIMPLL_CSR / 4 + 1)
 #define REG_PLL_G2_CSR_START                REG_MIPIMPLL_CSR
 
-#define REG_PLL_G6_CSR_NUM                  (REG_FPLL_CSR / 4 - REG_MPLL_CSR / 4 + 1)
+#define REG_PLL_G6_CSR_NUM                  (REG_RVPLL_CSR / 4 - REG_MPLL_CSR / 4 + 1)
 #define REG_PLL_G6_CSR_START                REG_MPLL_CSR
 
-#define REG_CLK_EN_NUM                      (REG_CLK_EN_4 / 4 - REG_CLK_EN_0 / 4 + 1)
+#define REG_CLK_EN_NUM                      (REG_CLK_EN_5 / 4 - REG_CLK_EN_0 / 4 + 1)
 #define REG_CLK_EN_START                    REG_CLK_EN_0
 
 #define REG_CLK_SEL_NUM                     (REG_CLK_SEL_0 / 4  - REG_CLK_SEL_0 / 4 + 1)
 #define REG_CLK_SEL_START                   REG_CLK_SEL_0
 
-#define REG_CLK_BYP_NUM                     (REG_CLK_BYP_1 / 4 - REG_CLK_BYP_0 / 4 + 1)
+#define REG_CLK_BYP_NUM                     (REG_CLK_BYP_2 / 4 - REG_CLK_BYP_0 / 4 + 1)
 #define REG_CLK_BYP_START                   REG_CLK_BYP_0
 
 #define REG_CLK_DIV_NUM                     (REG_DIV_PERI_CLK_XTAL_MISC / 4 - REG_DIV_TOP_CLK_FAB_100M / 4 + 1)

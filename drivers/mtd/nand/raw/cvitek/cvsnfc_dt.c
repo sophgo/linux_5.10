@@ -36,9 +36,13 @@ static int nand_show_id(struct seq_file *m, void *v)
 {
 	struct cvsnfc_host *host = m->private;
 	struct nand_chip *nand_chip = &host->nand;
-	uint32_t id = 0;
+	uint64_t id = 0;
+	uint32_t id_len = 0;
+	int i;
 
-	id = nand_chip->id.data[1] << 8 | nand_chip->id.data[0];
+	id_len = nand_chip->id.len;
+	for (i = 0; i < id_len; i++)
+		id |= nand_chip->id.data[i] << (id_len - i - 1) * 8;
 	seq_printf(m, "%#x\n", id);
 	return 0;
 }

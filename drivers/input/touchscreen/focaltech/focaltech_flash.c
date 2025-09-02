@@ -2058,10 +2058,10 @@ static void fts_fwupg_work(struct work_struct *work)
     int ret = 0;
     struct fts_upgrade *upg = fwupgrade;
 
-#if !FTS_AUTO_UPGRADE_EN
-    FTS_INFO("FTS_AUTO_UPGRADE_EN is disabled, not upgrade when power on");
-    return ;
-#endif
+    if (!IS_ENABLED(CONFIG_TOUCHSCREEN_FTS_AUTO_UPGRADE)) {
+        FTS_INFO("FTS_AUTO_UPGRADE_EN is disabled, not upgrade when power on");
+        return ;
+    }
 
     FTS_INFO("fw upgrade work function");
     if (!upg || !upg->ts_data) {

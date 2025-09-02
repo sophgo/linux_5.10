@@ -792,9 +792,38 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
     return ((touch_buf[FTS_TOUCH_E_NUM] >> 4) & 0x0F);
 }
 
+static inline void fix_touch_coords(struct ts_event *e,
+                    const struct fts_ts_platform_data *pdata)
+{
+    int x = e->x;
+    int y = e->y;
+    int tmp;
+
+    /* 1. 先做 swap */
+    if (pdata->swap_xy) {
+        tmp = x;
+        x = y;
+        y = tmp;
+    }
+
+    /* 2. X 方向翻转 */
+    if (pdata->x_flip) {
+        x = (pdata->swap_xy ? pdata->y_max : pdata->x_max) - x;
+    }
+
+    /* 3. Y 方向翻转 */
+    if (pdata->y_flip) {
+        y = (pdata->swap_xy ? pdata->x_max : pdata->y_max) - y;
+    }
+
+    e->x = x;
+    e->y = y;
+}
+
 static int fts_irq_read_report(struct fts_ts_data *ts_data)
 {
     int i = 0;
+    struct fts_ts_platform_data *pdata = ts_data->pdata;
     int max_touch_num = ts_data->pdata->max_touch_number;
     int touch_etype = 0;
     u8 event_num = 0;
@@ -829,7 +858,8 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
                           + (touch_buf[FTS_TOUCH_OFF_XL + base] & 0xFF);
             events[i].y = ((touch_buf[FTS_TOUCH_OFF_ID_YH + base] & 0x0F) << 8) \
                           + (touch_buf[FTS_TOUCH_OFF_YL + base] & 0xFF);
-            events[i].p =  touch_buf[FTS_TOUCH_OFF_PRE + base];
+            fix_touch_coords(&events[i], pdata);
+            events[i].p = touch_buf[FTS_TOUCH_OFF_PRE + base];
             events[i].area = touch_buf[FTS_TOUCH_OFF_AREA + base];
             if (events[i].p <= 0) events[i].p = 0x3F;
             if (events[i].area <= 0) events[i].area = 0x09;
@@ -1301,6 +1331,7 @@ static int fts_gpio_configure(struct fts_ts_data *ts_data)
 static void fts_platform_data_init(struct fts_ts_data *ts_data)
 {
     int i = 0;
+    int ret = 0;
     struct fts_ts_platform_data *pdata = ts_data->pdata;
     struct device_node *np = ts_data->dev->of_node;
 
@@ -1339,10 +1370,23 @@ static void fts_platform_data_init(struct fts_ts_data *ts_data)
     } else {
         FTS_INFO("Reset GPIO: %d", pdata->reset_gpio);
     }
+    /* touch screen resolution */
     pdata->x_min = 0;
-    pdata->x_max = TPD_RES_X;
+    ret = of_property_read_u32(np, "touch,width", &pdata->x_max);
+    if (ret) {
+        FTS_ERROR("Parse width from dt failed %d", ret);
+        pdata->x_max = TPD_RES_X;
+    }
     pdata->y_min = 0;
-    pdata->y_max = TPD_RES_Y;
+    ret = of_property_read_u32(np, "touch,height", &pdata->y_max);
+    if (ret) {
+        FTS_ERROR("Parse height from dt failed %d", ret);
+        pdata->y_max = TPD_RES_Y;
+    }
+
+    pdata->swap_xy = of_property_read_bool(np, "touch,swap-xy");
+    pdata->x_flip = of_property_read_bool(np, "touch,x-flip");
+    pdata->y_flip = of_property_read_bool(np, "touch,y-flip");
 
     FTS_INFO("max touch number:%d, irq gpio:%d, reset gpio:%d"
              "resolution:(%d,%d)~(%d,%d)",

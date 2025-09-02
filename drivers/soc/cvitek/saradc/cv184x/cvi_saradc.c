@@ -36,6 +36,8 @@
 #include <linux/delay.h>
 #include <linux/of.h>
 #include <linux/io.h>
+#include <linux/iio/iio.h>
+#include <linux/iio/sysfs.h>
 #include "plat_cv184x.h"
 
 #define EFUSE_ADC_TRIM_REG 0x18
@@ -85,6 +87,9 @@ enum ADCChannel {
 #define IOBLK_GRTC_REG_PWR_GPIO0		0x0502702c
 #define IOBLK_GRTC_REG_PWR_GPIO1		0x05027030
 #define IOBLK_GRTC_REG_PWR_GPIO2		0x05027034
+
+#define CVI_SARADC_FILTER_NSAMP 15
+#define CVI_SARADC_FILTER_K 3
 
 static void io_config(u32 channel)
 {
@@ -200,6 +205,44 @@ static void io_config(u32 channel)
 		lval.scan_type.endianness =	IIO_LE;				  \
 	}
 
+static ssize_t filter_enable_show(struct device *dev, struct device_attribute *attr, char *buf);
+static ssize_t filter_enable_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t len);
+
+static IIO_DEVICE_ATTR(filter_enable, 0644, filter_enable_show, filter_enable_store, 0);
+
+static struct attribute *cvi_saradc_attrs[] = {
+	&iio_dev_attr_filter_enable.dev_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group cvi_saradc_attr_group = {
+	.attrs = cvi_saradc_attrs,
+};
+
+static ssize_t filter_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct cvi_saradc_device *ndev = iio_priv(indio_dev);
+
+	return sysfs_emit(buf, "%u\n", ndev->filter_enable ? 1 : 0);
+}
+
+static ssize_t filter_enable_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct cvi_saradc_device *ndev = iio_priv(indio_dev);
+	bool en;
+	int ret;
+
+	ret = kstrtobool(buf, &en);
+	if (ret)
+		return ret;
+	spin_lock(&ndev->close_lock);
+	ndev->filter_enable = en;
+	spin_unlock(&ndev->close_lock);
+
+	return len;
+}
 static int platform_saradc_clk_init(struct cvi_saradc_device *ndev)
 {
 #ifndef DUAL_OS
@@ -269,12 +312,104 @@ static void	cvi_saradc_cyc_setting(struct cvi_saradc_device	*ndev)
 	writel(value, ndev->saradc_vaddr + SARADC_CYC_SET);
 }
 
+static u32 saradc_get_val(struct cvi_saradc_device *ndev, struct iio_chan_spec const *chan)
+{
+	u32 value, adc_value;
+	// Trigger measurement
+	value = readl(ndev->saradc_vaddr + SARADC_CTRL);
+	value |= 1;
+	writel(value, ndev->saradc_vaddr + SARADC_CTRL);
+	pr_debug("cv_saradc_show: SARADC_CTRL =	%#X\n", value);
+
+	// Check busy status
+	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) & ~0x03), ndev->saradc_vaddr + SARADC_CTRL);
+	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) | 0x03), ndev->saradc_vaddr + SARADC_CTRL);
+
+	// while (readl(ndev->saradc_vaddr + SARADC_STATUS) & (1 << (index + 8)));
+	udelay(10);
+	adc_value = readl(ndev->saradc_vaddr + chan->address) & 0xFFF;
+
+	pr_debug("cvi_saradc channel%d value = %#X\n", chan->channel,
+		 adc_value);
+	return adc_value;
+}
+
+static u32 saradc_get_val_with_filter(struct cvi_saradc_device *ndev, struct iio_chan_spec const *chan)
+{
+	int vals[CVI_SARADC_FILTER_NSAMP];
+	int tmp[CVI_SARADC_FILTER_NSAMP];
+	int median, mad, th;
+	long sum = 0;
+	int cnt = 0;
+	int i;
+
+	for (i = 0; i < CVI_SARADC_FILTER_NSAMP; i++)
+		vals[i] = (int)saradc_get_val(ndev, chan);
+
+	for (i = 0; i < CVI_SARADC_FILTER_NSAMP; i++)
+		tmp[i] = vals[i];
+
+	for (i = 1; i < CVI_SARADC_FILTER_NSAMP; i++) {
+		int key = tmp[i];
+		int j = i - 1;
+
+		while (j >= 0 && tmp[j] > key) {
+			tmp[j + 1] = tmp[j];
+			j--;
+		}
+		tmp[j + 1] = key;
+	}
+
+	median = tmp[CVI_SARADC_FILTER_NSAMP / 2];
+
+	for (i = 0; i < CVI_SARADC_FILTER_NSAMP; i++) {
+		int d = vals[i] - median;
+
+		if (d < 0)
+			d = -d;
+		tmp[i] = d;
+	}
+
+	for (i = 1; i < CVI_SARADC_FILTER_NSAMP; i++) {
+		int key = tmp[i];
+		int j = i - 1;
+
+		while (j >= 0 && tmp[j] > key) {
+			tmp[j + 1] = tmp[j];
+			j--;
+		}
+		tmp[j + 1] = key;
+	}
+
+	mad = tmp[CVI_SARADC_FILTER_NSAMP / 2];
+
+	if (mad == 0)
+		mad = 1;
+
+	th = CVI_SARADC_FILTER_K * mad;
+
+	for (i = 0; i < CVI_SARADC_FILTER_NSAMP; i++) {
+		int d = vals[i] - median;
+
+		if (d < 0)
+			d = -d;
+		if (d <= th) {
+			sum += vals[i];
+			cnt++;
+		}
+	}
+
+	if (cnt == 0)
+		return (u32)median;
+
+	return (u32)(sum / cnt);
+}
 static int saradc_read_raw(struct iio_dev	      *indio_dev,
 			   struct iio_chan_spec const *chan, int *val,
 			   int *val2, long info)
 {
 	struct cvi_saradc_device *ndev = iio_priv(indio_dev);
-	u32 value, adc_value;
+	u32 adc_value;
 	unsigned long flags = 0;
 	u32 sel = 0;
 	int index;
@@ -300,23 +435,10 @@ static int saradc_read_raw(struct iio_dev	      *indio_dev,
 	writel(0x0, ndev->saradc_vaddr + SARADC_INTR_EN);
 
 	pr_debug("adc_channel_index: %d\n", chan->channel);
-
-	// Trigger measurement
-	value = readl(ndev->saradc_vaddr + SARADC_CTRL);
-	value |= 1;
-	writel(value, ndev->saradc_vaddr + SARADC_CTRL);
-	pr_debug("cv_saradc_show: SARADC_CTRL =	%#X\n", value);
-
-	// Check busy status
-	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) & ~0x03), ndev->saradc_vaddr + SARADC_CTRL);
-	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) | 0x03), ndev->saradc_vaddr + SARADC_CTRL);
-
-	// while (readl(ndev->saradc_vaddr + SARADC_STATUS) & (1 << (index + 8)));
-	udelay(10);
-	adc_value = readl(ndev->saradc_vaddr + chan->address) & 0xFFF;
-
-	pr_debug("cvi_saradc channel%d value = %#X\n", chan->channel,
-		 adc_value);
+	if (ndev->filter_enable)
+		adc_value = saradc_get_val_with_filter(ndev, chan);
+	else
+		adc_value = saradc_get_val(ndev, chan);
 
 	spin_unlock_irqrestore(&ndev->close_lock, flags);
 
@@ -328,6 +450,7 @@ static int saradc_read_raw(struct iio_dev	      *indio_dev,
 
 static const struct	iio_info saradc_info = {
 	.read_raw =	saradc_read_raw,
+	.attrs = &cvi_saradc_attr_group,
 };
 
 static void cvi_saradc_trim(struct cvi_saradc_device *ndev)
@@ -374,7 +497,7 @@ static int cvi_saradc_probe(struct platform_device *pdev)
 
 	ndev->saradc_vaddr = NULL;
 	ndev->channel_index = 0;
-
+	ndev->filter_enable = 1;
 	memset(ndev->enable, 0,	SARADC_CHAN_NUM);
 
 	platform_set_drvdata(pdev, indio_dev);

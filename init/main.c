@@ -1342,11 +1342,9 @@ static void __init do_pre_smp_initcalls(void)
 static int run_init_process(const char *init_filename)
 {
 	const char *const *p;
-#ifdef CONFIG_CVITEK_FASTBOOT
 	u16 *t_addr = ioremap((unsigned long)(&time_records->kernel_run_init_start), 4);
 	*t_addr = read_time_ms();
 	iounmap(t_addr);
-#endif
 
 	argv_init[0] = init_filename;
 	pr_info("Run %s as init process\n", init_filename);

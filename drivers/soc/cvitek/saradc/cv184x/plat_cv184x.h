@@ -36,7 +36,7 @@ struct cvi_saradc_device {
 	u32 top_saradc2_saved_regs[SARADC_REGS_NUM];
 	u32 rtcsys_saradc0_saved_regs[SARADC_REGS_NUM];
 	u32 rtcsys_saradc1_saved_regs[SARADC_REGS_NUM];
-
+	bool filter_enable;
 };
 
 #endif /* __PLAT_CV184X_H__ */

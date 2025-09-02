@@ -19,7 +19,7 @@ struct _time_records {
 } __packed;
 
 #define TIME_RECORDS_ADDR 0x0C0C701C
-static struct _time_records *time_records =
+static struct _time_records *time_records __attribute__((unused)) =
 	(struct _time_records *)TIME_RECORDS_ADDR;
 
 #define SYS_COUNTER_FREQ_IN_US 25
@@ -33,6 +33,8 @@ static struct _time_records *time_records =
 unsigned int read_count_tick(void);
 
 unsigned int read_time_ms(void);
+
+unsigned int read_time_us(void);
 
 void print_cost_time(unsigned int rettime, const char *func);
 
