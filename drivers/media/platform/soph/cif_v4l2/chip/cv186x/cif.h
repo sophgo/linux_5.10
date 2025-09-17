@@ -206,6 +206,12 @@
 struct img_size_s {
 	unsigned int	width;
 	unsigned int	height;
+	unsigned int	start_x;
+	unsigned int	start_y;
+	unsigned int	active_w;
+	unsigned int	active_h;
+	unsigned int	max_width;
+	unsigned int	max_height;
 };
 
 extern int cif_log_lv;
@@ -446,6 +452,22 @@ enum ttl_pin_func_e {
 	TTL_PIN_FUNC_NUM,
 };
 
+enum ttl_vi0clk_e {
+	TTL_VI0_CLK0 = 0,
+	TTL_VI0_CLK1,
+	TTL_VI0_CLK_MAX
+};
+
+enum ttl_mac_e {
+	TTL_VI_MAC0 = 0,
+	TTL_VI_MAC1,
+	TTL_VI_MAC2,
+	TTL_VI_MAC3,
+	TTL_VI_MAC4,
+	TTL_VI_MAC5,
+	TTL_VI_MACMAX
+};
+
 enum ttl_src_e {
 	TTL_VI_SRC_VI0 = 0,
 	TTL_VI_SRC_VI1,
@@ -494,6 +516,7 @@ struct ttl_dev_attr_s {
 	enum ttl_fmt_e			ttl_fmt;
 	enum raw_data_type_e		raw_data_type;
 	signed char			func[TTL_PIN_FUNC_NUM];
+	enum ttl_vi0clk_e		vi0_clk;/*select switch clk if use vi0*/
 	unsigned short			v_bp;
 	unsigned short			h_bp;
 };

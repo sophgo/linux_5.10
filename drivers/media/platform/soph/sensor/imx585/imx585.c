@@ -24,6 +24,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "imx585.h"
 
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e imx585_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int imx585_count;
+int imx585_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx585_count, 0644);
 
@@ -632,7 +635,7 @@ error:
 	return ret;
 }
 
-static int imx585_get_info_form_dts(struct imx585 *imx585, int index_id)
+static int imx585_get_info_from_dts(struct imx585 *imx585, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx585->sd);
 	struct device_node *np = client->dev.of_node;
@@ -890,7 +893,7 @@ static int imx585_init_controls(struct imx585 *imx585, int index_id)
 		return ret;
 	}
 
-	imx585_get_info_form_dts(imx585, index_id);
+	imx585_get_info_from_dts(imx585, index_id);
 
 	mutex_init(&imx585->mutex);
 	ctrl_hdlr->lock = &imx585->mutex;

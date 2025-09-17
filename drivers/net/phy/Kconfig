@@ -258,6 +258,11 @@ config REALTEK_PHY
 	help
 	  Supports the Realtek 821x PHY.
 
+config MAXIO_PHY
+	tristate "MAXIO PHYs"
+	help
+	  Supports the Maxio MAExxxx PHY.
+
 config MOTORCOMM_PHY
 	tristate "MOTORCOMM PHYs"
 	help

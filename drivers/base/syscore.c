@@ -63,6 +63,7 @@ int syscore_suspend(void)
 		if (ops->suspend) {
 			pm_pr_dbg("Calling %pS\n", ops->suspend);
 			ret = ops->suspend();
+			pm_pr_dbg("Calling %pS exit\n", ops->suspend);
 			if (ret)
 				goto err_out;
 			WARN_ONCE(!irqs_disabled(),
@@ -100,6 +101,7 @@ void syscore_resume(void)
 		if (ops->resume) {
 			pm_pr_dbg("Calling %pS\n", ops->resume);
 			ops->resume();
+			pm_pr_dbg("Calling %pS exit\n", ops->resume);
 			WARN_ONCE(!irqs_disabled(),
 				"Interrupts enabled after %pS\n", ops->resume);
 		}

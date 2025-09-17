@@ -270,7 +270,7 @@ static int cv181xdac_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		snd_pcm_stream_unlock_irq(substream);
 		mute_amp(dac, true);
-		usleep_range(1000, 3000);
+		udelay(1000);
 		cv181xdac_off(dac);
 		snd_pcm_stream_lock_irq(substream);
 		break;
@@ -515,7 +515,7 @@ static struct snd_soc_dai_driver cv181xdac_dai = {
 static const struct snd_kcontrol_new cv181xdac_controls0[] = {
 
 	SOC_DOUBLE("[0]DAC Playback Power Up/Down", AUDIO_PHY_TXDAC_CTRL0, 1, 0, 1, 1),
-	SOC_DOUBLE("[0]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 1),
+	SOC_DOUBLE("[0]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 0),
 	SOC_DOUBLE("[0]DAC Playback MUTE", AUDIO_PHY_TXDAC_ANA2, 16, 17, 1, 0),
 
 };
@@ -523,7 +523,7 @@ static const struct snd_kcontrol_new cv181xdac_controls0[] = {
 static const struct snd_kcontrol_new cv181xdac_controls1[] = {
 
 	SOC_DOUBLE("[1]DAC Playback Power Up/Down", AUDIO_PHY_TXDAC_CTRL0, 1, 0, 1, 1),
-	SOC_DOUBLE("[1]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 1),
+	SOC_DOUBLE("[1]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 0),
 	SOC_DOUBLE("[1]DAC Playback MUTE", AUDIO_PHY_TXDAC_ANA2, 16, 17, 1, 0),
 
 };

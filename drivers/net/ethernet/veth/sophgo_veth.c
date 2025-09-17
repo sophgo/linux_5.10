@@ -21,7 +21,7 @@ static int set_ready_flag(struct veth_dev *vdev);
 
 static inline void intr_clear(struct veth_dev *vdev)
 {
-	sg_write32(vdev->top_misc_reg, TOP_MISC_GP_REG31_CLR_OFFSET, SOPH_VETH_RX_IRQ_CLR_BIT);
+	sg_write32(vdev->gp_clr_reg, TOP_MISC_GP_REG31_CLR_OFFSET, SOPH_VETH_RX_IRQ_CLR_BIT);
 }
 
 static irqreturn_t veth_irq(int irq, void *id)
@@ -59,20 +59,20 @@ static void sg_enable_eth_irq(struct veth_dev *vdev)
 
 static int sg_eth_change_mtu(struct net_device *ndev, int new_mtu)
 {
-        if (netif_running(ndev))
-                return -EBUSY;
+	if (netif_running(ndev))
+		return -EBUSY;
 
-        ndev->mtu = new_mtu;
-        netdev_update_features(ndev);
+	ndev->mtu = new_mtu;
+	netdev_update_features(ndev);
 
-        return 0;
+	return 0;
 }
 
 static int notify_host(struct veth_dev *vdev)
 {
 #ifdef VETH_IRQ
 	if (atomic_read(&vdev->link)) {
-		sg_write32(vdev->top_misc_reg, TOP_MISC_GP_REG30_SET_OFFSET, SOPH_VETH_TX_IRQ_SET_BIT);
+		sg_write32(vdev->gp_set_reg, TOP_MISC_GP_REG30_SET_OFFSET, SOPH_VETH_TX_IRQ_SET_BIT);
 	}
 	sg_enable_eth_irq(vdev);
 #else
@@ -275,28 +275,35 @@ static int sg_veth_get_resource(struct platform_device *pdev, struct veth_dev *v
 	int err;
 
 	vdev->shm_cfg_reg = devm_platform_ioremap_resource_byname(pdev, "shm_reg");
-	if (!vdev->shm_cfg_reg) {
+	if (IS_ERR(vdev->shm_cfg_reg)) {
 		pr_err("map shm cfg reg failed!\n");
 		err = -ENOMEM;
 		return err;
 	}
 
-	vdev->top_misc_reg = devm_platform_ioremap_resource_byname(pdev, "top_misc");
-	if (!vdev->top_misc_reg) {
-		pr_err("map top misc reg failed!\n");
+	vdev->gp_clr_reg = devm_platform_ioremap_resource_byname(pdev, "gp_clr");
+	if (IS_ERR(vdev->gp_clr_reg)) {
+		pr_err("map gp clr reg failed!\n");
+		err = -ENOMEM;
+		return err;
+	}
+
+	vdev->gp_set_reg = devm_platform_ioremap_resource_byname(pdev, "gp_set");
+	if (IS_ERR(vdev->gp_set_reg)) {
+		pr_err("map gp set reg failed!\n");
 		err = -ENOMEM;
 		return err;
 	}
 
 	vdev->cdma_cfg_reg = devm_platform_ioremap_resource_byname(pdev, "cdma_cfg");
-	if (!vdev->cdma_cfg_reg) {
+	if (IS_ERR(vdev->cdma_cfg_reg)) {
 		pr_err("map cdma cfg reg failed!\n");
 		err = -ENOMEM;
 		return err;
 	}
 
 	vdev->intc_cfg_reg = devm_platform_ioremap_resource_byname(pdev, "intc_cfg");
-	if (!vdev->intc_cfg_reg) {
+	if (IS_ERR(vdev->intc_cfg_reg)) {
 		pr_err("map intc cfg reg failed!\n");
 		err = -ENOMEM;
 		return err;
@@ -316,69 +323,71 @@ static int sg_veth_get_resource(struct platform_device *pdev, struct veth_dev *v
 }
 
 #define VETH_MODE_BASE 0x28100004
-#define VETH_SEL_0 BIT(1)
-static bool sg_veth_init_mode_check(unsigned int index)
+#define VETH_SEL (0x3)
+
+static bool sg_veth_init_mode_check(void)
 {
-        void __iomem * addr = ioremap(VETH_MODE_BASE, 0x1);
-        uint32_t val = readl(addr) >> 25;
+	void __iomem * addr = ioremap(VETH_MODE_BASE, 0x4);
+	uint32_t val = readl(addr) >> 25;
 
-        if (index == 0)
-                val &= VETH_SEL_0;
-        else
-                val = 0;
+		val &= VETH_SEL;
 
-        return val ? true : false;
+	iounmap(addr);
+
+	return val ? true : false;
 }
 
 static ssize_t ipaddr_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET);
-    return sprintf(buf, "%08x\n", val);
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET);
+	return sprintf(buf, "%08x\n", val);
 }
 
 static ssize_t ipaddr_store(struct device *dev, struct device_attribute *attr,
                         const char *buf, size_t count)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val;
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val;
 
-    if (kstrtouint(buf, 10, &val))
-        return -EINVAL;
+	if (kstrtouint(buf, 10, &val))
+		return -EINVAL;
 
-    sg_write32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET, val);
-    return count;
+	sg_write32(vdev->shm_cfg_reg, VETH_IPADDR_OFFSET, val);
+	return count;
 }
 
 static ssize_t mask_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_MASK_OFFSET);
-    return sprintf(buf, "%08x\n", val);
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->shm_cfg_reg, VETH_MASK_OFFSET);
+	return sprintf(buf, "%08x\n", val);
 }
 
 static ssize_t mask_store(struct device *dev, struct device_attribute *attr,
                         const char *buf, size_t count)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val;
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val;
 
-    if (kstrtouint(buf, 10, &val))
-        return -EINVAL;
+	if (kstrtouint(buf, 10, &val))
+		return -EINVAL;
 
-    sg_write32(vdev->shm_cfg_reg, VETH_MASK_OFFSET, val);
-    return count;
+	sg_write32(vdev->shm_cfg_reg, VETH_MASK_OFFSET, val);
+	return count;
 }
 
 static ssize_t mode_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	struct net_device *ndev = to_net_dev(dev);
-	struct veth_dev *vdev = netdev_priv(ndev);
-	u32 val = sg_read32(vdev->top_misc_reg, 0x4);
+	void __iomem * addr = ioremap(VETH_MODE_BASE, 0x4);
+	u32 val = readl(addr);
+
+	iounmap(addr);
+
 	return sprintf(buf, "%08x\n", val);
 }
 
@@ -393,15 +402,15 @@ static ssize_t ctrl_status_show(struct device *dev, struct device_attribute *att
 static ssize_t ctrl_status_store(struct device *dev, struct device_attribute *attr,
                         const char *buf, size_t count)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val;
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val;
 
-    if (kstrtouint(buf, 10, &val))
-        return -EINVAL;
+	if (kstrtouint(buf, 10, &val))
+		return -EINVAL;
 
-    sg_write32(vdev->shm_cfg_reg, VETH_CTRL_STATUS, val);
-    return count;
+	sg_write32(vdev->shm_cfg_reg, VETH_CTRL_STATUS, val);
+	return count;
 }
 
 static ssize_t link_status_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -414,24 +423,24 @@ static ssize_t link_status_show(struct device *dev, struct device_attribute *att
 
 static ssize_t gw_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val = sg_read32(vdev->shm_cfg_reg, VETH_GW_OFFSET);
-    return sprintf(buf, "%08x\n", val);
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val = sg_read32(vdev->shm_cfg_reg, VETH_GW_OFFSET);
+	return sprintf(buf, "%08x\n", val);
 }
 
 static ssize_t gw_store(struct device *dev, struct device_attribute *attr,
                         const char *buf, size_t count)
 {
-    struct net_device *ndev = to_net_dev(dev);
-    struct veth_dev *vdev = netdev_priv(ndev);
-    u32 val;
+	struct net_device *ndev = to_net_dev(dev);
+	struct veth_dev *vdev = netdev_priv(ndev);
+	u32 val;
 
-    if (kstrtouint(buf, 10, &val))
-        return -EINVAL;
+	if (kstrtouint(buf, 10, &val))
+		return -EINVAL;
 
-    sg_write32(vdev->shm_cfg_reg, VETH_GW_OFFSET, val);
-    return count;
+	sg_write32(vdev->shm_cfg_reg, VETH_GW_OFFSET, val);
+	return count;
 }
 
 DEVICE_ATTR_RW(ipaddr);
@@ -471,7 +480,7 @@ static int sg_veth_probe(struct platform_device *pdev)
 		return err;
 	}
 
-	if (!sg_veth_init_mode_check(0)) {
+	if (!sg_veth_init_mode_check()) {
 		pr_info("veth not enabled.\n");
 		return -ENODEV;
 	}

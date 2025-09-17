@@ -2535,9 +2535,9 @@ static int _cif_set_attr_bt656_9b(struct cvi_cif_dev *dev,
 	}
 #ifndef FPGA_PORTING
 	if (vi == TTL_VI_SRC_VI0){
-		//if (attr->ttl_attr.vi0_clk == 0)
-		//	PINMUX_CONFIG(PAD_MIPI_RX12P, VI0_CLK0, PHY);
-		//else if (attr->ttl_attr.vi0_clk == 1)
+		if (attr->ttl_attr.vi0_clk == 0)
+			PINMUX_CONFIG(PAD_MIPI_RX12P, VI0_CLK0, PHY);
+		else if (attr->ttl_attr.vi0_clk == 1)
 			PINMUX_CONFIG(PAD_MIPI_RX6P, VI0_CLK1, PHY);
 	} else if (vi == TTL_VI_SRC_VI1) {
 		PINMUX_CONFIG(PAD_MIPI_RX6P, VI1_CLK0, PHY);
@@ -2556,7 +2556,6 @@ static int _cif_set_attr_bt656_9b(struct cvi_cif_dev *dev,
 	ttl->vi_sel = VI_BT656;
 	ttl->v_bp = (!attr->ttl_attr.v_bp) ? 0xf : attr->ttl_attr.v_bp;
 	ttl->h_bp = (!attr->ttl_attr.h_bp) ? 0xf : attr->ttl_attr.h_bp;
-
 	cif_streaming(ctx, 1, 0);
 
 	return 0;

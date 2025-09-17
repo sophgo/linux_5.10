@@ -37,11 +37,11 @@ typedef u64 dma_addr_t;
 
 #define VETH_CTRL_STATUS			0x7C
 
-#define TOP_MISC_GP_REG30_SET_OFFSET 0xF8
-#define TOP_MISC_GP_REG30_CLR_OFFSET 0x78
+#define TOP_MISC_GP_REG30_SET_OFFSET 0
+#define TOP_MISC_GP_REG30_CLR_OFFSET 0
 
-#define TOP_MISC_GP_REG31_SET_OFFSET 0xFC
-#define TOP_MISC_GP_REG31_CLR_OFFSET 0x7C
+#define TOP_MISC_GP_REG31_SET_OFFSET 0x4
+#define TOP_MISC_GP_REG31_CLR_OFFSET 0x4
 
 #define SOPH_VETH_RX_IRQ_CLR_BIT BIT(2)
 #define SOPH_VETH_TX_IRQ_SET_BIT BIT(12)
@@ -52,14 +52,10 @@ struct veth_dev {
 	struct platform_device *pdev;
 
 	void __iomem *shm_cfg_reg;
-	void __iomem *top_misc_reg;
+	void __iomem *gp_clr_reg;
+	void __iomem *gp_set_reg;
 	void __iomem *cdma_cfg_reg;
 	void __iomem *intc_cfg_reg;
-
-	struct resource *shm_cfg_res;
-	struct resource *top_misc_res;
-	struct resource *cdma_cfg_res;
-	struct resource *intc_cfg_res;
 
 	int rx_irq;
 	atomic_t link;

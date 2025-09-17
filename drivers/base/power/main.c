@@ -486,7 +486,9 @@ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
 
 	pm_dev_dbg(dev, state, info);
 	trace_device_pm_callback_start(dev, info, state.event);
+	pm_pr_dbg("dpm_cb: %ps enter\n", cb);
 	error = cb(dev);
+	pm_pr_dbg("dpm_cb: %ps exit\n", cb);
 	trace_device_pm_callback_end(dev, error);
 	suspend_report_result(cb, error);
 

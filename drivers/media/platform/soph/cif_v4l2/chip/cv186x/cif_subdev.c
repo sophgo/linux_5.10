@@ -50,6 +50,22 @@ static struct cif_sensor_info *sd_to_sensor(struct cvi_cif_dev *dev,
 	return NULL;
 }
 
+static int subcall_get_dvp_size(struct v4l2_subdev *sd,
+				struct v4l2_subdev_frame_size_enum *fse)
+{
+	if (!sd) {
+		CIF_PR(CIF_DEBUG, "sensor sd is NULL!\n");
+		return -1;
+	}
+
+	fse->index = 0;
+	fse->pad = CIF_PAD_SNS0;
+	fse->which = V4L2_SUBDEV_FORMAT_ACTIVE;
+
+	v4l2_subdev_call(sd, pad, enum_frame_size, NULL, fse);
+
+	return 0;
+}
 static int cif_link_setup(struct media_entity *entity,
 				const struct media_pad *local,
 				const struct media_pad *remote,
@@ -91,40 +107,15 @@ out:
 	return ret;
 }
 
-#ifndef FPGA_PORTING
-static int cif_get_sensor_clk_input_info(struct v4l2_subdev *sd,
-	struct combo_dev_attr_s *attr, int devno)
+static int  cif_set_mipi_from_info(struct v4l2_subdev *sensor_sd,
+	 struct combo_dev_attr_s *attr)
 {
-	//struct cvi_cif_dev *dev = sd_to_dev(sd);
-	struct v4l2_subdev *sensor_sd = get_remote_sensor(sd, CIF_PAD_SNS0 + devno);
-	struct v4l2_ctrl *link_freq;
 	struct v4l2_querymenu qm = { .id = V4L2_CID_LINK_FREQ, };
-	int ret, link_num, i;
 	int lane_start = SNS_CFG_TYPE_DATA_LANE0;
 	int swap_start = SNS_CFG_TYPE_PN_SWAP0;
+	int ret, i;
 
-	if (!sensor_sd) {
-		CIF_PR(CIF_ERROR, "sensor subdev is NULL!\n");
-		return -1;
-	}
-
-	CIF_PR(CIF_WARNING, "get [%s] menu info\n", sensor_sd->name);
-
-	link_freq = v4l2_ctrl_find(sensor_sd->ctrl_handler, V4L2_CID_LINK_FREQ);
-	if (!link_freq) {
-		CIF_PR(CIF_WARNING, "No pixel rate control in subdev\n");
-		return -EPIPE;
-	}
-
-	qm.index = v4l2_ctrl_g_ctrl(link_freq);
-	ret = v4l2_querymenu(sensor_sd->ctrl_handler, &qm);
-	if (ret < 0) {
-		CIF_PR(CIF_ERROR, "Failed to get sns clk menu\n");
-		return ret;
-	}
-	link_num = qm.value;
-
-	for (i = 1; i <= link_num; i++) {
+	for (i = 1; i <= SNS_CFG_TYPE_MAX; i++) {
 		qm.index = i;
 		ret = v4l2_querymenu(sensor_sd->ctrl_handler, &qm);
 		if (ret < 0) {
@@ -155,7 +146,7 @@ static int cif_get_sensor_clk_input_info(struct v4l2_subdev *sd,
 			} else {
 				CIF_PR(CIF_ERROR, "have not set right hdr mode\n");
 			}
-		} else if (qm.index == SNS_CFG_TYPE_DATE_BIT) {
+		} else if (qm.index == SNS_CFG_TYPE_DATA_BIT) {
 			if (qm.value <= RAW_DATA_BUTT && qm.value >= RAW_DATA_8BIT) {
 				attr->mipi_attr.raw_data_type = qm.value;
 				CIF_PR(CIF_DEBUG, "data_type [%s]\n", _to_string_raw_data_type(qm.value));
@@ -191,6 +182,109 @@ static int cif_get_sensor_clk_input_info(struct v4l2_subdev *sd,
 			}
 		}
 	}
+	return 0;
+}
+
+static int cif_set_dvp_from_info(struct v4l2_subdev *sensor_sd,
+	struct combo_dev_attr_s *attr)
+{
+	int ret, i;
+	struct v4l2_subdev_frame_size_enum fse;
+	struct v4l2_querymenu qm = { .id = V4L2_CID_LINK_FREQ, };
+
+	for (i = 1; i <= DVP_SNS_CFG_TYPE_MAX; i++) {
+		qm.index = i;
+		ret = v4l2_querymenu(sensor_sd->ctrl_handler, &qm);
+		if (ret < 0) {
+			CIF_PR(CIF_ERROR, "Failed to get menu\n");
+			return ret;
+		}
+		if (qm.index == DVP_SNS_CFG_TYPE_MCLK_FREQ) {
+			attr->mclk.freq = qm.value;
+			CIF_PR(CIF_DEBUG, "mclk_freq [%s]\n", _to_string_mclk(qm.value));
+		} else if (qm.index == DVP_SNS_CFG_TYPE_MCLK_NUM) {
+			attr->mclk.cam = qm.value;
+			CIF_PR(CIF_DEBUG, "mclk_cam [%lld]\n", qm.value);
+		} else if (qm.index == DVP_SNS_CFG_TYPE_MAC_FREQ) {
+			attr->mac_clk = qm.value;
+			CIF_PR(CIF_DEBUG, "mac_freq [%s]\n", _to_string_mac_clk(qm.value));
+		} else if (qm.index == DVP_SNS_CFG_TYPE_INPUT_MODE) {
+			if (qm.value <= INPUT_MODE_BUTT && qm.value >= INPUT_MODE_MIPI) {
+				attr->input_mode = qm.value;
+			} else {
+				CIF_PR(CIF_ERROR, "have not set right input mode\n");
+			}
+		} else if (qm.index == DVP_SNS_CFG_TYPE_VI_SEL) {
+			if (qm.value < TTL_VI_SRC_NUM && qm.value >= TTL_VI_SRC_VI0) {
+				attr->ttl_attr.vi = qm.value;
+				CIF_PR(CIF_DEBUG, "vi [%lld]\n", qm.value);
+			} else {
+				CIF_PR(CIF_ERROR, "have not set right vi source\n");
+			}
+			attr->ttl_attr.vi = qm.value;
+		} else if (qm.index == DVP_SNS_CFG_TYPE_DATA_BIT) {
+			if (qm.value <= YUV422_10BIT && qm.value >= RAW_DATA_8BIT) {
+				attr->ttl_attr.raw_data_type = qm.value;
+				CIF_PR(CIF_DEBUG, "data_type [%s]\n", _to_string_raw_data_type(qm.value));
+			} else {
+				CIF_PR(CIF_ERROR, "have not set right data type\n");
+			}
+		} else if (qm.index == DVP_SNS_CFG_TYPE_VI_FUNC) {
+			memcpy(attr->ttl_attr.func, (void *)qm.value,
+				TTL_PIN_FUNC_NUM * sizeof(signed char));
+			CIF_PR(CIF_DEBUG, "attr->ttl_attr.func = %p\n", attr->ttl_attr.func);
+		} else if (qm.index == DVP_SNS_CFG_TYPE_VI_CLK) {
+			attr->ttl_attr.vi0_clk = qm.value;
+			CIF_PR(CIF_DEBUG, "attr->ttl_attr.vi0_clk = %d\n", attr->ttl_attr.vi0_clk);
+		}
+	}
+
+	subcall_get_dvp_size(sensor_sd, &fse);
+	attr->img_size.width = fse.max_width;
+	attr->img_size.height = fse.max_height;
+	return 0;
+}
+
+#ifndef FPGA_PORTING
+static int cif_get_sensor_clk_input_info(struct v4l2_subdev *sd,
+	struct combo_dev_attr_s *attr, int devno)
+{
+	//struct cvi_cif_dev *dev = sd_to_dev(sd);
+	struct v4l2_subdev *sensor_sd = get_remote_sensor(sd, CIF_PAD_SNS0 + devno);
+	struct v4l2_ctrl *link_freq;
+	struct v4l2_querymenu qm = { .id = V4L2_CID_LINK_FREQ, };
+	int ret, link_num;
+
+	if (!sensor_sd) {
+		CIF_PR(CIF_ERROR, "sensor subdev is NULL!\n");
+		return -1;
+	}
+
+	CIF_PR(CIF_WARNING, "get [%s] menu info\n", sensor_sd->name);
+
+	link_freq = v4l2_ctrl_find(sensor_sd->ctrl_handler, V4L2_CID_LINK_FREQ);
+	if (!link_freq) {
+		CIF_PR(CIF_WARNING, "No pixel rate control in subdev\n");
+		return -EPIPE;
+	}
+
+	qm.index = v4l2_ctrl_g_ctrl(link_freq);
+	ret = v4l2_querymenu(sensor_sd->ctrl_handler, &qm);
+	if (ret < 0) {
+		CIF_PR(CIF_ERROR, "Failed to get sns clk menu\n");
+		return ret;
+	}
+
+	link_num = qm.value;
+	if (link_num == DVP_SNS_CFG_TYPE_MAX) {
+		// For DVP sensor
+		cif_set_dvp_from_info(sensor_sd, attr);
+	} else if (link_num == SNS_CFG_TYPE_MAX) {
+		// For MIPI sensor
+		cif_set_mipi_from_info(sensor_sd, attr);
+	}
+
+
 
 	return 0;
 }

@@ -25,6 +25,9 @@
 #include <linux/comm_cif.h>
 #include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "pr2100.h"
 
@@ -684,7 +687,7 @@ static int pr2100_identify_module(struct pr2100 *pr2100)
 	return 0;
 }
 
-static int pr2100_get_info_form_dts(struct pr2100 *pr2100, int index_id) {
+static int pr2100_get_info_from_dts(struct pr2100 *pr2100, int index_id) {
 	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
 	struct device_node *np = client->dev.of_node;
 	u32 i, ret, len, num_lanes, num_lanes_swap;
@@ -901,7 +904,7 @@ static int pr2100_init_controls(struct pr2100 *pr2100, int index_id)
 		return ret;
 	}
 
-	pr2100_get_info_form_dts(pr2100, index_id);
+	pr2100_get_info_from_dts(pr2100, index_id);
 
 	mutex_init(&pr2100->mutex);
 	ctrl_hdlr->lock = &pr2100->mutex;

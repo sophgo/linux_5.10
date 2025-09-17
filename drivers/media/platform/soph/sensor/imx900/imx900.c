@@ -25,6 +25,9 @@
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
 #include "imx900.h"
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 /* I2C per write of bits */
 #define REG_VALUE_08BIT		1
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e imx900_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int imx900_count;
+int imx900_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx900_count, 0644);
 
@@ -613,7 +616,7 @@ error:
 
 	return ret;
 }
-static int imx900_get_info_form_dts(struct imx900 *imx900, int index_id)
+static int imx900_get_info_from_dts(struct imx900 *imx900, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx900->sd);
 	struct device_node *np = client->dev.of_node;
@@ -873,7 +876,7 @@ static int imx900_init_controls(struct imx900 *imx900, int index_id)
 		return ret;
 	}
 
-	imx900_get_info_form_dts(imx900, index_id);
+	imx900_get_info_from_dts(imx900, index_id);
 
 	mutex_init(&imx900->mutex);
 	ctrl_hdlr->lock = &imx900->mutex;

@@ -66,6 +66,7 @@ struct cv186x_pcie {
 	void __iomem *top_apb_base; /* cv186x top apb base */
 	struct clk *clk;
 	int reset_gpio;
+	u16 device_id;
 };
 
 static int cv186x_pcie_reset(struct cv186x_pcie *cv186x_pcie, unsigned int ms)
@@ -114,8 +115,9 @@ static int cv186x_pcie_wait_core_clk(struct cv186x_pcie *cv186x_pcie, int timeou
 static u16 cv186x_get_chip_id(void)
 {
 	u16 chip_id;
-	void __iomem * addr = ioremap(CHIP_INFO_BASE, 0x1);
+	void __iomem *addr = ioremap(CHIP_INFO_BASE, 0x1);
 	u32 val = readl(addr)&0x7;
+
 	switch (val) {
 	case 0x1:
 		chip_id = 0x186a;
@@ -127,6 +129,10 @@ static u16 cv186x_get_chip_id(void)
 	default:
 		chip_id = 0;
 	}
+
+	iounmap(addr);
+	pr_info("dev id %x\n", chip_id);
+
 	return chip_id;
 }
 
@@ -135,17 +141,14 @@ static int cv186x_pcie_establish_link(struct cv186x_pcie *cv186x_pcie)
 	unsigned int val;
 	struct dw_pcie *pci = cv186x_pcie->pci;
 	struct pcie_port *pp = &pci->pp;
-	u16 device_id = cv186x_get_chip_id();
 
 	/* enable rc configuration write */
 	val = dw_pcie_readl_rc(pci, PCIE_RC_CFG_WRITE_REG);
 	val |= 0x1;
 	dw_pcie_writel_rc(pci, PCIE_RC_CFG_WRITE_REG, val);
 
-	if (device_id)
-		dw_pcie_writew_rc(pci, PCIE_CFG_DEVID_REG, device_id);
-
-	dw_pcie_setup_rc(pp);
+	if (cv186x_pcie->device_id)
+		dw_pcie_writew_rc(pci, PCIE_CFG_DEVID_REG, cv186x_pcie->device_id);
 
 	/* disable RC dl scale feature */
 	//val = dw_pcie_readl_rc(pci, 0x2d4);
@@ -171,6 +174,8 @@ static int cv186x_pcie_establish_link(struct cv186x_pcie *cv186x_pcie)
 	val = dw_pcie_readl_rc(pci, PCIE_RC_CFG_WRITE_REG);
 	val &= ~0x1;
 	dw_pcie_writel_rc(pci, PCIE_RC_CFG_WRITE_REG, val);
+
+	dw_pcie_setup_rc(pp);
 
 	/* enable ltssm */
 	val = readl(cv186x_pcie->sii_base + PCIE_LTSSM_REG);
@@ -366,6 +371,8 @@ static bool cv186x_pcie_controller_is_ep_enalbled(unsigned int index)
 	else
 		val &= PCIE_SEL_0;
 
+	iounmap(addr);
+
 	return val ? true : false;
 }
 
@@ -376,6 +383,7 @@ static int cv186x_pcie_controller_config(struct cv186x_pcie *cv186x_pcie,
 	unsigned int val, reset_timeout = 100;
 	unsigned int addr, idx = 0;
 	//struct dw_pcie *pci = cv186x_pcie->pci;
+
 	ret = of_property_read_u32(dev->of_node, "ctrl-index", &idx);
 	if (ret) {
 		idx = 0x0;
@@ -384,18 +392,6 @@ static int cv186x_pcie_controller_config(struct cv186x_pcie *cv186x_pcie,
 	if (cv186x_pcie_controller_is_ep_enalbled(idx)) {
 		dev_warn(dev, "PCIe EP Mode\n");
 		return -1;
-	}
-
-	cv186x_pcie->reset_gpio = of_get_named_gpio(dev->of_node, "reset-gpio", 0);
-	if (cv186x_pcie->reset_gpio < 0) {
-		dev_err(dev, "could not get pcie reset gpio\n");
-		return -1;
-	}
-
-	ret = gpio_request_one(cv186x_pcie->reset_gpio, GPIOF_OUT_INIT_LOW, "pcie-reset");
-	if (ret) {
-		dev_err(dev, "could not request gpio %d failed!\n", cv186x_pcie->reset_gpio);
-		return ret;
 	}
 
 	if (cv186x_pcie_reset(cv186x_pcie, 300)) {
@@ -409,9 +405,9 @@ static int cv186x_pcie_controller_config(struct cv186x_pcie *cv186x_pcie,
 		dev_warn(dev, "could not get pcie pipe mode, use default mode\n");
 	}
 
+	cv186x_pcie->top_apb_base = ioremap(PCIE_TOP_APB_BASE, 0x2000);
 	/* set pipe mode */
 	//b'00 pcie4 x2 && pcie2 x2
-	//b'01 pcie4 x4
 	//b'10 sata && pcie2 x2
 	val |= (readl(cv186x_pcie->top_apb_base + 0x44) & 0xfffffffC);
 	writel(val, cv186x_pcie->top_apb_base + 0x44);
@@ -477,6 +473,8 @@ static int cv186x_pcie_controller_config(struct cv186x_pcie *cv186x_pcie,
 	cv186x_pcie_sram_init(cv186x_pcie, idx);
 #endif
 
+	iounmap(cv186x_pcie->top_apb_base);
+
 	//wait_core_rstn
 	ret = cv186x_pcie_wait_core_rstn(cv186x_pcie, reset_timeout);
 	if (ret) {
@@ -487,9 +485,9 @@ static int cv186x_pcie_controller_config(struct cv186x_pcie *cv186x_pcie,
 	ret = cv186x_pcie_wait_core_clk(cv186x_pcie, reset_timeout);
 	if (ret) {
 		dev_err(dev, "core clock not ready\n");
-		return ret;
 	}
-	return 0;
+
+	return ret;
 }
 
 static const struct dw_pcie_ops dw_pcie_ops = {
@@ -517,6 +515,36 @@ static int cv186x_pcie_remove(struct platform_device *pdev)
 
 	return 0;
 }
+
+#ifdef CONFIG_PM_SLEEP
+static int cv186x_pcie_suspend(struct device *dev)
+{
+	return 0;
+}
+
+static int cv186x_pcie_resume(struct device *dev)
+{
+	struct cv186x_pcie *pcie = dev_get_drvdata(dev);
+	struct dw_pcie *pci = pcie->pci;
+
+	pr_info("pcie controller config\n");
+	cv186x_pcie_controller_config(pcie, pci->dev);
+
+	/* enable ltssm */
+	mdelay(10);
+	pr_info("pcie controller establish link\n");
+	cv186x_pcie_establish_link(pcie);
+	pr_info("pcie controller enabla interrupts\n");
+	cv186x_pcie_enable_interrupts(pcie);
+
+	return 0;
+}
+
+static struct dev_pm_ops cv186x_pcie_pm_ops = {
+	.suspend_noirq	= cv186x_pcie_suspend,
+	.resume_noirq	= cv186x_pcie_resume,
+};
+#endif
 
 static int cv186x_pcie_probe(struct platform_device *pdev)
 {
@@ -567,14 +595,24 @@ static int cv186x_pcie_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	cv186x_pcie->top_apb_base = ioremap(PCIE_TOP_APB_BASE, 0x2000);
+	cv186x_pcie->reset_gpio = of_get_named_gpio(dev->of_node, "reset-gpio", 0);
+	if (cv186x_pcie->reset_gpio < 0) {
+		dev_err(dev, "could not get pcie reset gpio\n");
+		return -1;
+	}
+
+	ret = gpio_request_one(cv186x_pcie->reset_gpio, GPIOF_OUT_INIT_LOW, "pcie-reset");
+	if (ret) {
+		dev_err(dev, "could not request gpio %d failed!\n", cv186x_pcie->reset_gpio);
+		return ret;
+	}
+
+	cv186x_pcie->device_id = cv186x_get_chip_id();
 
 	ret = cv186x_pcie_controller_config(cv186x_pcie, dev);
 	if (ret) {
 		return ret;
 	}
-
-	iounmap(cv186x_pcie->top_apb_base);
 
 	platform_set_drvdata(pdev, cv186x_pcie);
 
@@ -597,6 +635,9 @@ static struct platform_driver cv186x_pcie_driver = {
 	.driver = {
 		.name = "cv186x_pcie",
 		.of_match_table = of_match_ptr(cv186x_pcie_of_match),
+#ifdef CONFIG_PM_SLEEP
+		.pm = &cv186x_pcie_pm_ops,
+#endif
 	},
 };
 

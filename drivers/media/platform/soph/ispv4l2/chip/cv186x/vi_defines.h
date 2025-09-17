@@ -155,6 +155,7 @@ struct sop_vi_dev {
 	struct mutex			ai_isp_lock;
 	struct vi_thread_attr		vi_event_th[VI_MAX_CHN_NUM];
 	struct vi_thread_attr		vi_th[E_VI_TH_MAX];
+	atomic_t			state;
 };
 
 #ifdef __cplusplus

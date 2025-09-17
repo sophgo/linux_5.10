@@ -168,7 +168,7 @@ static void sdvt_can_read_fifo(struct net_device *dev)
 		data_fifo_avail = cdev->ops->read_reg(cdev, SDVT_CAN_RX_DATA_FIFO_AVAIL);
 
 
-	} while ((len_fifo_avail <= 0xe && data_fifo_avail <= 0x73));
+	} while (len_fifo_avail <= 0xe);
 }
 
 static int sdvt_can_do_rx_poll(struct net_device *dev, int quota, struct sdvt_can_command *cmd_o)

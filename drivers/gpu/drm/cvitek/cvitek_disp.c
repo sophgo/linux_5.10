@@ -17,6 +17,7 @@
 #include <drm/drm_vblank.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_debugfs.h>
+#include <drm/drm_plane.h>
 
 #include "cvitek_vo_sys_reg.h"
 #include "cvitek_drm.h"
@@ -508,7 +509,6 @@ bool disp_check_tgen_enable(u8 inst)
 
 static void ddr_retrain(int disp_id, union disp_intr intr_status)
 {
-
 	static struct timespec64 disp_last_overlap_time;
 	static const u8 disp_fps_table[DISP_FPS_TABLE_CNT] = {24, 25, 30, 48, 50, 60};
 	static const u16 disp_margin_table[DISP_FPS_TABLE_CNT] = {489, 460, 345, 129, 115, 57};
@@ -980,6 +980,10 @@ void disp_gop_set_cfg(struct disp_hw_ctx *ctx, u8 layer, struct disp_gop_cfg *cf
 
 	_reg_write(REG_DISP_GOP_CFG(ctx->disp_id, layer), cfg->gop_ctrl.raw);
 
+
+	if (cfg->gop_ctrl.b.colorkey_en)
+		_reg_write(REG_DISP_GOP_COLORKEY(ctx->disp_id, layer), cfg->colorkey);
+
 	disp_reg_set_shadow_mask(ctx, false);
 }
 
@@ -1026,8 +1030,8 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 		if (IS_ERR(crtc_state))
 			return PTR_ERR(crtc_state);
 
-		if (crtc_x + crtc_w > crtc_state->adjusted_mode.hdisplay ||
-			crtc_y + crtc_h > crtc_state->adjusted_mode.vdisplay) {
+		if (((crtc_x + crtc_w) > crtc_state->adjusted_mode.hdisplay) ||
+			((crtc_y + crtc_h) > crtc_state->adjusted_mode.vdisplay)) {
 			DRM_ERROR("out of range :\n");
 			DRM_ERROR("\tcrtc_x(%d) + crtc_w(%d) > crtc_state->adjusted_mode.hdisplay(%d)\n",
 						crtc_x, crtc_w, crtc_state->adjusted_mode.hdisplay);
@@ -1090,7 +1094,7 @@ static void disp_set_bw_cfg(u32 fmt, unsigned int crtc_w, u32 disp_id)
 }
 
 static void disp_update_channel(struct cvitek_plane *cplane,
-				   enum drm_plane_type type,
+			       enum drm_plane_type type,
 			       struct drm_framebuffer *fb, int crtc_x,
 			       int crtc_y, unsigned int crtc_w,
 			       unsigned int crtc_h, u32 src_x,
@@ -1104,6 +1108,7 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 	u64 addr;
 	u32 fmt, i, bytesperpixel;
 	enum drm_intf intf;
+	u8 hscl = 0, vscl = 0, ow_c;
 
 #if defined(CONFIG_CVITEK_DRM_DEBUG)
 	memset(&ctx->debugfs_disp_state[disp_id].dump_info, 0, sizeof(struct disp_dump_info));
@@ -1140,8 +1145,8 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			disp_set_mem(ctx, &ctx->disp_cfg.mem);
 
 			//now only support ow_0
-			ctx->disp_cfg.gop_cfg.gop_ctrl.b.ow0_en = 1;
-			ctx->disp_cfg.gop_cfg.gop_ctrl.b.burst = 15;  // burst length set to 15
+			ctx->disp_cfg.gop_cfg[0].gop_ctrl.b.ow0_en = 1;
+			ctx->disp_cfg.gop_cfg[0].gop_ctrl.b.burst = 15;  // burst length set to 15
 
 			cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
 			addr = cma_obj->paddr + fb->offsets[0];
@@ -1153,22 +1158,22 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			ctx->debugfs_disp_state[disp_id].dump_info.primary_xr24 = true;
 #endif
 			//ow_0
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].fmt = fmt;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].addr = addr;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].pitch = fb->pitches[0];
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x = crtc_x;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y = crtc_y;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w = crtc_w;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h = crtc_h;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].end.x = crtc_x + crtc_w;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].end.y = crtc_y + crtc_h;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.w = ALIGN(ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].fmt = fmt;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].addr = addr;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].pitch = fb->pitches[0];
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].start.x = crtc_x;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].start.y = crtc_y;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].img_size.w = crtc_w;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].img_size.h = crtc_h;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].end.x = crtc_x + crtc_w;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].end.y = crtc_y + crtc_h;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].mem_size.w = ALIGN(ctx->disp_cfg.gop_cfg[0].ow_cfg[0].img_size.w
 				* 4, 16);
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.h = crtc_h;
+			ctx->disp_cfg.gop_cfg[0].ow_cfg[0].mem_size.h = crtc_h;
 
-			disp_gop_ow_set_cfg(ctx, 0, /*ow_0*/0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
+			disp_gop_ow_set_cfg(ctx, 0, /*ow_0*/0, &ctx->disp_cfg.gop_cfg[0].ow_cfg[0]);
 
-			disp_gop_set_cfg(ctx, 0, &ctx->disp_cfg.gop_cfg);
+			disp_gop_set_cfg(ctx, 0, &ctx->disp_cfg.gop_cfg[0]);
 		} else {
 			_reg_write_mask(REG_DISP_CFG(disp_id), 0xf000,
 							fmt << 12);
@@ -1229,11 +1234,10 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			disp_set_mem(ctx, &ctx->disp_cfg.mem);
 		}
 	} else {
-		//now only support ow_0
 		ctx->disp_vgop_status[ch - 1] = 1;
-
-		ctx->disp_cfg.gop_cfg.gop_ctrl.b.ow0_en = 1;
-		ctx->disp_cfg.gop_cfg.gop_ctrl.b.burst = 15;
+		ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.burst = 15;
+		hscl = ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.hscl_en;
+		vscl = ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.vscl_en;
 
 		cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
 		addr = cma_obj->paddr + fb->offsets[0];
@@ -1246,54 +1250,63 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 		ctx->debugfs_disp_state[disp_id].dump_info.pitches[0] = fb->pitches[0];
 		ctx->debugfs_disp_state[disp_id].dump_info.overlay = true;
 #endif
-		//ow_0
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].fmt = fmt;
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].addr = addr;
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].pitch = fb->pitches[0];
+
+		if (!(ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.raw & 0xff)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.raw |= 1;
+			ow_c = 0;
+		}
+
+		ow_c = ctx->disp_cfg.gop_cfg[ch - 1].ow_fb_id;
 
 		if (crtc_x < 0) {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x = 0;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w = crtc_w;
-		} else if (crtc_x + crtc_w > ctx->disp_timing.width) {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x = crtc_x - 1;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w = ctx->disp_timing.width - crtc_x + 1;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = 0;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = crtc_w;
+		} else if (((crtc_x + crtc_w) > ctx->disp_timing.width)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = crtc_x - 1;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = ctx->disp_timing.width - crtc_x + 1;
 		} else {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x = crtc_x;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w = crtc_w;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = crtc_x;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = crtc_w;
 		}
 
 		if (crtc_y < 0) {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y = 0;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].addr -= ctx->disp_cfg.gop_cfg.ow_cfg[0].pitch * crtc_y;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h = crtc_h + crtc_y;
-		} else if ((crtc_y + crtc_h) > ctx->disp_timing.height) {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y = crtc_y;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h = ctx->disp_timing.height - crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = 0;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].addr -= ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].pitch * crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h + crtc_y;
+		} else if (((crtc_y + crtc_h) > ctx->disp_timing.height)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = ctx->disp_timing.height - crtc_y;
 		} else {
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y = crtc_y;
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h = crtc_h;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h;
 		}
 
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].end.x = ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x
-				+ ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w;
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].end.y = ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y
-				+ ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h;
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.w = ALIGN(ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w
-				* bytesperpixel, 16);
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h = crtc_h;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].fmt = fmt;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].addr = addr;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].pitch = fb->pitches[0];
 
-		ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.h = crtc_h;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.x = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x +
+			(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w << hscl) - hscl;
 
-		disp_gop_ow_set_cfg(ctx, ch - 1, /*ow_0*/0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.y = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y +
+			(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h << vscl) - vscl;
 
-		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg);
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.w =
+			ALIGN(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w * bytesperpixel, 16);
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h;
+
+		disp_gop_ow_set_cfg(ctx, ch - 1, ow_c, &ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c]);
 
 		DRM_DEBUG_DRIVER("channel%d:imgsize(%d,%d) mem_size:(%d, %d)",
-			ch, ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w, ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h,
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.w, ctx->disp_cfg.gop_cfg.ow_cfg[0].mem_size.h);
-		DRM_DEBUG_DRIVER("channel%d: vgop:(%d, %d)-%dx%d end(%d, %d) fmt:(%d)",
-			ch, ctx->disp_cfg.gop_cfg.ow_cfg[0].start.x, ctx->disp_cfg.gop_cfg.ow_cfg[0].start.y,
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.w, ctx->disp_cfg.gop_cfg.ow_cfg[0].img_size.h,
-			ctx->disp_cfg.gop_cfg.ow_cfg[0].end.x, ctx->disp_cfg.gop_cfg.ow_cfg[0].end.y, fmt);
+		ch, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h);
+		DRM_DEBUG_DRIVER("channel%d: vgop(%d):(%d, %d)-%dx%d end(%d, %d) fmt:(%d)",
+		ch, ow_c, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.x, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.y, fmt);
+
+		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg[ch - 1]);
 	}
 
 	intf = disp_id ? DRM_INTF_DISP1 : DRM_INTF_DISP0;
@@ -1365,15 +1378,19 @@ static void disp_plane_atomic_disable(struct drm_plane *plane,
 		disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 		disp_enable_window_bgcolor(ctx->disp_id, true);
 		if (ctx->disp_vgop_status[primary_plane] == 1) {
-			memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
-			disp_gop_set_cfg(ctx, primary_plane, &ctx->disp_cfg.gop_cfg);
-			disp_gop_ow_set_cfg(ctx, primary_plane, 0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
+			memset(&ctx->disp_cfg.gop_cfg[0], 0, sizeof(struct disp_gop_cfg));
+			disp_gop_set_cfg(ctx, primary_plane, &ctx->disp_cfg.gop_cfg[0]);
+			disp_gop_ow_set_cfg(ctx, primary_plane, 0, &ctx->disp_cfg.gop_cfg[0].ow_cfg[0]);
 			ctx->disp_vgop_status[primary_plane] = 0;
 		}
 	} else {
-		memset(&ctx->disp_cfg.gop_cfg, 0, sizeof(struct disp_gop_cfg));
-		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg);
-		disp_gop_ow_set_cfg(ctx, ch - 1, 0, &ctx->disp_cfg.gop_cfg.ow_cfg[0]);
+		memset(&ctx->disp_cfg.gop_cfg[ch - 1], 0, sizeof(struct disp_gop_cfg));
+
+		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg[ch - 1]);
+		for (i = 0; i < DISP_MAX_GOP_OW_INST; i++)
+			disp_gop_ow_set_cfg(ctx, ch - 1, i,
+					&ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[i]);
+
 		ctx->disp_vgop_status[ch - 1] = 0;
 	}
 
@@ -1394,7 +1411,45 @@ static int cvitek_atomic_plane_set_property(struct drm_plane *plane,
 					 struct drm_property *property,
 					 uint64_t val)
 {
-	return 0;
+	struct cvitek_plane *cplane = to_cvitek_plane(plane);
+	struct disp_hw_ctx *ctx = cplane->hw_ctx;
+	struct disp_cfg *disp_cfg = &ctx->disp_cfg;
+	u32 ch = cplane->ch;
+
+	if (property == cplane->osd_en_prop) {
+		disp_cfg->gop_cfg[ch - 1].gop_ctrl.raw |= (val & 0xff);
+		return 0;
+	}
+
+	if (property == cplane->osd_colorkey_en_prop) {
+		disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.colorkey_en = val;
+		return 0;
+	}
+
+	if (property == cplane->osd_hscl_prop) {
+		disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.hscl_en = val;
+		return 0;
+	}
+
+	if (property == cplane->osd_vscl_prop) {
+		disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.vscl_en = val;
+		return 0;
+	}
+
+	if (property == cplane->osd_colorkey_prop) {
+		disp_cfg->gop_cfg[ch - 1].colorkey = val;
+		return 0;
+	}
+
+	if (property == cplane->ow_fb_id_prop) {
+		disp_cfg->gop_cfg[ch - 1].ow_fb_id = val;
+		return 0;
+	}
+
+	DRM_ERROR("failed to set cvitek plane property id:%d, name:%s\n",
+			property->base.id, property->name);
+
+	return -EINVAL;
 }
 
 static int cvitek_atomic_plane_get_property(struct drm_plane *plane,
@@ -1402,7 +1457,45 @@ static int cvitek_atomic_plane_get_property(struct drm_plane *plane,
 					 struct drm_property *property,
 					 uint64_t *val)
 {
-	return 0;
+	struct cvitek_plane *cplane = to_cvitek_plane(plane);
+	struct disp_hw_ctx *ctx = cplane->hw_ctx;
+	struct disp_cfg *disp_cfg = &ctx->disp_cfg;
+	u32 ch = cplane->ch;
+
+	if (property == cplane->osd_en_prop) {
+		*val = (disp_cfg->gop_cfg[ch - 1].gop_ctrl.raw & 0xFF);
+		return 0;
+	}
+
+	if (property == cplane->osd_colorkey_en_prop) {
+		*val = disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.colorkey_en;
+		return 0;
+	}
+
+	if (property == cplane->osd_hscl_prop) {
+		*val = disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.hscl_en;
+		return 0;
+	}
+
+	if (property == cplane->osd_vscl_prop) {
+		*val = disp_cfg->gop_cfg[ch - 1].gop_ctrl.b.vscl_en;
+		return 0;
+	}
+
+	if (property == cplane->osd_colorkey_prop) {
+		*val = disp_cfg->gop_cfg[ch - 1].colorkey;
+		return 0;
+	}
+
+	if (property == cplane->ow_fb_id_prop) {
+		*val = disp_cfg->gop_cfg[ch - 1].ow_fb_id;
+		return 0;
+	}
+
+	DRM_ERROR("failed to get cvitek plane property id:%d, name:%s\n",
+			property->base.id, property->name);
+
+	return -EINVAL;
 }
 
 static int disp_gamma_show(struct seq_file *s, void *data)
@@ -1455,7 +1548,7 @@ static int disp_debugfs_dump(struct drm_crtc *crtc, struct seq_file *s)
 	struct disp_hw_ctx *ctx;
 	bool interlaced;
 	struct drm_plane_state *state;
-	int i;
+	int i, j;
 
 	ccrtc = to_cvitek_crtc(crtc);
 	if(!ccrtc)
@@ -1505,6 +1598,24 @@ static int disp_debugfs_dump(struct drm_crtc *crtc, struct seq_file *s)
 		    state->crtc_y, (state->crtc_y + state->src_h >= state->crtc_h) ?
 			0 : (state->crtc_h - (state->crtc_y + state->src_h)));
 
+	/*dump plane property info */
+	for(j = 0; j < CVITEK_MAX_PLANE - 1; j++) {
+		DRM_INFO("\tVGOP(%d):\n",j);
+		for(i = 0; i < DISP_MAX_GOP_OW_INST; i++) {
+			if(ctx->disp_cfg.gop_cfg[j].gop_ctrl.raw & (1 << i)) {
+				DRM_INFO("\t\tOSD(%d), imgsize: %dx%d, memsize: %dx%d, start:(%d, %d), end(%d, %d)\n",
+				i,
+				ctx->disp_cfg.gop_cfg[j].ow_cfg[i].img_size.w, ctx->disp_cfg.gop_cfg[j].ow_cfg[i].img_size.h,
+				ctx->disp_cfg.gop_cfg[j].ow_cfg[i].mem_size.w, ctx->disp_cfg.gop_cfg[j].ow_cfg[i].mem_size.h,
+				ctx->disp_cfg.gop_cfg[j].ow_cfg[i].start.x, ctx->disp_cfg.gop_cfg[j].ow_cfg[i].start.y,
+				ctx->disp_cfg.gop_cfg[j].ow_cfg[i].end.x, ctx->disp_cfg.gop_cfg[j].ow_cfg[i].end.y);
+			}
+		}
+		DRM_INFO("\t\tOSD HSCL:%s\n", ctx->disp_cfg.gop_cfg[j].gop_ctrl.b.hscl_en ? "Enable" : "Disable");
+		DRM_INFO("\t\tOSD VHSCL:%s\n", ctx->disp_cfg.gop_cfg[j].gop_ctrl.b.vscl_en ? "Enable" : "Disable");
+		DRM_INFO("\t\tCOLORLEY_EN:%s\n", ctx->disp_cfg.gop_cfg[j].gop_ctrl.b.colorkey_en ? "Enable" : "Disable");
+		DRM_INFO("\t\tCOLORKEY:%d\n", ctx->disp_cfg.gop_cfg[j].colorkey);
+	}
 	return 0;
 }
 
@@ -1698,6 +1809,60 @@ static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device 
 	return 0;
 }
 
+static int cvitek_create_plane_properties(struct drm_device *dev, struct drm_plane *plane)
+{
+	struct cvitek_plane *cplane = to_cvitek_plane(plane);
+
+	if (!dev) {
+		DRM_ERROR("DRM device pointer is NULL\n");
+		return -EINVAL;
+	}
+
+	cplane->osd_en_prop = drm_property_create_range(dev, 0, "OSD_EN", 0, 0xFF);
+	if (!cplane->osd_en_prop) {
+		DRM_ERROR("%s: osd_en_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->osd_en_prop, 0);
+
+	cplane->osd_colorkey_en_prop = drm_property_create_bool(dev, 0, "OSD_COLORKEY_EN");
+	if (!cplane->osd_colorkey_en_prop) {
+		DRM_ERROR("%s: osd_colorkey_en_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->osd_colorkey_en_prop, 0);
+
+	cplane->ow_fb_id_prop = drm_property_create_range(dev, 0, "OW_FB_ID", 0, 0xFF);
+	if (!cplane->ow_fb_id_prop) {
+		DRM_ERROR("%s: ow_fb_id_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->ow_fb_id_prop, 0);
+
+	cplane->osd_hscl_prop = drm_property_create_bool(dev, 0, "OSD_HSCL");
+	if (!cplane->osd_hscl_prop) {
+		DRM_ERROR("%s: osd_hscl_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->osd_hscl_prop, 0);
+
+	cplane->osd_vscl_prop = drm_property_create_bool(dev, 0, "OSD_VSCL");
+	if (!cplane->osd_vscl_prop) {
+		DRM_ERROR("%s: osd_vscl_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->osd_vscl_prop, 0);
+
+	cplane->osd_colorkey_prop = drm_property_create_range(dev, 0, "OSD_COLORKEY", 0, 0xFFFFFF);
+	if (!cplane->osd_colorkey_prop) {
+		DRM_ERROR("%s: osd_colorkey_en_prop create failed \n", __func__);
+		return -EINVAL;
+	}
+	drm_object_attach_property(&cplane->base.base, cplane->osd_colorkey_prop, 0);
+
+	return 0;
+}
+
 static int cvitek_drm_plane_init(struct drm_device *dev, struct drm_plane *plane,
 				enum drm_plane_type type,
 				const struct disp_match_data *data)
@@ -1714,6 +1879,14 @@ static int cvitek_drm_plane_init(struct drm_device *dev, struct drm_plane *plane
 	}
 
 	drm_plane_helper_add(plane, data->plane_helper_funcs);
+
+	/* add plane property */
+	if (type != DRM_PLANE_TYPE_PRIMARY) {
+		if (cvitek_create_plane_properties(dev, plane)) {
+			DRM_ERROR("%s: cvitek_create_plane_properties failed\n", __func__);
+			return -EINVAL;
+		}
+	}
 
 	return 0;
 }

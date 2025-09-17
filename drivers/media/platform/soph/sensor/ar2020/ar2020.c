@@ -25,6 +25,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "ar2020.h"
 
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e ar2020_wdr_mode = MIPI_WDR_MODE_NONE;
 
-volatile int ar2020_count;
+int ar2020_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &ar2020_count, 0644);
 
@@ -564,7 +567,7 @@ error:
 	return ret;
 }
 
-static int ar2020_get_info_form_dts(struct ar2020 *ar2020, int index_id)
+static int ar2020_get_info_from_dts(struct ar2020 *ar2020, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&ar2020->sd);
 	struct device_node *np = client->dev.of_node;
@@ -812,7 +815,7 @@ static int ar2020_init_controls(struct ar2020 *ar2020, int index_id)
 		return ret;
 	}
 
-	ar2020_get_info_form_dts(ar2020, index_id);
+	ar2020_get_info_from_dts(ar2020, index_id);
 
 	mutex_init(&ar2020->mutex);
 	ctrl_hdlr->lock = &ar2020->mutex;

@@ -723,7 +723,38 @@ static int i2c_dw_init_recovery_info(struct dw_i2c_dev *dev)
 	struct i2c_bus_recovery_info *rinfo = &dev->rinfo;
 	struct i2c_adapter *adap = &dev->adapter;
 	struct gpio_desc *gpio;
+#ifdef CONFIG_ARCH_CVITEK
+	int ret;
+	u32 pinmux_data[3];
 
+	ret = device_property_read_u32_array(dev->dev, "scl,pinmux", pinmux_data, 3);
+	if (ret) {
+		dev_dbg(dev->dev, "can't read pinmux config, ret=%d\n", ret);
+	} else {
+		rinfo->scl_reg_addr = pinmux_data[0];	//pinmux base addr
+		rinfo->scl_func_val = pinmux_data[1];	//func value
+		rinfo->scl_gpio_val = pinmux_data[2];	//gpio value
+
+		// remap pinmux reg
+		rinfo->scl_reg = ioremap(rinfo->scl_reg_addr, sizeof(u32));
+		if (!rinfo->scl_reg)
+			dev_dbg(dev->dev, "Fail remap rinfo->scl_reg\n");
+	}
+
+	ret = device_property_read_u32_array(dev->dev, "sda,pinmux", pinmux_data, 3);
+	if (ret) {
+		dev_dbg(dev->dev, "can't read pinmux config, ret=%d\n", ret);
+	} else {
+		rinfo->sda_reg_addr = pinmux_data[0];	//pinmux base addr
+		rinfo->sda_func_val = pinmux_data[1];	//func value
+		rinfo->sda_gpio_val = pinmux_data[2];	//gpio value
+
+		// remap pinmux reg
+		rinfo->sda_reg = ioremap(rinfo->sda_reg_addr, sizeof(u32));
+		if (!rinfo->sda_reg)
+			dev_dbg(dev->dev, "Fail remap rinfo->sda_reg\n");
+	}
+#endif
 	gpio = devm_gpiod_get_optional(dev->dev, "scl", GPIOD_OUT_HIGH);
 	if (IS_ERR_OR_NULL(gpio))
 		return PTR_ERR_OR_ZERO(gpio);

@@ -320,7 +320,7 @@ static const struct file_operations cif_proc_fops = {
 
 static struct proc_dir_entry *cif_proc_entry;
 
-static int cvi_cif_probe(struct platform_device *pdev)
+static int cif_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct cvi_cif_dev *dev;
@@ -360,7 +360,7 @@ static int cvi_cif_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int cvi_cif_remove(struct platform_device *pdev)
+static int cif_remove(struct platform_device *pdev)
 {
 	struct cvi_cif_dev *dev;
 
@@ -390,6 +390,65 @@ static int cvi_cif_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int cif_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct cvi_cif_dev *cif_dev = NULL;
+	int i = 0;
+
+	if (!pdev) {
+		dev_err(&pdev->dev, "invalid param");
+		return -EINVAL;
+	}
+
+	cif_dev = dev_get_drvdata(&pdev->dev);
+	if (!cif_dev) {
+		dev_err(&pdev->dev, "Can not get cif drvdata");
+		return -EINVAL;
+	}
+
+	for (i = 0; i < MAX_LINK_NUM; i++) {
+		struct cvi_link *link = &cif_dev->link[i];
+
+		if (link->is_on) {
+			cif_mask_csi_int_sts(&link->cif_ctx, 0x1F);
+			_cif_enable_snsr_clk(cif_dev, i, 0);
+		}
+	}
+
+	dev_info(&pdev->dev, "cif suspend done\n");
+
+	return 0;
+}
+
+static int cif_resume(struct platform_device *pdev)
+{
+	struct cvi_cif_dev *cif_dev = NULL;
+	int i = 0;
+
+	if (!pdev) {
+		dev_err(&pdev->dev, "invalid param");
+		return -EINVAL;
+	}
+
+	cif_dev = dev_get_drvdata(&pdev->dev);
+	if (!cif_dev) {
+		dev_err(&pdev->dev, "Can not get cif drvdata");
+		return -EINVAL;
+	}
+
+	for (i = 0; i < MAX_LINK_NUM; i++) {
+		struct cvi_link *link = &cif_dev->link[i];
+
+		if (link->is_on) {
+			cif_set_dev_attr(cif_dev, &link->attr);
+			_cif_enable_snsr_clk(cif_dev, i, 1);
+		}
+	}
+
+	dev_info(&pdev->dev, "cif resume done\n");
+
+	return 0;
+}
 static const struct of_device_id cvi_cif_dt_match[] = {
 	{.compatible = "cvitek,cif_v4l2"},
 	{}
@@ -407,8 +466,10 @@ static struct platform_device cvi_cif_pdev = {
 #endif
 
 static struct platform_driver cvi_cif_pdrv = {
-	.probe      = cvi_cif_probe,
-	.remove     = cvi_cif_remove,
+	.probe      = cif_probe,
+	.remove     = cif_remove,
+	.suspend    = cif_suspend,
+	.resume     = cif_resume,
 	.driver     = {
 		.name		= "cif_v4l2",
 		.owner		= THIS_MODULE,

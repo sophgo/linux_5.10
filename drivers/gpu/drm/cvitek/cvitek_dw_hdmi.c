@@ -537,6 +537,7 @@ static int dw_hdmi_cvitek_resume(struct device *dev)
 {
 	struct cvitek_hdmi *hdmi = dev_get_drvdata(dev);
 
+	mipipll_clk_set(hdmi->vm.pixelclock / 1000);
 	dw_hdmi_resume(hdmi->hdmi);
 	pm_runtime_get_sync(dev);
 

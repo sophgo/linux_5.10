@@ -26,6 +26,9 @@
 #include <linux/comm_cif.h>
 #include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "lt6911.h"
 
@@ -53,7 +56,7 @@ int LT6911_SNS_TYPE_SDR = V4L2_LONTIUM_MIPI_LT6911_8M_60FPS_8BIT;
 
 static const enum mipi_wdr_mode_e lt6911_wdr_mode = MIPI_WDR_MODE_NONE;
 
-volatile int lt6911_count;
+int lt6911_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &lt6911_count, 0644);
 
@@ -699,7 +702,7 @@ error:
 	return ret;
 }
 
-static int lt6911_get_info_form_dts(struct lt6911 *lt6911, int index_id)
+static int lt6911_get_info_from_dts(struct lt6911 *lt6911, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&lt6911->sd);
 	struct device_node *np = client->dev.of_node;
@@ -859,8 +862,6 @@ static long lt6911_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 		if (hdr_on)
 			dev_warn(&client->dev, "Not support HDR!\n");
-		else
-			memcpy(lt6911->cur_mode, &supported_modes[0], sizeof(struct lt6911_mode));
 
 		lt6911_update_link_menu(lt6911);
 		break;
@@ -943,7 +944,7 @@ static int lt6911_init_controls(struct lt6911 *lt6911, int index_id)
 	ctrl_hdlr = &lt6911->ctrl_handler;
 	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
 
-	lt6911_get_info_form_dts(lt6911, index_id);
+	lt6911_get_info_from_dts(lt6911, index_id);
 
 	if (ret) {
 		dev_err(&client->dev, "%s ctrl handler init failed (%d)\n",

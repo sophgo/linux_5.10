@@ -5292,6 +5292,12 @@ int stmmac_resume(struct device *dev)
 	stmmac_free_tx_skbufs(priv);
 	stmmac_clear_descriptors(priv);
 
+	if (ndev->phydev->drv->config_init) {
+		if (ndev->phydev->phy_id == MAXIO_PHY_MAE0621A_Q2C_ID || ndev->phydev->phy_id == MAXIO_PHY_MAE0621A_Q3C_ID) {
+			ndev->phydev->drv->config_init(ndev->phydev);
+		}
+	}
+
 	stmmac_hw_setup(ndev, false);
 	stmmac_init_coalesce(priv);
 	stmmac_set_rx_mode(ndev);

@@ -25,6 +25,9 @@
 #include <linux/comm_cif.h>
 #include <linux/comm_vi.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "nc021.h"
 /* I2C per write of bits */
@@ -44,7 +47,7 @@
 
 static const enum mipi_wdr_mode_e nc021_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int nc021_count;
+int nc021_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &nc021_count, 0644);
 
@@ -633,7 +636,7 @@ error:
 	return ret;
 }
 
-static int nc021_get_info_form_dts(struct nc021 *nc021, int index_id)
+static int nc021_get_info_from_dts(struct nc021 *nc021, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&nc021->sd);
 	struct device_node *np = client->dev.of_node;
@@ -877,7 +880,7 @@ static int nc021_init_controls(struct nc021 *nc021, int index_id)
 		return ret;
 	}
 
-	nc021_get_info_form_dts(nc021, index_id);
+	nc021_get_info_from_dts(nc021, index_id);
 
 	mutex_init(&nc021->mutex);
 	ctrl_hdlr->lock = &nc021->mutex;
