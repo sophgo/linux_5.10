@@ -283,9 +283,10 @@ static void __maybe_unused clrsetbits(void __iomem *reg, u32 clrval,
 }
 
 struct cv186x_thermal_zone {
-    unsigned int ch;
-    void __iomem *base;
-    struct cv186x_thermal *ct;
+	unsigned int ch;
+	void __iomem *base;
+	struct cv186x_thermal *ct;
+	struct thermal_zone_device *tz;
 };
 
 struct cv186x_thermal {
@@ -402,8 +403,43 @@ static int cv186x_read_temp(void *data, int *temperature)
 	return 0;
 }
 
+static int cv186x_thermctl_get_trend(void *data, int trip,
+				    enum thermal_trend *trend)
+{
+	struct cv186x_thermal_zone *zone = data;
+	struct thermal_zone_device *tz = zone->tz;
+	int trip_temp, temp, last_temp, hyst = 0, ret;
+
+	if (!tz)
+		return -EINVAL;
+
+	ret = tz->ops->get_trip_temp(zone->tz, trip, &trip_temp);
+	if (ret)
+		return ret;
+
+	if (tz->ops->get_trip_hyst)
+		tz->ops->get_trip_hyst(tz, trip, &hyst);
+
+	temp = READ_ONCE(tz->temperature);
+	last_temp = READ_ONCE(tz->last_temperature);
+
+	if (temp > trip_temp) {
+		if (temp >= last_temp)
+			*trend = THERMAL_TREND_RAISING;
+		else
+			*trend = THERMAL_TREND_STABLE;
+	} else if (temp < (trip_temp - hyst)) {
+		*trend = THERMAL_TREND_DROPPING;
+	} else {
+		*trend = THERMAL_TREND_STABLE;
+	}
+
+	return 0;
+}
+
 static const struct thermal_zone_of_device_ops cv186x_thermal_ops = {
-    .get_temp = cv186x_read_temp,
+	.get_temp = cv186x_read_temp,
+	.get_trend = cv186x_thermctl_get_trend,
 };
 
 static const struct of_device_id cv186x_thermal_of_match[] = {
@@ -474,6 +510,8 @@ static int cv186x_thermal_probe(struct platform_device *pdev)
             dev_err(&pdev->dev, "failed to register thermal zone %d\n", i);
             return PTR_ERR(tz);
         }
+
+	ctz->tz = tz;
     }
 
     return 0;
