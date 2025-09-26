@@ -206,6 +206,7 @@ struct dw_spi_mmio {
 	struct dw_spi  dws;
 	struct clk     *clk;
 	struct clk     *pclk;
+	struct clk     *clk_sf;
 	void           *priv;
 	struct reset_control *rstc;
 };

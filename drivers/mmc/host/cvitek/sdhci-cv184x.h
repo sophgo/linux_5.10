@@ -35,6 +35,7 @@
 #define PINMUX_BASE 0x03001000
 #define CLKGEN_BASE 0x03002000
 
+#define CLOCK_BYPASS_SELECT_REGISTER (0x3002108)
 
 #define CVI_CV184X_SDHCI_VENDOR_OFFSET		0x200
 #define CVI_CV184X_SDHCI_VENDOR_MSHC_CTRL_R	(CVI_CV184X_SDHCI_VENDOR_OFFSET + 0x0)
@@ -91,7 +92,6 @@ struct sdhci_cvi_host {
 	u8 final_tap;
 	u8 sdio0_voltage_1_8_v;
 	int sd_save_count;
-	struct clk *clk_sdhci;
 	struct mmc_gpio *cvi_gpio;
 	struct delayed_work cd_debounce_work;
 	spinlock_t cd_debounce_lock;

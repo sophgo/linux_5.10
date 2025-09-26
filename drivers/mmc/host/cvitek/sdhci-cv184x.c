@@ -681,6 +681,7 @@ retry_tuning:
 static void sdhci_cv184x_emmc_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -717,14 +718,20 @@ static void sdhci_cv184x_emmc_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV184X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV184X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 
 static void sdhci_cv184x_sd_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -756,14 +763,20 @@ static void sdhci_cv184x_sd_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV184X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV184X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 
 static void sdhci_cv184x_sdio_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -803,8 +816,13 @@ static void sdhci_cv184x_sdio_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV184X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV184X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 
@@ -1284,15 +1302,24 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 		pr_warn("can't not find clkname %s with compatible %s\n", clkname, match->compatible);
 
 	if (clkname) {
-		cvi_host->clk_sdhci = devm_clk_get(&pdev->dev, clkname);
-		if (IS_ERR(cvi_host->clk_sdhci)) {
-			pr_err("failed to retrieve %s, ret %d\n", clkname, PTR_ERR(cvi_host->clk_sdhci));
-			cvi_host->clk_sdhci = NULL;
+		cvi_host->clk = devm_clk_get(&pdev->dev, clkname);
+		if (IS_ERR(cvi_host->clk)) {
+			pr_err("failed to retrieve %s, ret %d\n", clkname, PTR_ERR(cvi_host->clk));
+			cvi_host->clk = NULL;
+			goto pltfm_free;
 		}
 
-		if (clk_get_rate(cvi_host->clk_sdhci) != host->mmc->f_src)
-			clk_set_rate(cvi_host->clk_sdhci, host->mmc->f_src);
+		if (clk_get_rate(cvi_host->clk) != host->mmc->f_src)
+			clk_set_rate(cvi_host->clk, host->mmc->f_src);
+		clk_prepare_enable(cvi_host->clk);
 
+		cvi_host->clkaxi = devm_clk_get(&pdev->dev, "clk_axi");
+		if (IS_ERR(cvi_host->clkaxi)) {
+			pr_err("failed to retrieve %s, ret %d\n", "clk_axi", PTR_ERR(cvi_host->clkaxi));
+			cvi_host->clkaxi = NULL;
+			goto pltfm_free;
+		}
+		clk_prepare_enable(cvi_host->clkaxi);
 	}
 
 	sdhci_get_of_property(pdev);
@@ -1379,6 +1406,8 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 err_add_host:
 pltfm_free:
 	sdhci_pltfm_free(pdev);
+	clk_disable_unprepare(cvi_host->clk);
+	clk_disable_unprepare(cvi_host->clkaxi);
 	return ret;
 }
 
@@ -1389,6 +1418,8 @@ static int sdhci_cvi_remove(struct platform_device *pdev)
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 	int dead = (readl_relaxed(host->ioaddr + SDHCI_INT_STATUS) == 0xffffffff);
 
+	clk_disable_unprepare(cvi_host->clk);
+	clk_disable_unprepare(cvi_host->clkaxi);
 	sdhci_remove_host(host, dead);
 	sdhci_pltfm_free(pdev);
 
@@ -1409,7 +1440,8 @@ static int sdhci_cvi_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
-	clk_disable_unprepare(pltfm_host->clk);
+	clk_disable_unprepare(cvi_host->clk);
+	clk_disable_unprepare(cvi_host->clkaxi);
 
 	return 0;
 }
@@ -1421,10 +1453,13 @@ static int sdhci_cvi_resume(struct device *dev)
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	int ret;
 
-	ret = clk_prepare_enable(pltfm_host->clk);
+	ret = clk_prepare_enable(cvi_host->clk);
 	if (ret)
 		return ret;
 
+	ret = clk_prepare_enable(cvi_host->clkaxi);
+	if (ret)
+		return ret;
 	ret = sdhci_resume_host(host);
 	if (ret)
 		goto disable_clk;
@@ -1432,7 +1467,8 @@ static int sdhci_cvi_resume(struct device *dev)
 	return 0;
 
 disable_clk:
-	clk_disable_unprepare(pltfm_host->clk);
+	clk_disable_unprepare(cvi_host->clk);
+	clk_disable_unprepare(cvi_host->clkaxi);
 
 	return ret;
 }

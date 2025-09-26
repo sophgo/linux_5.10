@@ -115,6 +115,20 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 		return PTR_ERR(host->regbase);
 	}
 
+	host->clk = devm_clk_get(&pdev->dev, "clk_nand");
+	if (IS_ERR(host->clk)) {
+		dev_err(&pdev->dev, "devm_clk_get clk_nand failed\n");
+		return PTR_ERR(host->clk);
+	}
+	clk_prepare_enable(host->clk);
+
+	host->axi_clk = devm_clk_get(&pdev->dev, "clk_axi");
+	if (IS_ERR(host->axi_clk)) {
+		dev_err(&pdev->dev, "devm_clk_get clk_axi failed\n");
+		return PTR_ERR(host->axi_clk);
+	}
+	clk_prepare_enable(host->axi_clk);
+
 	host->io_base_phy = res->start;
 	host->nand.priv = host;
 	mutex_init(&host->lock);
@@ -124,13 +138,13 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 	ret = cvsnfc_host_init(host);
 	if (ret) {
 		pr_err("cvsnfc dt probe error\n");
-		return ret;
+		goto clk_free;
 	}
 
 	ret = cvsnfc_scan_nand(host);
 	if (ret) {
 		pr_err("cvsnfc scan nand error\n");
-		return ret;
+		goto clk_free;
 	}
 
 	cvsnfc_spi_nand_init(host);
@@ -138,7 +152,7 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(host->dev, "mtd parse partition error\n");
 		nand_cleanup(&host->nand);
-		return ret;
+		goto clk_free;
 	}
 
 	proc_id = proc_create_data("nandid", 0444, NULL, &nand_id_proc_ops, (void *)host);
@@ -147,12 +161,20 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dt);
 	return 0;
+
+clk_free:
+	clk_disable_unprepare(host->clk);
+	clk_disable_unprepare(host->axi_clk);
+	return ret;
 }
 
 static int cvsnfc_dt_remove(struct platform_device *pdev)
 {
 	struct cvsnfc_dt *dt = platform_get_drvdata(pdev);
+	struct cvsnfc_host *host = &dt->cvsnfc;
 
+	clk_disable_unprepare(host->clk);
+	clk_disable_unprepare(host->axi_clk);
 	cvsnfc_remove(&dt->cvsnfc);
 
 	return 0;

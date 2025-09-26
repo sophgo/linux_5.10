@@ -475,6 +475,16 @@ struct sdhci_host {
  */
 #define SDHCI_QUIRK2_USE_32BIT_BLK_CNT			(1<<18)
 
+/*
+ * PHY rx delay line clock source rx_clk
+ */
+#define SDHCI_QUIRK2_RX_PHASE_FORWARD			(1<<19)
+
+/*
+ * PHY tx delay line clock source tx_clk
+ */
+#define SDHCI_QUIRK2_TX_PHASE_FORWARD			(1<<20)
+
 /* To enhance power consumption,
  * the sdio clk be disabled when CMD/DAT bus idle
  */

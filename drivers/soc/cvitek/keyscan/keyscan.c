@@ -167,6 +167,14 @@ static void keyscan_stop(struct cvi_keyscan *keypad)
 static int keyscan_input_open(struct input_dev *dev)
 {
 	struct cvi_keyscan *keypad = input_get_drvdata(dev);
+	int ret;
+
+	ret = clk_prepare_enable(keypad->clk);
+	if (ret) {
+		pr_err("failed to enable clock\n");
+		return ret;
+	}
+
 	keyscan_start(keypad);
 
 	pr_debug("keyscan start\n");
@@ -178,6 +186,7 @@ static void keyscan_input_close(struct input_dev *dev)
 	struct cvi_keyscan *keypad = input_get_drvdata(dev);
 
 	keyscan_stop(keypad);
+	clk_disable_unprepare(keypad->clk);
 	pr_debug("keyscan stoped\n");
 }
 
@@ -384,12 +393,6 @@ static int keyscan_probe(struct platform_device *pdev)
 		return PTR_ERR(keypad_data->clk);
 	}
 
-	ret	= clk_prepare_enable(keypad_data->clk);
-	if (ret)	{
-		dev_err(&pdev->dev, "failed to enable clock\n");
-		return ret;
-	}
-
 	keypad_data->irq = platform_get_irq(pdev, 0);
 	if (keypad_data->irq < 0)
 		return -EINVAL;
@@ -433,7 +436,6 @@ static int keyscan_remove(struct platform_device *pdev)
 
 	keyscan_unregister_cdev(keypad);
 	input_unregister_device(keypad->input_dev);
-	clk_disable_unprepare(keypad->clk);
 	pr_debug("cvi_keyscan_remove\n");
 	return 0;
 }
@@ -446,11 +448,11 @@ static int keyscan_suspend(struct device *dev)
 
 	mutex_lock(&input->mutex);
 
-	if (device_may_wakeup(dev))
-		enable_irq_wake(keypad->irq);
-	else if (input->users) {
-		keyscan_stop(keypad);
-		clk_disable_unprepare(keypad->clk);
+	if (input->users) {
+		if (device_may_wakeup(dev))
+			enable_irq_wake(keypad->irq);
+		else
+			keyscan_stop(keypad);
 	}
 
 	mutex_unlock(&input->mutex);
@@ -464,11 +466,11 @@ static int keyscan_resume(struct device *dev)
 
 	mutex_lock(&input->mutex);
 
-	if (device_may_wakeup(dev))
-		disable_irq_wake(keypad->irq);
-	else if (input->users) {
-		clk_prepare_enable(keypad->clk);
-		keyscan_start(keypad);
+	if (input->users) {
+		if (device_may_wakeup(dev))
+			disable_irq_wake(keypad->irq);
+		else
+			keyscan_start(keypad);
 	}
 
 	mutex_unlock(&input->mutex);

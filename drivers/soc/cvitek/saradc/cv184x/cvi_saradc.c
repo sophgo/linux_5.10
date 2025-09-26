@@ -46,7 +46,6 @@
 #define RTC_ADC_TRIM_MASK 0x0f000000
 #define RTC_ADC_TRIM_OFFSET 24
 
-#define DUAL_OS
 
 enum ADCChannel {
 	/* Top domain ADC0~2, every ADC has 3 channels */
@@ -245,26 +244,22 @@ static ssize_t filter_enable_store(struct device *dev, struct device_attribute *
 }
 static int platform_saradc_clk_init(struct cvi_saradc_device *ndev)
 {
-#ifndef DUAL_OS
 	// enable clock
 	if (ndev->clk_saradc) {
 		pr_debug("cvi_saradc enable	clock\n");
 		clk_prepare_enable(ndev->clk_saradc);
 	}
-#endif
 
 	return 0;
 }
 
 static void	platform_saradc_clk_deinit(struct cvi_saradc_device	*ndev)
 {
-#ifndef DUAL_OS
 	// disable clock
 	if (ndev->clk_saradc) {
 		pr_debug("cvi_saradc disable clock\n");
 		clk_disable_unprepare(ndev->clk_saradc);
 	}
-#endif
 }
 
 static irqreturn_t cvi_saradc_irq(int irq, void	*data)
@@ -307,25 +302,18 @@ static void	cvi_saradc_cyc_setting(struct cvi_saradc_device	*ndev)
 	u32 value;
 
 	value =	readl(ndev->saradc_vaddr + SARADC_CYC_SET);
-	value &= ~(0xf << 12);
 	value |= (0xf << 12); // set saradc	clock cycle=840ns
 	writel(value, ndev->saradc_vaddr + SARADC_CYC_SET);
 }
 
 static u32 saradc_get_val(struct cvi_saradc_device *ndev, struct iio_chan_spec const *chan)
 {
-	u32 value, adc_value;
+	u32 adc_value;
 	// Trigger measurement
-	value = readl(ndev->saradc_vaddr + SARADC_CTRL);
-	value |= 1;
-	writel(value, ndev->saradc_vaddr + SARADC_CTRL);
-	pr_debug("cv_saradc_show: SARADC_CTRL =	%#X\n", value);
-
+	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) | 0x3), ndev->saradc_vaddr + SARADC_CTRL);
+	pr_debug("cv_saradc_show: SARADC_CTRL =	%#X\n", readl(ndev->saradc_vaddr + SARADC_CTRL));
 	// Check busy status
-	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) & ~0x03), ndev->saradc_vaddr + SARADC_CTRL);
-	writel((readl(ndev->saradc_vaddr + SARADC_CTRL) | 0x03), ndev->saradc_vaddr + SARADC_CTRL);
-
-	// while (readl(ndev->saradc_vaddr + SARADC_STATUS) & (1 << (index + 8)));
+	// while (readl(ndev->saradc_vaddr + SARADC_STATUS) & (0x10 << ((chan->channel - 1) % 3 + 1)));
 	udelay(10);
 	adc_value = readl(ndev->saradc_vaddr + chan->address) & 0xFFF;
 

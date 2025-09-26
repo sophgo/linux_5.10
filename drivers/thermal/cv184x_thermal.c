@@ -351,6 +351,8 @@ static int cv184x_read_temp(void *data, int *temperature)
 	void __iomem *base = ctz->base;
 	unsigned int ch = ctz->ch;
 	u32 result;
+	/* enable clk_tempsen */
+	clk_prepare_enable(ctz->ct->clk_tempsen);
 
 	/* read temperature */
 	switch (ch) {
@@ -361,6 +363,9 @@ static int cv184x_read_temp(void *data, int *temperature)
 	}
 	*temperature = calc_temp(result);
 	pr_debug("ch%d temp = %d mC(0x%x)\n", ch, *temperature, result);
+
+	/* disable clk_tempsen */
+	clk_disable_unprepare(ctz->ct->clk_tempsen);
 
 	return 0;
 }
@@ -395,8 +400,6 @@ static int cv184x_thermal_probe(struct platform_device *pdev)
 		return PTR_ERR(ct->clk_tempsen);
 	}
 
-	/* enable clk_tempsen */
-	clk_prepare_enable(ct->clk_tempsen);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	ct->base = devm_ioremap_resource(&pdev->dev, res);
@@ -406,8 +409,13 @@ static int cv184x_thermal_probe(struct platform_device *pdev)
 	}
 
 	ct->dev = &pdev->dev;
+	/* enable clk_tempsen */
+	clk_prepare_enable(ct->clk_tempsen);
 
 	cv184x_thermal_init(ct);
+
+	/*disable clk_tempsen*/
+	clk_disable_unprepare(ct->clk_tempsen);
 
 	platform_set_drvdata(pdev, ct);
 

@@ -8,6 +8,7 @@
 #include <linux/dmaengine.h>
 #include <linux/io.h>
 #include <linux/mutex.h>
+#include <linux/clk.h>
 
 #include "cvsnfc_common.h"
 #include "cvsnfc_spi_ids.h"
@@ -530,6 +531,9 @@ struct cvsnfc_host {
 	void __iomem *topbase;
 
 	unsigned int offset;
+
+	struct clk *clk;    /* main nand clk */
+	struct clk *axi_clk; /* axi clk */
 
 	struct device *dev;
 	int irq;

@@ -861,6 +861,10 @@ struct cvi_usb_clk {
 struct cviusb_dev {
 	void __iomem *phy_regs;
 	void __iomem *usb_pin_regs;
+	struct cvi_usb_clk	clk_bus_early;
+	struct cvi_usb_clk	clk_suspend;
+	struct cvi_usb_clk	clk_ref;
+	struct cvi_usb_clk	clk_coreclkin;
 	struct cvi_usb_clk	clk_axi;
 	struct cvi_usb_clk	clk_apb;
 	struct cvi_usb_clk	clk_125m;

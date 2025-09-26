@@ -179,6 +179,27 @@ static int __dwc2_lowlevel_hw_enable(struct dwc2_hsotg *hsotg)
 
 	/* Enable the clock here for init/resume process. */
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
+	if (!IS_ERR(cviusb->clk_bus_early.clk_o)) {
+		clk_prepare_enable(cviusb->clk_bus_early.clk_o);
+		cviusb->clk_bus_early.is_on = 1;
+		dev_info(hsotg->dev, "axi clk_bus_early installed\n");
+	}
+	if (!IS_ERR(cviusb->clk_suspend.clk_o)) {
+		clk_prepare_enable(cviusb->clk_suspend.clk_o);
+		cviusb->clk_suspend.is_on = 1;
+		dev_info(hsotg->dev, "axi clk_suspend installed\n");
+	}
+	if (!IS_ERR(cviusb->clk_ref.clk_o)) {
+		clk_prepare_enable(cviusb->clk_ref.clk_o);
+		cviusb->clk_ref.is_on = 1;
+		dev_info(hsotg->dev, "axi clk_ref installed\n");
+	}
+	if (!IS_ERR(cviusb->clk_coreclkin.clk_o)) {
+		clk_prepare_enable(cviusb->clk_coreclkin.clk_o);
+		cviusb->clk_coreclkin.is_on = 1;
+		dev_info(hsotg->dev, "axi clk_coreclkin installed\n");
+	}
+
 	if (!IS_ERR(cviusb->clk_axi.clk_o)) {
 		clk_prepare_enable(cviusb->clk_axi.clk_o);
 		cviusb->clk_axi.is_on = 1;
@@ -925,6 +946,27 @@ static int dwc2_driver_remove(struct platform_device *dev)
 
 	/* Disable the clock here for remove process. */
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
+	if (cviusb->clk_bus_early.clk_o) {
+		clk_disable_unprepare(cviusb->clk_bus_early.clk_o);
+		dev_info(hsotg->dev, "clk clk_bus_early disable\n");
+		cviusb->clk_bus_early.is_on = 0;
+	}
+	if (cviusb->clk_suspend.clk_o) {
+		clk_disable_unprepare(cviusb->clk_suspend.clk_o);
+		dev_info(hsotg->dev, "clk clk_suspend disable\n");
+		cviusb->clk_suspend.is_on = 0;
+	}
+	if (cviusb->clk_ref.clk_o) {
+		clk_disable_unprepare(cviusb->clk_ref.clk_o);
+		dev_info(hsotg->dev, "clk clk_ref disable\n");
+		cviusb->clk_ref.is_on = 0;
+	}
+	if (cviusb->clk_coreclkin.clk_o) {
+		clk_disable_unprepare(cviusb->clk_coreclkin.clk_o);
+		dev_info(hsotg->dev, "clk clk_coreclkin disable\n");
+		cviusb->clk_coreclkin.is_on = 0;
+	}
+
 	if (cviusb->clk_axi.clk_o) {
 		clk_disable_unprepare(cviusb->clk_axi.clk_o);
 		dev_info(hsotg->dev, "axi clk disable\n");
@@ -1095,6 +1137,27 @@ static int dwc2_driver_probe(struct platform_device *dev)
 
 	dev_dbg(&dev->dev, "mapped PA %08lx to VA %p\n",
 		(unsigned long)res->start, cviusb->phy_regs);
+
+	cviusb->clk_bus_early.clk_o = devm_clk_get(&dev->dev, "clk_usb20_bus_early");
+	if (IS_ERR(cviusb->clk_bus_early.clk_o)) {
+		dev_err(&dev->dev, "Clock clk_usb20_bus_early not found\n");
+		return PTR_ERR(cviusb->clk_bus_early.clk_o);
+	}
+	cviusb->clk_suspend.clk_o = devm_clk_get(&dev->dev, "clk_usb20_suspend");
+	if (IS_ERR(cviusb->clk_suspend.clk_o)) {
+		dev_err(&dev->dev, "Clock clk_usb20_suspend not found\n");
+		return PTR_ERR(cviusb->clk_suspend.clk_o);
+	}
+	cviusb->clk_ref.clk_o = devm_clk_get(&dev->dev, "clk_usb20_ref");
+	if (IS_ERR(cviusb->clk_ref.clk_o)) {
+		dev_err(&dev->dev, "Clock clk_usb20_ref not found\n");
+		return PTR_ERR(cviusb->clk_ref.clk_o);
+	}
+	cviusb->clk_coreclkin.clk_o = devm_clk_get(&dev->dev, "clk_usb20_coreclkin");
+	if (IS_ERR(cviusb->clk_coreclkin.clk_o)) {
+		dev_err(&dev->dev, "Clock clk_usb20_coreclkin not found\n");
+		return PTR_ERR(cviusb->clk_coreclkin.clk_o);
+	}
 
 	cviusb->clk_axi.clk_o = devm_clk_get(&dev->dev, "clk_axi");
 	if (IS_ERR(cviusb->clk_axi.clk_o)) {
