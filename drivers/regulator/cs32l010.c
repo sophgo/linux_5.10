@@ -152,7 +152,6 @@ static int cs32l010_i2c_probe(struct i2c_client *client,
 
 
 	cs32l010_pm_off = cs32l010;
-	pm_power_off = cs32l010_power_off;
 	INIT_DELAYED_WORK(&cs32l010->watchdog_work,cpu_feedwdg_cs32l010_work);
 	schedule_delayed_work(&cs32l010->watchdog_work, msecs_to_jiffies(30000));
 	i2c_smbus_write_byte_data(cs32l010->i2c_gen, 0xAA,0xCC);
@@ -166,6 +165,11 @@ err_alloc_drvdata:
 	return ret;
 }
 
+static void cs32l010_i2c_shutdown(struct i2c_client *i2c)
+{
+	// pr_emerg("=================shutdown===================%s\n",__func__);
+	cs32l010_power_off();
+}
 static int cs32l010_i2c_remove(struct i2c_client *i2c)
 {
 	struct cs32l010 *cs32l010 = i2c_get_clientdata(i2c);
@@ -224,6 +228,7 @@ static struct i2c_driver cs32l010_i2c_driver = {
 	},
 	.probe = cs32l010_i2c_probe,
 	.remove = cs32l010_i2c_remove,
+	.shutdown = cs32l010_i2c_shutdown,
 	.id_table = cs32l010_i2c_id,
 };
 
