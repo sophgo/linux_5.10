@@ -24,6 +24,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "os08b10.h"
 
@@ -44,7 +47,7 @@
 
 static const enum mipi_wdr_mode_e os08b10_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int os08b10_count;
+int os08b10_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &os08b10_count, 0644);
 
@@ -644,7 +647,7 @@ error:
 	return ret;
 }
 
-static int os08b10_get_info_form_dts(struct os08b10 *os08b10, int index_id)
+static int os08b10_get_info_from_dts(struct os08b10 *os08b10, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&os08b10->sd);
 	struct device_node *np = client->dev.of_node;
@@ -903,7 +906,7 @@ static int os08b10_init_controls(struct os08b10 *os08b10, int index_id)
 		return ret;
 	}
 
-	os08b10_get_info_form_dts(os08b10, index_id);
+	os08b10_get_info_from_dts(os08b10, index_id);
 
 	mutex_init(&os08b10->mutex);
 	ctrl_hdlr->lock = &os08b10->mutex;

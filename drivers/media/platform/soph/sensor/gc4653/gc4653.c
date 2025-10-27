@@ -24,6 +24,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "gc4653.h"
 
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e gc4653_wdr_mode = MIPI_WDR_MODE_NONE;
 
-volatile int gc4653_count;
+int gc4653_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &gc4653_count, 0644);
 
@@ -604,7 +607,7 @@ error:
 	return ret;
 }
 
-static int gc4653_get_info_form_dts(struct gc4653 *gc4653, int index_id)
+static int gc4653_get_info_from_dts(struct gc4653 *gc4653, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&gc4653->sd);
 	struct device_node *np = client->dev.of_node;
@@ -860,7 +863,7 @@ static int gc4653_init_controls(struct gc4653 *gc4653, int index_id)
 		return ret;
 	}
 
-	gc4653_get_info_form_dts(gc4653, index_id);
+	gc4653_get_info_from_dts(gc4653, index_id);
 
 	mutex_init(&gc4653->mutex);
 	ctrl_hdlr->lock = &gc4653->mutex;

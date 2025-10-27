@@ -2065,13 +2065,13 @@ static int cv186x_clk_get_clk_sel(struct cv186x_hw_clock *clk_hw)
 	return val;
 }
 
-static int cv186x_clk_get_src_sel(struct cv186x_hw_clock *clk_hw)
+static int cv186x_clk_get_src_sel(struct cv186x_hw_clock *clk_hw, u8 clk_sel)
 {
 	u32 val;
-	void __iomem *reg_addr = clk_hw->base + clk_hw->mux[2].reg;
+	u32 reg = clk_hw->mux[2].reg + clk_sel * 0x4;
 
 	if (clk_hw->mux[2].reg != 0xff) {
-		val = readl(reg_addr) >> clk_hw->mux[2].shift;
+		val = readl(clk_hw->base + reg) >> clk_hw->mux[2].shift;
 		val &= 0x3; //width
 	} else {
 		val = 0;
@@ -2199,6 +2199,9 @@ static int cv186x_clk_div_determine_rate(struct clk_hw *hw,
 			pr_debug("%s()_%d: parent_rate=%ld, best_rate=%ld, best_delta=%ld\n",
 				 __func__, __LINE__, parent_rate, best_rate, best_delta);
 		}
+
+		if (best_delta == 0)
+			break;
 	}
 
 	req->rate = best_rate;
@@ -2308,7 +2311,7 @@ static u8 cv186x_clk_mux_get_parent(struct clk_hw *hw)
 {
 	struct cv186x_hw_clock *clk_hw = to_cv186x_clk(hw);
 	u8 clk_sel = cv186x_clk_get_clk_sel(clk_hw);
-	u8 src_sel = cv186x_clk_get_src_sel(clk_hw);
+	u8 src_sel = cv186x_clk_get_src_sel(clk_hw, clk_sel);
 	u8 parent_idx = 0;
 
 	/*
@@ -2329,7 +2332,7 @@ static u8 cv186x_clk_mux_get_parent(struct clk_hw *hw)
 			if (clk_hw->mux[1].shift >= 0) {
 				// clk with clk_sel reg
 				if (clk_sel) {
-					parent_idx = 5; //TODO +src_sel2
+					parent_idx = src_sel + 5;
 				} else {
 					parent_idx = src_sel + 1;
 				}
@@ -2343,7 +2346,7 @@ static u8 cv186x_clk_mux_get_parent(struct clk_hw *hw)
 		if (clk_hw->mux[1].shift >= 0) {
 			// clk with clk_sel reg
 			if (clk_sel) {
-				parent_idx = 4; //TODO +src_sel2
+				parent_idx = src_sel + 4;
 			} else {
 				parent_idx = src_sel;
 			}
@@ -2362,6 +2365,7 @@ static int cv186x_clk_mux_set_parent(struct clk_hw *hw, u8 index)
 	unsigned long flags = 0;
 	void __iomem *reg_addr;
 	unsigned int reg;
+	unsigned int offset = 0;
 
 	if (clk_hw->lock)
 		spin_lock_irqsave(clk_hw->lock, flags);
@@ -2371,73 +2375,31 @@ static int cv186x_clk_mux_set_parent(struct clk_hw *hw, u8 index)
 	/*
 	 * | 0     | 1     | 2     | 3     | 4     | 5     |
 	 * +-------+-------+-------+-------+-------+-------+
-	 * | XTAL  | DIV_1 | src_0 | src_1 | src_2 | src_3 |
+	 * | XTAL  | src_0 | src_1 | src_2 | src_3 | DIV_1 |
 	 * | XTAL  | src_0 | src_1 | src_2 | src_3 |       |
-	 * | DIV_1 | src_0 | src_1 | src_2 | src_3 |       |
+	 * | src_0 | src_1 | src_2 | src_3 | DIV_1 |
 	 * | src_0 | src_1 | src_2 | src_3 |       |       |
 	 * +-------+-------+-------+-------+-------+-------+
 	 */
 
-	if (index == 0) {
-		if (clk_hw->mux[0].shift >= 0) {
+	if (clk_hw->mux[0].shift >= 0) {
+		if (index == 0) {
 			// set bypass
 			reg_addr = clk_hw->base + clk_hw->mux[0].reg;
 			reg = readl(reg_addr);
 			reg |= 1 << clk_hw->mux[0].shift;
 			writel(reg, reg_addr);
 			goto unlock_release;
-		} else if (clk_hw->mux[1].shift >= 0) {
-			// set clk_sel to DIV_1
-			reg_addr = clk_hw->base + clk_hw->mux[1].reg;
-			reg = readl(reg_addr);
-			reg &= ~(1 << clk_hw->mux[1].shift);
-			writel(reg, reg_addr);
-			goto unlock_release;
+		} else {
+		       index--;
 		}
-	} else if (index == 1) {
-		if (clk_hw->mux[0].shift >= 0) {
-			// clear bypass
-			reg_addr = clk_hw->base + clk_hw->mux[0].reg;
-			reg = readl(reg_addr);
-			reg &= ~(0x1 << clk_hw->mux[0].shift);
-			writel(reg, reg_addr);
+	}
 
-			if (clk_hw->mux[1].shift >= 0) {
-				// set clk_sel to DIV_1
-				reg_addr = clk_hw->base + clk_hw->mux[1].reg;
-				reg = readl(reg_addr);
-				reg &= ~(1 << clk_hw->mux[1].shift);
-				writel(reg, reg_addr);
-				goto unlock_release;
-			} else {
-				index--;
-			}
-		} else if (clk_hw->mux[1].shift >= 0) {
-			// set clk_sel to DIV_0
-			reg_addr = clk_hw->base + clk_hw->mux[1].reg;
-			reg = readl(reg_addr);
-			reg |= 1 << clk_hw->mux[1].shift;
-			writel(reg, reg_addr);
-			index--;
-		}
+	if (index < 4) {
+		offset = 0;
 	} else {
-		if (clk_hw->mux[0].shift >= 0) {
-			// clear bypass
-			reg_addr = clk_hw->base + clk_hw->mux[0].reg;
-			reg = readl(reg_addr);
-			reg &= ~(0x1 << clk_hw->mux[0].shift);
-			writel(reg, reg_addr);
-			index--;
-		}
-
-		if (clk_hw->mux[1].shift >= 0) {
-			// set clk_sel to DIV_0
-			reg_addr = clk_hw->base + clk_hw->mux[1].reg;
-			reg = readl(reg_addr);
-			reg |= 1 << clk_hw->mux[1].shift;
-			writel(reg, reg_addr);
-			index--;
-		}
+		index -= 4;
+		offset = 4;
 	}
 
 	if (index < 0) {
@@ -2445,12 +2407,33 @@ static int cv186x_clk_mux_set_parent(struct clk_hw *hw, u8 index)
 		goto unlock_release;
 	}
 
-	// set src_sel reg
-	reg_addr = clk_hw->base + clk_hw->mux[2].reg;
-	reg = readl(reg_addr);
-	reg &= ~(0x3 << clk_hw->mux[2].shift); // clear bits
-	reg |= (index & 0x3) << clk_hw->mux[2].shift; //set bits
-	writel(reg, reg_addr);
+	// set div_src_sel reg
+	if (clk_hw->mux[2].reg != 0xff) {
+		reg_addr = clk_hw->base + clk_hw->mux[2].reg + offset;
+		reg = readl(reg_addr);
+		reg &= ~(0x3 << clk_hw->mux[2].shift); // clear bits
+		reg |= (index & 0x3) << clk_hw->mux[2].shift; //set bits
+		writel(reg, reg_addr);
+	}
+
+	// set clk_sel
+	if (clk_hw->mux[1].shift >= 0) {
+		reg_addr = clk_hw->base + clk_hw->mux[1].reg;
+		reg = readl(reg_addr);
+		if (offset)
+			reg &= ~(1 << clk_hw->mux[1].shift); //set clk_sel to DIV1
+		else
+			reg |= (1 << clk_hw->mux[1].shift);  //set clk_sel to DIV0
+		writel(reg, reg_addr);
+	}
+
+	// clear bypass
+	if (clk_hw->mux[0].shift >= 0) {
+		reg_addr = clk_hw->base + clk_hw->mux[0].reg;
+		reg = readl(reg_addr);
+		reg &= ~(0x1 << clk_hw->mux[0].shift);
+		writel(reg, reg_addr);
+	}
 
 unlock_release:
 	if (clk_hw->lock)

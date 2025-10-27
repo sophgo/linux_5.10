@@ -23,6 +23,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "sc500ai.h"
 
@@ -41,7 +44,7 @@
 /*Sensor type for isp middleware*/
 static const enum mipi_wdr_mode_e sc500ai_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int sc500ai_count;
+int sc500ai_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &sc500ai_count, 0644);
 
@@ -611,7 +614,7 @@ error:
 	return ret;
 }
 
-static int sc500ai_get_info_form_dts(struct sc500ai *sc500ai, int index_id)
+static int sc500ai_get_info_from_dts(struct sc500ai *sc500ai, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&sc500ai->sd);
 	struct device_node *np = client->dev.of_node;
@@ -859,6 +862,8 @@ static int sc500ai_init_controls(struct sc500ai *sc500ai, int index_id)
 			__func__, ret);
 		return ret;
 	}
+
+	sc500ai_get_info_from_dts(sc500ai, index_id);
 
 	mutex_init(&sc500ai->mutex);
 	ctrl_hdlr->lock = &sc500ai->mutex;

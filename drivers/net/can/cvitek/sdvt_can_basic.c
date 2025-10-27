@@ -179,6 +179,7 @@ void send_command(struct sdvt_can_classdev *cdev,
 	int  m_idx_i     ; // Iterative variable
 	u8   m_ext_b     ; // Extended frame
 	u8   m_rtr_b     ; // Remote frame
+	int   timeout = CAN_TXRX_TIMEOUT;
 
 	if (p_cmd_st->command_8b == STANDARD_DATA_FRAME) {
 		m_ext_b = 0; // This is extended data frame
@@ -242,15 +243,6 @@ void send_command(struct sdvt_can_classdev *cdev,
 
 	m_bytes_8b = p_cmd_st->data_len_code_4b;
 
-    // Generate data only in non remote frames mode
-	if (m_rtr_b == 0) {
-	// Randomize the data, and store in STD_TX_DATA fifo
-		for (m_idx_i = 0; m_idx_i < m_bytes_8b; m_idx_i += 1) {
-			m_data_8b = p_cmd_st->data_2d_8b[m_idx_i];
-			cdev->ops->write_reg(cdev, SDVT_CAN_TX_DATA_FIFO, m_data_8b);
-		}
-	}
-
 	// fd
 	if (p_config_st->cfg_can_mode_2b == SDVT_CAN_FD_MODE) {
 		m_data_8b = cdev->ops->read_reg(cdev, SDVT_CAN_CONTROL);
@@ -274,7 +266,35 @@ void send_command(struct sdvt_can_classdev *cdev,
 		cdev->ops->write_reg(cdev, SDVT_CAN_DLC_REMOTE_FRAME, m_data_8b);
 	}
 
+	// fix can tx err when Receiving Message
+write_cvican_fifo:
+	// Generate data only in non remote frames mode
+	if (m_rtr_b == 0) {
+		// Randomize the data, and store in STD_TX_DATA fifo
+		while (cdev->ops->read_reg(cdev, SDVT_CAN_STATUS) & (0x1 << SDVT_CAN_STATUS_RX)) {
+			udelay(10);
+			if (--timeout < 0) {
+				dev_err(cdev->dev, "INFO : %s timeout, abrot tx.\n", __func__);
+				return;
+			}
+		}
 
+		for (m_idx_i = 0; m_idx_i < m_bytes_8b; m_idx_i += 1) {
+			m_data_8b = p_cmd_st->data_2d_8b[m_idx_i];
+			cdev->ops->write_reg(cdev, SDVT_CAN_TX_DATA_FIFO, m_data_8b);
+		}
+
+		if (cdev->ops->read_reg(cdev, SDVT_CAN_TX_DATA_FIFO_AVAIL) + m_bytes_8b != 0x80) {
+			dev_warn(cdev->dev, "warn : %s tx fifo err, goto rewrite fifo\n", __func__);
+			cdev->ops->write_reg(cdev, SDVT_CAN_FIFO_FLUSH, 0x1 << SDVT_CAN_TX_DATA_FIFO_FLUSH);
+			cdev->ops->write_reg(cdev, SDVT_CAN_FIFO_FLUSH, 0);
+			if (--timeout < 0) {
+				dev_err(cdev->dev, "INFO : %s timeout, abrot tx.\n", __func__);
+				return;
+			}
+			goto write_cvican_fifo;
+		}
+	}
 
 	// Enable bit 0 (Info empty register)
 	m_data_8b = 0;

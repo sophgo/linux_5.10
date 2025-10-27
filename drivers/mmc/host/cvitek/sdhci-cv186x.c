@@ -487,6 +487,17 @@ int cvi_sdio_rescan(void)
 }
 EXPORT_SYMBOL_GPL(cvi_sdio_rescan);
 
+// register sysfs
+static ssize_t rescan_store(struct device *dev, struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	// mmc rescan
+	cvi_sdio_rescan();
+
+	return count;
+}
+
+static DEVICE_ATTR_WO(rescan);
 
 void sdhci_cvi_emmc_voltage_switch(struct sdhci_host *host)
 {
@@ -1169,11 +1180,13 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, cvi_host);
 
-	// if wifi-sd is enabled, prior to use wifi-sd, else use sd1.
 	if (strstr(dev_name(mmc_dev(host->mmc)), "wifi-sd")) {
 		wifi_mmc = host->mmc;
-		// Fixme: Some sd card can't switch voltage automatically.
-		sdhci_cv186x_sd1_voltage_switch(host);
+
+		//add /sys/class/mmc_host/mmc*/rescan node
+		if (device_create_file(&host->mmc->class_dev, &dev_attr_rescan))
+			pr_err("Fail to create rescan sysfs file.\n");
+
 	} else {
 		wifi_mmc = NULL;
 	}

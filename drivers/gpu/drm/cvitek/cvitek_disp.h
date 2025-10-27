@@ -259,6 +259,7 @@ struct disp_gop_cfg {
 	u32 colorkey;       // RGB888
 	u16 font_fg_color;  // ARGB4444
 	u16 font_bg_color;  // ARGB4444
+	u8  ow_fb_id;
 
 	struct disp_gop_ow_cfg ow_cfg[DISP_MAX_GOP_OW_INST];
 	struct disp_gop_fb_cfg fb_cfg[DISP_MAX_GOP_FB_INST];
@@ -320,7 +321,7 @@ struct disp_cfg {
 	u8 out_bit;     // 6/8/10-bit
 	enum disp_drop_mode drop_mode;
 	struct disp_mem mem;
-	struct disp_gop_cfg gop_cfg; // gop1(0x800)
+	struct disp_gop_cfg gop_cfg[CVITEK_MAX_PLANE - 1];
 };
 
 struct disp_timing {
@@ -395,6 +396,14 @@ struct cvitek_plane {
 	struct drm_plane base;
 	void *hw_ctx;
 	u32 ch;
+
+	/*plane property*/
+	struct drm_property *osd_en_prop;
+	struct drm_property *osd_colorkey_en_prop;
+	struct drm_property *osd_hscl_prop;
+	struct drm_property *osd_vscl_prop;
+	struct drm_property *osd_colorkey_prop;
+	struct drm_property *ow_fb_id_prop;
 };
 
 struct cvitek_disp {

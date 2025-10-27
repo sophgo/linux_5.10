@@ -24,7 +24,7 @@
 
 struct pwm_fan_ctx {
 	struct mutex lock;
-	struct pwm_device *pwm;
+	struct pwm_device *pwm, *pwm_tach;
 	struct regulator *reg_en;
 
 	int irq;
@@ -133,6 +133,16 @@ static ssize_t rpm_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
 	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
+	struct pwm_capture result;
+	int ret;
+
+	// Read PWM capture value (pulse period in nanoseconds)
+	ret = pwm_capture(ctx->pwm_tach, &result, 100);
+	if (ret == 0 && result.period > 0) {
+		// Calculate RPM: RPM = 60s / (period(seconds) * pulses_per_revolution)
+		ctx->rpm = 60ULL * 1000000000 / (result.period * ctx->pulses_per_revolution);
+	} else
+		ctx->rpm = 0; // Indicate no valid reading
 
 	return sprintf(buf, "%u\n", ctx->rpm);
 }
@@ -153,7 +163,7 @@ static umode_t pwm_fan_attrs_visible(struct kobject *kobj, struct attribute *a,
 	struct pwm_fan_ctx *ctx = dev_get_drvdata(dev);
 
 	/* Hide fan_input in case no interrupt is available  */
-	if (n == 1 && ctx->irq <= 0)
+	if (n == 1 && IS_ERR(ctx->pwm_tach))
 		return 0;
 
 	return a->mode;
@@ -294,9 +304,13 @@ static int pwm_fan_probe(struct platform_device *pdev)
 
 	mutex_init(&ctx->lock);
 
-	ctx->pwm = devm_of_pwm_get(dev, dev->of_node, NULL);
+	ctx->pwm = devm_pwm_get(dev, "fan");
 	if (IS_ERR(ctx->pwm))
 		return dev_err_probe(dev, PTR_ERR(ctx->pwm), "Could not get PWM\n");
+
+	ctx->pwm_tach = devm_pwm_get(dev, "tach");
+	if (IS_ERR(ctx->pwm_tach))
+		dev_info(dev, "No fan_tach PWM configured\n");
 
 	platform_set_drvdata(pdev, ctx);
 

@@ -192,11 +192,10 @@ static void cpu_alive(void *passed_regs)
 	cpumask_set_cpu(cpu, &cpus_alive);
 }
 #endif
-
+static int isFirst = 1;
 static int dw_wdt_ping(struct watchdog_device *wdd)
 {
 	struct dw_wdt *dw_wdt = to_dw_wdt(wdd);
-	static int isFirst = 1;
 
 #ifdef CONFIG_SMP
 	unsigned int ncpus;
@@ -211,10 +210,12 @@ static int dw_wdt_ping(struct watchdog_device *wdd)
 #ifdef CONFIG_SMP
 		isFirst = 0;
 		cpus_alive = CPU_MASK_NONE;
-		smp_call_function(cpu_alive, NULL, 0);
-		// memory barrier
-		smp_wmb();
+	} else {
+		pr_err("all_cpus: %d, alive_cpus: %d\n", ncpus, cpumask_weight(&cpus_alive));
 	}
+	smp_call_function(cpu_alive, NULL, 0);
+	// memory barrier
+	smp_wmb();
 #endif
 
 	return 0;
@@ -471,7 +472,7 @@ static int dw_wdt_resume(struct device *dev)
 	// A2 unneed
 	//writel(dw_wdt->timeout, dw_wdt->regs + WDOG_TIMEOUT_RANGE_REG_OFFSET);
 	//writel(dw_wdt->control, dw_wdt->regs + WDOG_CONTROL_REG_OFFSET);
-
+	isFirst = 1;
 	dw_wdt_ping(&dw_wdt->wdd);
 
 	return 0;

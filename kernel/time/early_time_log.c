@@ -17,9 +17,12 @@
 #include <linux/timex.h>
 #include <linux/kernel_stat.h>
 #include <linux/early_time_log.h>
+#include <linux/io.h>
 
 #define MAX_EARLY_TIME_LOGS 16
 
+// the TIME_RECORDS_ADDR baseaddr is 0x25050010
+#define TIME_RECORDS_INIT_PROCESS_START (0x25050010 + 0x14)
 struct early_time_entry {
 	u64 us;
 	const char *name;
@@ -52,11 +55,30 @@ u64 early_time_get_us(void)
 }
 #endif
 
+static void mmio_write_16(uintptr_t addr,
+				      uint16_t val)
+{
+	void __iomem *reg;
+
+	reg = ioremap(addr, 0x2);
+	if (IS_ERR(reg)) {
+		pr_err("ioremap %p failed\n", (void *)addr);
+		return;
+	}
+
+	iowrite16(val, reg);
+
+	iounmap(reg);
+}
+
 void early_time_log(const char *name)
 {
 	u64 now_us = early_time_get_us();
 
 	pr_info("%s: %s: %lluus\n", __func__, name, (unsigned long long)now_us);
+
+	// Save Init process run start time
+	mmio_write_16(TIME_RECORDS_INIT_PROCESS_START, DIV_ROUND_UP(now_us, 1000));
 
 	if (early_time_logs_idx < MAX_EARLY_TIME_LOGS) {
 		early_time_logs[early_time_logs_idx].us = now_us;

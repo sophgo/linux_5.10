@@ -101,7 +101,7 @@ static int cs32l010_i2c_probe(struct i2c_client *client,
 
 	cs32l010->shutdown_gpio = of_get_named_gpio(client->dev.of_node, "shutdown-gpio", 0);
 	if (cs32l010->shutdown_gpio < 0) {
-		printk("could not get pcie reset gpio\n");
+		printk("could not get shutdown-gpio\n");
 	}
 
 	ret = gpio_request_one(cs32l010->shutdown_gpio, GPIOF_OUT_INIT_LOW, "a2-shutdown-gpio");
@@ -152,7 +152,6 @@ static int cs32l010_i2c_probe(struct i2c_client *client,
 
 
 	cs32l010_pm_off = cs32l010;
-	pm_power_off = cs32l010_power_off;
 	INIT_DELAYED_WORK(&cs32l010->watchdog_work,cpu_feedwdg_cs32l010_work);
 	schedule_delayed_work(&cs32l010->watchdog_work, msecs_to_jiffies(30000));
 	i2c_smbus_write_byte_data(cs32l010->i2c_gen, 0xAA,0xCC);
@@ -166,6 +165,11 @@ err_alloc_drvdata:
 	return ret;
 }
 
+static void cs32l010_i2c_shutdown(struct i2c_client *i2c)
+{
+	// pr_emerg("=================shutdown===================%s\n",__func__);
+	cs32l010_power_off();
+}
 static int cs32l010_i2c_remove(struct i2c_client *i2c)
 {
 	struct cs32l010 *cs32l010 = i2c_get_clientdata(i2c);
@@ -183,6 +187,33 @@ static const struct of_device_id cs32l010_of_match[] = {
 MODULE_DEVICE_TABLE(of, cs32l010_of_match);
 #endif
 
+#ifdef CONFIG_PM
+static int i2c_cs32l010_suspend(struct device *dev)
+{
+	printk("%s\n",__func__);
+	i2c_smbus_write_byte_data(cs32l010_pm_off->i2c_gen, 0xAA,0xF4);
+	cancel_delayed_work(&cs32l010_pm_off->watchdog_work);
+	return 0;
+}
+
+static int i2c_cs32l010_resume(struct device *dev)
+{
+	printk("%s\n",__func__);
+	i2c_smbus_write_byte_data(cs32l010_pm_off->i2c_gen, 0xAA,0xF5);
+	schedule_delayed_work(&cs32l010_pm_off->watchdog_work, msecs_to_jiffies(5000));
+	return 0;
+}
+
+static const struct dev_pm_ops i2c_cs32l010_pmops = {
+	.suspend	= i2c_cs32l010_suspend,
+	.resume		= i2c_cs32l010_resume,
+};
+
+#define CS32L010_SMBUS_PMOPS (&i2c_cs32l010_pmops)
+#else
+#define CS32L010_SMBUS_PMOPS NULL
+#endif
+
 static const struct i2c_device_id cs32l010_i2c_id[] = {
 	{"cs32l010", 0},
 	{}
@@ -193,9 +224,11 @@ static struct i2c_driver cs32l010_i2c_driver = {
 	.driver = {
 		.name = "cs32l010",
 		.of_match_table = of_match_ptr(cs32l010_of_match),
+		.pm	= CS32L010_SMBUS_PMOPS,
 	},
 	.probe = cs32l010_i2c_probe,
 	.remove = cs32l010_i2c_remove,
+	.shutdown = cs32l010_i2c_shutdown,
 	.id_table = cs32l010_i2c_id,
 };
 
@@ -208,7 +241,7 @@ static int __init cs32l010_i2c_init(void)
 		pr_err("Failed to register I2C driver: %d\n", ret);
 	return ret;
 }
-subsys_initcall(cs32l010_i2c_init);
+device_initcall(cs32l010_i2c_init);
 
 static void __exit cs32l010_i2c_exit(void)
 {

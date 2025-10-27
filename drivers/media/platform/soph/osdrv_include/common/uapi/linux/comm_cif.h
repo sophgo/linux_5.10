@@ -24,6 +24,12 @@ extern "C" {
 struct img_size_s {
 	unsigned int	width;
 	unsigned int	height;
+	unsigned int	start_x;
+	unsigned int	start_y;
+	unsigned int	active_w;
+	unsigned int	active_h;
+	unsigned int	max_width;
+	unsigned int	max_height;
 };
 
 enum rx_mac_clk_e {

@@ -610,11 +610,6 @@ void isp_pre_trig(struct isp_ctx *ctx, enum sop_isp_raw raw_num, const u8 chn_nu
 		union reg_isp_top_sw_ctrl_0 sw_ctrl_0;
 		union reg_isp_top_sw_ctrl_1 sw_ctrl_1;
 
-		if (ctx->is_suspend) {
-			vi_pr(VI_ERR, "already trig preraw\n");
-			return;
-		}
-
 		sw_ctrl_0.raw = sw_ctrl_1.raw = 0;
 
 		if (ctx->isp_pipe_cfg[raw_num].is_hdr_on) {
@@ -731,11 +726,6 @@ void isp_post_trig(struct isp_ctx *ctx, enum sop_isp_raw raw_num)
 	union reg_isp_top_sw_ctrl_1 sw_ctrl_1;
 
 	sw_ctrl_0.raw = sw_ctrl_1.raw = 0;
-
-	if (ctx->is_suspend) {
-		vi_pr(VI_ERR, "already trig postraw\n");
-		return;
-	}
 
 	if (_is_fe_be_online(ctx) && !ctx->is_slice_buf_on) { //fe->be->dram->post
 		vi_pr(VI_DBG, "dram->post trig raw_num(%d), is_slice_buf_on(%d)\n",

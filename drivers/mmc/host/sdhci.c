@@ -3263,7 +3263,7 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *intmask_p)
 			return;
 		pr_err("%s: Got command interrupt 0x%08x even though no command operation was in progress.\n",
 		       mmc_hostname(host->mmc), (unsigned)intmask);
-		sdhci_dumpregs(host);
+		// sdhci_dumpregs(host);
 		return;
 	}
 

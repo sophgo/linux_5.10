@@ -24,6 +24,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "imx412.h"
 
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e imx412_wdr_mode = MIPI_WDR_MODE_NONE;
 
-volatile int imx412_count;
+int imx412_count;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &imx412_count, 0644);
 
@@ -611,7 +614,7 @@ error:
 	return ret;
 }
 
-static int imx412_get_info_form_dts(struct imx412 *imx412, int index_id)
+static int imx412_get_info_from_dts(struct imx412 *imx412, int index_id)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx412->sd);
 	struct device_node *np = client->dev.of_node;
@@ -867,7 +870,7 @@ static int imx412_init_controls(struct imx412 *imx412, int index_id)
 		return ret;
 	}
 
-	imx412_get_info_form_dts(imx412, index_id);
+	imx412_get_info_from_dts(imx412, index_id);
 
 	mutex_init(&imx412->mutex);
 	ctrl_hdlr->lock = &imx412->mutex;

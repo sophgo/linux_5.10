@@ -515,7 +515,7 @@ static struct snd_soc_dai_driver cv181xdac_dai = {
 static const struct snd_kcontrol_new cv181xdac_controls0[] = {
 
 	SOC_DOUBLE("[0]DAC Playback Power Up/Down", AUDIO_PHY_TXDAC_CTRL0, 1, 0, 1, 1),
-	SOC_DOUBLE("[0]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 1),
+	SOC_DOUBLE("[0]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 0),
 	SOC_DOUBLE("[0]DAC Playback MUTE", AUDIO_PHY_TXDAC_ANA2, 16, 17, 1, 0),
 
 };
@@ -523,7 +523,7 @@ static const struct snd_kcontrol_new cv181xdac_controls0[] = {
 static const struct snd_kcontrol_new cv181xdac_controls1[] = {
 
 	SOC_DOUBLE("[1]DAC Playback Power Up/Down", AUDIO_PHY_TXDAC_CTRL0, 1, 0, 1, 1),
-	SOC_DOUBLE("[1]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 1),
+	SOC_DOUBLE("[1]DAC Playback Volume", AUDIO_PHY_TXDAC_AFE1, 0, 16, 32, 0),
 	SOC_DOUBLE("[1]DAC Playback MUTE", AUDIO_PHY_TXDAC_ANA2, 16, 17, 1, 0),
 
 };

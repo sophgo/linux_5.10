@@ -636,6 +636,18 @@ struct i2c_bus_recovery_info {
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_default;
 	struct pinctrl_state *pins_gpio;
+#ifdef CONFIG_ARCH_CVITEK
+	u32 scl_reg_addr;
+	u32 scl_func_val;
+	u32 scl_gpio_val;
+
+	u32 sda_reg_addr;
+	u32 sda_func_val;
+	u32 sda_gpio_val;
+
+	void __iomem *scl_reg;
+	void __iomem *sda_reg;
+#endif
 };
 
 int i2c_recover_bus(struct i2c_adapter *adap);

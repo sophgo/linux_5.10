@@ -24,6 +24,9 @@
 
 #include <linux/comm_cif.h>
 #include <linux/sns_v4l2_uapi.h>
+#ifdef CONFIG_COMPAT
+#include <linux/compat.h>
+#endif
 
 #include "sc233hgs.h"
 
@@ -43,7 +46,7 @@
 
 static const enum mipi_wdr_mode_e sc233hgs_wdr_mode = MIPI_WDR_MODE_VC;
 
-volatile int sc233hgs_count = 0;
+int sc233hgs_count = 0;
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = -1};
 module_param_array(force_bus, int, &sc233hgs_count, 0644);
 
@@ -637,7 +640,7 @@ error:
 	return ret;
 }
 
-static int sc233hgs_get_info_form_dts(struct sc233hgs *sc233hgs, int index_id) {
+static int sc233hgs_get_info_from_dts(struct sc233hgs *sc233hgs, int index_id) {
 	struct i2c_client *client = v4l2_get_subdevdata(&sc233hgs->sd);
 	struct device_node *np = client->dev.of_node;
 	u32 i, ret, len, num_lanes, num_lanes_swap;
@@ -893,7 +896,7 @@ static int sc233hgs_init_controls(struct sc233hgs *sc233hgs, int index_id)
 		return ret;
 	}
 
-	sc233hgs_get_info_form_dts(sc233hgs, index_id);
+	sc233hgs_get_info_from_dts(sc233hgs, index_id);
 
 	mutex_init(&sc233hgs->mutex);
 	ctrl_hdlr->lock = &sc233hgs->mutex;

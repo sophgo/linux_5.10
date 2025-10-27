@@ -182,9 +182,18 @@ int i2c_generic_scl_recovery(struct i2c_adapter *adap)
 
 	if (bri->prepare_recovery)
 		bri->prepare_recovery(adap);
+#ifdef CONFIG_ARCH_CVITEK
+	if (bri->scl_reg && bri->sda_reg) {
+		PINMUX_SET_REG_FUNC(bri->scl_reg, bri->scl_gpio_val);
+		PINMUX_SET_REG_FUNC(bri->sda_reg, bri->sda_gpio_val);
+		dev_dbg(&adap->dev, "i2c gpio: 0x%x=0x%x, 0x%x=0x%x.\n",
+			bri->scl_reg_addr, bri->scl_gpio_val,
+			bri->sda_reg_addr, bri->sda_gpio_val);
+	}
+#else
 	if (bri->pinctrl)
 		pinctrl_select_state(bri->pinctrl, bri->pins_gpio);
-
+#endif
 	/*
 	 * If we can set SDA, we will always create a STOP to ensure additional
 	 * pulses will do no harm. This is achieved by letting SDA follow SCL
@@ -239,8 +248,18 @@ int i2c_generic_scl_recovery(struct i2c_adapter *adap)
 
 	if (bri->unprepare_recovery)
 		bri->unprepare_recovery(adap);
+#ifdef CONFIG_ARCH_CVITEK
+	if (bri->scl_reg && bri->sda_reg) {
+		PINMUX_SET_REG_FUNC(bri->scl_reg, bri->scl_func_val);
+		PINMUX_SET_REG_FUNC(bri->sda_reg, bri->sda_func_val);
+		dev_dbg(&adap->dev, "i2c func: 0x%x=0x%x, 0x%x=0x%x.\n",
+			bri->scl_reg_addr, bri->scl_func_val,
+			bri->sda_reg_addr, bri->sda_func_val);
+	}
+#else
 	if (bri->pinctrl)
 		pinctrl_select_state(bri->pinctrl, bri->pins_default);
+#endif
 
 	return ret;
 }

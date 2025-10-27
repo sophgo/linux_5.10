@@ -59,6 +59,13 @@
 
 #define RTL_GENERIC_PHYID			0x001cc800
 
+#define RTL8211F_PHYSR_P_A43	(0x1a)
+#define RTL8211F_PHY_1000M		(0x20)
+#define RTL8211F_PHY_100M		(0x10)
+#define RTL8211F_PHY_10M		(0x00)
+#define RTL8211F_PHY_DUPLEX		(1 << 3)
+#define RTL8211F_PHY_SPEED		(3 << 4)
+
 MODULE_DESCRIPTION("Realtek PHY driver");
 MODULE_AUTHOR("Johnson Leung");
 MODULE_LICENSE("GPL");
@@ -258,6 +265,34 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	else
 		ret = phy_modify_paged_changed(phydev, 0xd04, 0x10, 0xffff, 0x820B);
 #endif
+	return 0;
+}
+
+static int rtl8211f_read_status(struct phy_device *phydev)
+{
+	int err = genphy_read_status(phydev);
+	if (err)
+		return err;
+
+	int	physr_p_a43 = phy_read_paged(phydev, 0xa43, RTL8211F_PHYSR_P_A43);
+
+	if((physr_p_a43 & RTL8211F_PHY_SPEED) == RTL8211F_PHY_1000M) {
+		phydev->speed = SPEED_1000;
+	} else if ((physr_p_a43 & RTL8211F_PHY_SPEED) == RTL8211F_PHY_100M) {
+		phydev->speed = SPEED_100;
+	} else if ((physr_p_a43 & RTL8211F_PHY_SPEED) == RTL8211F_PHY_10M) {
+		phydev->speed = SPEED_10;
+	}
+
+	if(physr_p_a43 & RTL8211F_PHY_DUPLEX) {
+		phydev->duplex = DUPLEX_FULL;
+	} else {
+		phydev->duplex = DUPLEX_HALF;
+	}
+
+	if (phydev->speed != SPEED_1000) {
+		linkmode_clear_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT, phydev->lp_advertising);
+	}
 	return 0;
 }
 
@@ -656,6 +691,7 @@ static struct phy_driver realtek_drvs[] = {
 		.name		= "RTL8211F Gigabit Ethernet",
 		.probe      = rtl8211f_probe,
 		.config_init	= &rtl8211f_config_init,
+		.read_status	= &rtl8211f_read_status,
 		.ack_interrupt	= &rtl8211f_ack_interrupt,
 		.config_intr	= &rtl8211f_config_intr,
 		.suspend	= genphy_suspend,

@@ -4145,13 +4145,12 @@ int vi_start_streaming(struct sop_vi_dev *vdev)
 
 	vi_pr(VI_INFO, "+\n");
 
-	rc = vi_tuning_buf_setup(&vdev->ctx);
-	if (rc < 0) {
-		vi_pr(VI_ERR, "vi alloc tuning buf fail!\n");
-		return -1;
+	if (atomic_read(&vdev->state) != VI_SUSPEND) {
+		vi_tuning_buf_setup(&vdev->ctx);
+		vi_tuning_buf_clear();
 	}
-	vi_tuning_buf_clear();
-	isp_reset(&vdev->ctx);
+
+	_vi_mempool_reset();
 
 	//SW workaround to disable csibdg enable first due to csibdg enable is on as default.
 	for (raw_num = ISP_PRERAW0; raw_num < ISP_PRERAW_MAX; raw_num++)
@@ -4399,7 +4398,7 @@ int vi_stop_streaming(struct sop_vi_dev *vdev)
 	}
 
 	for (i = 0; i < VI_MAX_CHN_NUM; i++) {
-		if (vdev->ctx.is_suspend) {
+		if (atomic_read(&vdev->state) == VI_SUSPEND) {
 			while (!list_empty(&vdev->dqbuf_list[i])) {
 				struct sop_isp_buf *b = NULL;
 				b = list_first_entry(&vdev->dqbuf_list[i], struct sop_isp_buf, list);
@@ -4460,6 +4459,11 @@ int vi_stop_streaming(struct sop_vi_dev *vdev)
 			vfree(isp_b);
 		while ((isp_b = isp_buf_remove(&postraw_in_q[i])) != NULL)
 			vfree(isp_b);
+
+		if (atomic_read(&vdev->state) == VI_SUSPEND) {
+			vdev->ctx.isp_pipe_cfg[i].first_frm_cnt = 0;
+			vdev->preraw_first_frm[i] = true;
+		}
 	}
 
 	spin_lock_irqsave(&raw_num_lock, flags);
@@ -4487,7 +4491,8 @@ int vi_stop_streaming(struct sop_vi_dev *vdev)
 #ifdef PORTING_TEST
 	vi_ip_test_cases_uninit(&vdev->ctx);
 #endif
-	vi_tuning_buf_release();
+	if (atomic_read(&vdev->state) != VI_SUSPEND)
+		vi_tuning_buf_release();
 
 	for (raw_num = ISP_PRERAW0; raw_num < ISP_PRERAW_MAX; raw_num++) {
 		if (vdev->tpu_thd_bind[raw_num]) {
@@ -5274,7 +5279,7 @@ s8 _pre_hw_enque(
 	enum isp_blk_id_t splt_rdma_id;
 	u32 rgbmap_id;
 
-	if (ctx->is_suspend) {
+	if (atomic_read(&vdev->state) == VI_SUSPEND) {
 		vi_pr(VI_DBG, "already pre_hw_enque\n");
 		return -ISP_ERROR;
 	}
@@ -6079,7 +6084,7 @@ static void _post_hw_enque(
 	enum sop_isp_raw raw_num = ISP_PRERAW0;
 	enum sop_isp_fe_chn_num chn_num = ISP_FE_CH0;
 
-	if (ctx->is_suspend) {
+	if (atomic_read(&vdev->state) == VI_SUSPEND) {
 		vi_pr(VI_DBG, "already post_hw_enque\n");
 		return;
 	}
@@ -7877,9 +7882,10 @@ static void _isp_yuv_bypass_handler(struct sop_vi_dev *vdev, const enum sop_isp_
 	if (!atomic_read(&vdev->is_streaming[buf_chn]))
 		return;
 
+	sop_isp_dqbuf_list(vdev, vdev->pre_fe_frm_num[raw_num][hw_chn_num], buf_chn);
+
 	sop_isp_rdy_buf_remove(vdev, buf_chn);
 
-	sop_isp_dqbuf_list(vdev, vdev->pre_fe_frm_num[raw_num][hw_chn_num], buf_chn);
 
 	++vdev->postraw_frame_number[buf_chn];
 
@@ -7906,7 +7912,7 @@ static void _isp_sof_handler(struct sop_vi_dev *vdev, const enum sop_isp_raw raw
 	union reg_isp_top_int_event2_en ev2_en;
 	uintptr_t isptopb = vdev->ctx.phys_regs[ISP_BLK_ID_ISPTOP];
 
-	if (ctx->is_suspend) {
+	if (atomic_read(&vdev->state) == VI_SUSPEND) {
 		ev2_en.raw = 0;
 		ev2_en.bits.frame_start_enable_fe0	= 0;
 		ev2_en.bits.frame_start_enable_fe1	= 0;
@@ -8553,8 +8559,9 @@ static void _isp_postraw_done_handler(struct sop_vi_dev *vdev)
 	}
 
 	if (ctx->isp_pipe_cfg[raw_num].is_offline_scaler) {
-		sop_isp_rdy_buf_remove(vdev, raw_num);
 		sop_isp_dqbuf_list(vdev, vdev->postraw_frame_number[raw_num], raw_num);
+
+		sop_isp_rdy_buf_remove(vdev, raw_num);
 
 		dev_num = vi_get_dev_num_by_raw(ctx, raw_num);
 		vdev->vi_event_th[dev_num].flag = raw_num + 1;
@@ -8954,9 +8961,10 @@ static int subcall_get_sensor_info(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_n
 	struct v4l2_ctrl *link_freq;
 	struct v4l2_querymenu qm = { .id = V4L2_CID_LINK_FREQ};
 	int ret = 0;
-	int devno_index = SNS_CFG_TYPE_MIPI_DEV;
-	int data_index = SNS_CFG_TYPE_DATE_BIT;
+	int devno_index;
+	int data_index;
 	int mipi_dev = 0;
+	int link_num = 0;
 	bool is_yuv_sensor = false;
 
 	if (!sensor_sd) {
@@ -8975,6 +8983,15 @@ static int subcall_get_sensor_info(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_n
 	if (ret < 0) {
 		vi_pr(VI_INFO, "Failed to get sns clk menu\n");
 		return ret;
+	}
+
+	link_num = qm.value;
+	if (link_num == DVP_SNS_CFG_TYPE_MAX) {
+		devno_index = DVP_SNS_CFG_TYPE_DEVNO;
+		data_index = DVP_SNS_CFG_TYPE_DATA_BIT;
+	} else if (link_num == SNS_CFG_TYPE_MAX) {
+		devno_index = SNS_CFG_TYPE_MIPI_DEV;
+		data_index = SNS_CFG_TYPE_DATA_BIT;
 	}
 
 	qm.index = data_index;
@@ -11303,18 +11320,26 @@ static struct v4l2_file_operations sop_isp_fops = {
 
 void vi_suspend(struct sop_vi_dev *vdev)
 {
-	vdev->ctx.is_suspend = true;
+	if (vdev == NULL)
+		return;
+
+	atomic_set(&vdev->state, VI_SUSPEND);
 
 	if (atomic_read(&vdev->isp_streamon)) {
-		_vi_clk_ctrl(vdev, false);
+		vi_stop_streaming(vdev);
 	}
 }
 
 void vi_resume(struct sop_vi_dev *vdev)
 {
-	_vi_clk_ctrl(vdev, true);
+	if (vdev == NULL)
+		return;
 
-	vdev->ctx.is_suspend = false;
+	if (atomic_read(&vdev->isp_streamon)) {
+		vi_start_streaming(vdev);
+	}
+
+	atomic_set(&vdev->state, VI_RUNNING);
 }
 
 static irqreturn_t vi_core_isr(int irq, void *priv)

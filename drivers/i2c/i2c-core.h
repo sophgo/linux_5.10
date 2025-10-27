@@ -22,6 +22,16 @@ int i2c_check_7bit_addr_validity_strict(unsigned short addr);
 int i2c_dev_irq_from_resources(const struct resource *resources,
 			       unsigned int num_resources);
 
+#ifdef CONFIG_ARCH_CVITEK
+/* bit4~bit7 */
+#define PINMUX_FUNC_MASK   0xF0    // bit4~bit7
+#define PINMUX_FUNC_SHIFT  4
+
+/* option */
+#define PINMUX_SET_REG_FUNC(reg, func_val) \
+	writel((readl(reg) & ~PINMUX_FUNC_MASK) | (((func_val) << PINMUX_FUNC_SHIFT) & PINMUX_FUNC_MASK), reg)
+#endif
+
 /*
  * We only allow atomic transfers for very late communication, e.g. to access a
  * PMIC when powering down. Atomic transfers are a corner case and not for

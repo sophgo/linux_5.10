@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * pr2100 driver
+ * pr2020 driver
  *
  * Copyright (C) 2024 Sophon Co., Ltd.
  *
@@ -29,7 +29,7 @@
 #include <linux/compat.h>
 #endif
 
-#include "pr2100.h"
+#include "pr2020.h"
 
 /* I2C per write of bits */
 #define REG_VALUE_08BIT		1
@@ -37,54 +37,39 @@
 #define REG_VALUE_24BIT		3
 #define PAGE_SELECT 0XFF
 /* Chip ID */
-#define PR2100_CHIP_ID_ADDR_L		0xfd
-#define PR2100_CHIP_ID_ADDR_H		0xfc
-#define PR2100_CHIP_ID			0x2100
+#define PR2020_CHIP_ID_ADDR_L		0xfd
+#define PR2020_CHIP_ID_ADDR_H		0xfc
+#define PR2020_CHIP_ID			0x2020
 
-static int pr2100_count;
+static int pr2020_count;
 
 static int force_bus[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = 0xFF};
-module_param_array(force_bus, int, &pr2100_count, 0644);
+module_param_array(force_bus, int, &pr2020_count, 0644);
 
 static int force_i2caddr[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = 0xFF};
-module_param_array(force_i2caddr, int, &pr2100_count, 0644);
+module_param_array(force_i2caddr, int, &pr2020_count, 0644);
 
-static int force_slave[MAX_SENSOR_DEVICE] = {[0 ... (MAX_SENSOR_DEVICE - 1)] = 0xFF};
-module_param_array(force_slave, int, &pr2100_count, 0644);
+static int pr2020_probe_index;
 
-static int pr2100_probe_index;
-
-static unsigned short pr2100_i2caddr_map[] = {0x5F, 0x5F, 0x5C, 0x5C, 0x5F, 0x5F, 0x5c, 0x5c};
-static int pr2100_bus_map[MAX_SENSOR_DEVICE] = {1, -1, -1, -1, -1, -1, -1, -1};
-static int pr2100_slave_map[MAX_SENSOR_DEVICE] = {0, 0, 1, 1, 0, 0, 1, 1};
-static int pr2100_type_map[MAX_SENSOR_DEVICE] = {
-	V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
-	V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
+static unsigned short pr2020_i2caddr_map[] = {0x5C, -1, -1, -1, -1, -1, -1, -1};
+static int pr2020_bus_map[MAX_SENSOR_DEVICE] = {2, -1, -1, -1, -1, -1, -1, -1};
+static int pr2020_type_map[MAX_SENSOR_DEVICE] = {
+	V4L2_PIXELPLUS_PR2020_2M_25FPS_8BIT,
 };
 
-struct pr2100_yuv_format {
+struct pr2020_yuv_format {
 	vi_isp_yuv_scene_e	yuv_scene_mode;
 	vi_intf_mode_e	inf_mode;
 	vi_work_mode_e	mux_mode;
 	vi_yuv_data_seq_e data_seq;
 };
-struct pr2100_reg_list {
+struct pr2020_reg_list {
 	u32 num_of_regs;
-	const struct pr2100_reg *regs;
+	const struct pr2020_reg *regs;
 };
 
 /* Mode : resolution and related config&values */
-struct pr2100_mode {
+struct pr2020_mode {
 	u32 max_width;
 	u32 max_height;
 	u32 width;
@@ -96,101 +81,41 @@ struct pr2100_mode {
 	u32 sns_type;
 	char *sns_type_name;
 	struct v4l2_fract max_fps;
-	sns_sync_info_t pr2100_sync_info;
-	struct pr2100_yuv_format yuv_format;
-	struct pr2100_reg_list reg_list;
+	sns_sync_info_t pr2020_sync_info;
+	struct pr2020_yuv_format yuv_format;
+	struct pr2020_reg_list reg_list;
 };
 
 /* Mode configs */
-static struct pr2100_mode supported_modes[] = {
+static struct pr2020_mode supported_modes[] = {
 	{
-		.max_width = 1920,
-		.max_height = 1080,
-		.width = 1920,
-		.height = 1080,
-		.sns_type = V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT,
-		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT",
+		.max_width = 1280,
+		.max_height = 720,
+		.width = 1280,
+		.height = 720,
+		.sns_type = V4L2_PIXELPLUS_PR2020_2M_25FPS_8BIT,
+		.sns_type_name = "V4L2_PIXELPLUS_PR2020_2M_25FPS_8BIT",
 		.max_fps = {
 			.numerator = 10000,
 			.denominator = 250000,
 		},
 		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1920x1080_regs),
-			.regs = mode_1920x1080_regs,
-		},
-	},
-	{
-		.max_width = 1920,
-		.max_height = 1080,
-		.width = 1920,
-		.height = 1080,
-		.sns_type = V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT,
-		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT",
-		.max_fps = {
-			.numerator = 10000,
-			.denominator = 250000,
-		},
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2ch_regs),
-			.regs = mode_1920x1080_2ch_regs,
-		},
-	},
-	{
-		.max_width = 1920,
-		.max_height = 1080,
-		.width = 1920,
-		.height = 1080,
-		.sns_type = V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT,
-		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT",
-		.max_fps = {
-			.numerator = 10000,
-			.denominator = 250000,
-		},
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1920x1080_2ch_2l_regs),
-			.regs = mode_1920x1080_2ch_2l_regs,
-		},
-	},
-	{
-		.max_width = 1920,
-		.max_height = 1080,
-		.width = 1920,
-		.height = 1080,
-		.sns_type = V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT,
-		.sns_type_name = "V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT",
-		.max_fps = {
-			.numerator = 10000,
-			.denominator = 250000,
-		},
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(mode_1920x1080_4ch_regs),
-			.regs = mode_1920x1080_4ch_regs,
-		},
-	},
+			.num_of_regs = ARRAY_SIZE(mode_1280x720_regs),
+			.regs = mode_1280x720_regs,
+		}
+	}
 };
 
-static struct pr2100_yuv_format yuv_format[] = {
+static struct pr2020_yuv_format yuv_format[] = {
 	{
 		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
 		.inf_mode = VI_MODE_MIPI_YUV422,
 		.mux_mode = VI_WORK_MODE_1MULTIPLEX,
 		.data_seq = VI_DATA_SEQ_YUYV,
 	},
-	{
-		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
-		.inf_mode = VI_MODE_MIPI_YUV422,
-		.mux_mode = VI_WORK_MODE_2MULTIPLEX,
-		.data_seq = VI_DATA_SEQ_YUYV,
-	},
-	{
-		.yuv_scene_mode = VI_ISP_YUV_SCENE_BYPASS,
-		.inf_mode = VI_MODE_MIPI_YUV422,
-		.mux_mode = VI_WORK_MODE_4MULTIPLEX,
-		.data_seq = VI_DATA_SEQ_YUYV,
-	},
 };
 
-struct pr2100 {
+struct pr2020 {
 	struct v4l2_subdev sd;
 	struct media_pad pad;
 	struct i2c_client *client;
@@ -200,7 +125,7 @@ struct pr2100 {
 	struct v4l2_ctrl *hblank;
 	struct v4l2_ctrl *exposure;
 	/* Current mode */
-	struct pr2100_mode *cur_mode;
+	struct pr2020_mode *cur_mode;
 	/* Mutex for serialized access */
 	struct mutex mutex;
 	/* Streaming on/off */
@@ -216,12 +141,12 @@ struct pr2100 {
 	unsigned int module_index;
 };
 
-#define to_pr2100(_sd)	container_of(_sd, struct pr2100, sd)
+#define to_pr2020(_sd)	container_of(_sd, struct pr2020, sd)
 
 /* Read registers up to 4 at a time */
-static int pr2100_read_reg(struct pr2100 *pr2100, u8 reg, u32 len, u32 *val)
+static int pr2020_read_reg(struct pr2020 *pr2020, u8 reg, u32 len, u32 *val)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	struct i2c_msg msgs[2];
 	u8 *data_be_p;
 	int ret;
@@ -254,9 +179,9 @@ static int pr2100_read_reg(struct pr2100 *pr2100, u8 reg, u32 len, u32 *val)
 }
 
 /* Write registers up to 4 at a time */
-static int pr2100_write_reg(struct pr2100 *pr2100, u16 reg, u32 len, u32 __val)
+static int pr2020_write_reg(struct pr2020 *pr2020, u16 reg, u32 len, u32 __val)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	int buf_i, val_i;
 	u8 buf[6], *val_p;
 	__be32 val;
@@ -281,14 +206,14 @@ static int pr2100_write_reg(struct pr2100 *pr2100, u16 reg, u32 len, u32 __val)
 }
 
 /* Write a list of registers */
-static int pr2100_write_regs(struct pr2100 *pr2100, const struct pr2100_reg *regs, u32 len)
+static int pr2020_write_regs(struct pr2020 *pr2020, const struct pr2020_reg *regs, u32 len)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	int ret;
 	u32 i;
 
 	for (i = 0; i < len; i++) {
-		ret = pr2100_write_reg(pr2100, regs[i].address, 1,
+		ret = pr2020_write_reg(pr2020, regs[i].address, 1,
 					regs[i].val);
 		if (ret) {
 			dev_err_ratelimited(&client->dev, "Failed to write reg 0x%4.4x. error=%d\n",
@@ -302,61 +227,41 @@ static int pr2100_write_regs(struct pr2100 *pr2100, const struct pr2100_reg *reg
 }
 
 /* Open sub-device */
-static int pr2100_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+static int pr2020_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 	struct v4l2_mbus_framefmt *try_fmt =
 			v4l2_subdev_get_try_format(sd, fh->pad, 0);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
-	int module_id = pr2100->module_index;
+	int module_id = pr2020->module_index;
 
-	mutex_lock(&pr2100->mutex);
+	mutex_lock(&pr2020->mutex);
 
 	/* Initialize try_fmt */
-	try_fmt->width = pr2100->cur_mode->width;
-	try_fmt->height = pr2100->cur_mode->height;
+	try_fmt->width = pr2020->cur_mode->width;
+	try_fmt->height = pr2020->cur_mode->height;
 	try_fmt->code = MEDIA_BUS_FMT_VUY8_1X24;
 	try_fmt->field = V4L2_FIELD_NONE;
 
-
-	switch (pr2100_type_map[module_id]) {
-		case V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT:
-			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[0],
-				sizeof(struct pr2100_yuv_format));
-			break;
-		case V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT:
-		case V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT:
-			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[1],
-				sizeof(struct pr2100_yuv_format));
-			break;
-		case V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT:
-			memcpy(&pr2100->cur_mode->yuv_format, &yuv_format[2],
-				sizeof(struct pr2100_yuv_format));
-			break;
-		default:
-			dev_err(&client->dev, "unknown sensor type:%d\n", pr2100_type_map[module_id]);
-			break;
-	}
-
 	/* No crop or compose */
-	mutex_unlock(&pr2100->mutex);
+	mutex_unlock(&pr2020->mutex);
 
 	return 0;
 }
 
-static int pr2100_set_ctrl(struct v4l2_ctrl *ctrl)
+static int pr2020_set_ctrl(struct v4l2_ctrl *ctrl)
 {
-	struct pr2100 *pr2100 = container_of(ctrl->handler,
-					       struct pr2100, ctrl_handler);
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct pr2020 *pr2020 = container_of(ctrl->handler,
+					       struct pr2020, ctrl_handler);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 
 	pm_runtime_put(&client->dev);
 
 	return 0;
 }
 
-static const struct v4l2_ctrl_ops pr2100_ctrl_ops = {
-	.s_ctrl = pr2100_set_ctrl,
+static const struct v4l2_ctrl_ops pr2020_ctrl_ops = {
+	.s_ctrl = pr2020_set_ctrl,
 };
 
 static int g_mbus_config(struct v4l2_subdev *sd, unsigned int pad_id,
@@ -383,13 +288,13 @@ static int enum_frame_interval(struct v4l2_subdev *sd,
 			      struct v4l2_subdev_pad_config *cfg,
 			      struct v4l2_subdev_frame_interval_enum *fie)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 
-	fie->width  = pr2100->cur_mode->width;
-	fie->height = pr2100->cur_mode->height;
+	fie->width  = pr2020->cur_mode->width;
+	fie->height = pr2020->cur_mode->height;
 
-	fie->interval.numerator   = pr2100->cur_mode->max_fps.numerator;
-	fie->interval.denominator = pr2100->cur_mode->max_fps.denominator;
+	fie->interval.numerator   = pr2020->cur_mode->max_fps.numerator;
+	fie->interval.denominator = pr2020->cur_mode->max_fps.denominator;
 
 	return 0;
 }
@@ -398,17 +303,17 @@ static int enum_frame_size(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_pad_config *cfg,
 			   struct v4l2_subdev_frame_size_enum *fse)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 
-	fse->min_width = pr2100->cur_mode->width;
-	fse->max_width = pr2100->cur_mode->max_width;
-	fse->min_height = pr2100->cur_mode->height;
-	fse->max_height = pr2100->cur_mode->max_height;
+	fse->min_width = pr2020->cur_mode->width;
+	fse->max_width = pr2020->cur_mode->max_width;
+	fse->min_height = pr2020->cur_mode->height;
+	fse->max_height = pr2020->cur_mode->max_height;
 
 	return 0;
 }
 
-static void update_pad_format(const struct pr2100_mode *mode, struct v4l2_subdev_format *fmt)
+static void update_pad_format(const struct pr2020_mode *mode, struct v4l2_subdev_format *fmt)
 {
 	fmt->format.width = mode->width;
 	fmt->format.height = mode->height;
@@ -426,19 +331,19 @@ static int get_pad_format(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *fmt)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 	struct v4l2_mbus_framefmt *framefmt;
 	int ret = 0;
 
-	mutex_lock(&pr2100->mutex);
+	mutex_lock(&pr2020->mutex);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 		framefmt = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
 		fmt->format = *framefmt;
 		ret = -ENOTTY;
 	} else {
-		update_pad_format(pr2100->cur_mode, fmt);
+		update_pad_format(pr2020->cur_mode, fmt);
 	}
-	mutex_unlock(&pr2100->mutex);
+	mutex_unlock(&pr2020->mutex);
 
 	return ret;
 }
@@ -447,11 +352,11 @@ static int set_pad_format(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *fmt)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
-	struct pr2100_mode *mode;
+	struct pr2020 *pr2020 = to_pr2020(sd);
+	struct pr2020_mode *mode;
 	struct v4l2_mbus_framefmt *framefmt;
 
-	mutex_lock(&pr2100->mutex);
+	mutex_lock(&pr2020->mutex);
 
 	/* Only one raw bayer(GRBG) order is supported */
 	if (fmt->format.code != MEDIA_BUS_FMT_VUY8_1X24)
@@ -466,87 +371,41 @@ static int set_pad_format(struct v4l2_subdev *sd,
 		framefmt = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
 		*framefmt = fmt->format;
 	} else {
-		pr2100->cur_mode = mode;
+		pr2020->cur_mode = mode;
 	}
 
-	mutex_unlock(&pr2100->mutex);
+	mutex_unlock(&pr2020->mutex);
 
 	return 0;
 }
 
-static void pr2100_standby(struct pr2100 *pr2100)
+static void pr2020_standby(struct pr2020 *pr2020)
 {
-	pr2100_write_reg(pr2100, 0x0100, REG_VALUE_08BIT, 0x00);
+	return;
 }
 
-//static void pr2100_restart(struct pr2100 *pr2100)
-//{
-//	pr2100_write_reg(pr2100, 0x0100, REG_VALUE_08BIT, 0x01);
-//}
-
 /* Start streaming */
-static int start_streaming(struct pr2100 *pr2100)
+static int start_streaming(struct pr2020 *pr2020)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	const sns_sync_info_t *sync_info;
-	int module_id = pr2100->module_index;
+	int module_id = pr2020->module_index;
 	int ret = 0;
 	u32 val;
 
-	switch (pr2100_type_map[module_id]) {
-	case V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT:
-	{
-		dev_info(&client->dev, "1 channal out regs start to write\n");
-		ret = pr2100_write_regs(pr2100, mode_1920x1080_regs,
-					ARRAY_SIZE(mode_1920x1080_regs));
-		break;
-	}
-	case V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT:
-	{
-		dev_info(&client->dev, "2 channal out regs start to write\n");
-		ret = pr2100_write_regs(pr2100, mode_1920x1080_2ch_regs,
-					 ARRAY_SIZE(mode_1920x1080_2ch_regs));
-		break;
-	}
-	case V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT:
-	{
-		dev_info(&client->dev, "2 channal 2 lane out regs start to write\n");
-		ret = pr2100_write_regs(pr2100, mode_1920x1080_2ch_2l_regs,
-					 ARRAY_SIZE(mode_1920x1080_2ch_2l_regs));
-		break;
-	}
-	case V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT:
-	{
-		int is_slave = 0;
 
-		is_slave = force_slave[module_id] == 0xFF ?
-				pr2100_slave_map[module_id] : force_slave[module_id];
-
-		if (is_slave) {
-			dev_info(&client->dev, "4 channal slave regs start to write\n");
-			ret = pr2100_write_regs(pr2100, mode_1920x1080_4ch_slave_regs,
-						ARRAY_SIZE(mode_1920x1080_4ch_slave_regs));
-		} else {
-			dev_info(&client->dev, "4 channal master regs start to write\n");
-			ret = pr2100_write_regs(pr2100, mode_1920x1080_4ch_regs,
-						ARRAY_SIZE(mode_1920x1080_4ch_regs));
-		}
-
-		break;
-	}
-	default:
-		dev_err(&client->dev, "unknown sensor type:%d\n", pr2100_type_map[module_id]);
-		break;
-	}
+	dev_info(&client->dev, "1 channal out regs start to write\n");
+	ret = pr2020_write_regs(pr2020, mode_1280x720_regs,
+				ARRAY_SIZE(mode_1280x720_regs));
 
 	if (ret) {
 		dev_err(&client->dev, "%s failed to set mode\n", __func__);
 		return ret;
 	}
 
-	sync_info = &pr2100->cur_mode->pr2100_sync_info;
+	sync_info = &pr2020->cur_mode->pr2020_sync_info;
 	if (sync_info->num_of_regs > 0) {
-		ret = pr2100_write_regs(pr2100, (struct pr2100_reg *)sync_info->regs,
+		ret = pr2020_write_regs(pr2020, (struct pr2020_reg *)sync_info->regs,
 					sync_info->num_of_regs);
 		if (ret) {
 			dev_err(&client->dev, "%s failed to set default\n", __func__);
@@ -556,31 +415,31 @@ static int start_streaming(struct pr2100 *pr2100)
 
 	usleep_range(100 * 1000, 200 * 1000);
 	/* Apply customized values from user */
-	ret =  __v4l2_ctrl_handler_setup(pr2100->sd.ctrl_handler);
+	ret =  __v4l2_ctrl_handler_setup(pr2020->sd.ctrl_handler);
 	if (ret)
 		return ret;
 
-	dev_info(&client->dev, "wdr_mode(%d) reg setting done\n", pr2100->cur_mode->mipi_wdr_mode);
+	dev_info(&client->dev, "wdr_mode(%d) reg setting done\n", pr2020->cur_mode->mipi_wdr_mode);
 
 	return ret;
 }
 
 /* Stop streaming */
-static int stop_streaming(struct pr2100 *pr2100)
+static int stop_streaming(struct pr2020 *pr2020)
 {
-	pr2100_standby(pr2100);
+	pr2020_standby(pr2020);
 	return 0;
 }
 
 static int set_stream(struct v4l2_subdev *sd, int enable)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	int ret = 0;
 
-	mutex_lock(&pr2100->mutex);
-	if (pr2100->streaming == enable) {
-		mutex_unlock(&pr2100->mutex);
+	mutex_lock(&pr2020->mutex);
+	if (pr2020->streaming == enable) {
+		mutex_unlock(&pr2020->mutex);
 		return 0;
 	}
 
@@ -591,10 +450,10 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 			goto err_unlock;
 		}
 
-		if (!IS_ERR(pr2100->reset_gpio)) {
-			gpiod_set_value_cansleep(pr2100->reset_gpio, 0);
+		if (!IS_ERR(pr2020->reset_gpio)) {
+			gpiod_set_value_cansleep(pr2020->reset_gpio, 0);
 			msleep(100);
-			gpiod_set_value_cansleep(pr2100->reset_gpio, 1);
+			gpiod_set_value_cansleep(pr2020->reset_gpio, 1);
 			msleep(100);
 		}
 
@@ -602,16 +461,16 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 		 * Apply default & customized values
 		 * and then start streaming.
 		 */
-		ret = start_streaming(pr2100);
+		ret = start_streaming(pr2020);
 		if (ret)
 			goto err_rpm_put;
 	} else {
-		stop_streaming(pr2100);
+		stop_streaming(pr2020);
 		pm_runtime_put(&client->dev);
 	}
 
-	pr2100->streaming = enable;
-	mutex_unlock(&pr2100->mutex);
+	pr2020->streaming = enable;
+	mutex_unlock(&pr2020->mutex);
 
 	dev_info(&client->dev, "In sensor, set stream(%d) success\n", enable);
 
@@ -620,7 +479,7 @@ static int set_stream(struct v4l2_subdev *sd, int enable)
 err_rpm_put:
 	pm_runtime_put(&client->dev);
 err_unlock:
-	mutex_unlock(&pr2100->mutex);
+	mutex_unlock(&pr2020->mutex);
 
 	return ret;
 }
@@ -629,10 +488,10 @@ static int __maybe_unused suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 
-	if (pr2100->streaming)
-		stop_streaming(pr2100);
+	if (pr2020->streaming)
+		stop_streaming(pr2020);
 
 	return 0;
 }
@@ -641,11 +500,11 @@ static int __maybe_unused resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 	int ret;
 
-	if (pr2100->streaming) {
-		ret = start_streaming(pr2100);
+	if (pr2020->streaming) {
+		ret = start_streaming(pr2020);
 		if (ret)
 			goto error;
 	}
@@ -653,42 +512,43 @@ static int __maybe_unused resume(struct device *dev)
 	return 0;
 
 error:
-	stop_streaming(pr2100);
-	pr2100->streaming = false;
+	stop_streaming(pr2020);
+	pr2020->streaming = false;
 	return ret;
 }
 
 /* Verify chip ID */
-static int pr2100_identify_module(struct pr2100 *pr2100)
+static int pr2020_identify_module(struct pr2020 *pr2020)
 {
 	int ret;
 	int val1, val2;
 	int read_data = 0;
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 
 
-	pr2100_write_reg(pr2100, PAGE_SELECT, 1, 0x00);  //select page0
+	pr2020_write_reg(pr2020, PAGE_SELECT, 1, 0x00);  //select page0
 
-	ret = pr2100_read_reg(pr2100, PR2100_CHIP_ID_ADDR_L,
+	ret = pr2020_read_reg(pr2020, PR2020_CHIP_ID_ADDR_L,
 			       REG_VALUE_08BIT, &val1);
-	ret = pr2100_read_reg(pr2100, PR2100_CHIP_ID_ADDR_H,
+	ret = pr2020_read_reg(pr2020, PR2020_CHIP_ID_ADDR_H,
 			       REG_VALUE_08BIT, &val2);
 	read_data = (val1 & 0xFF) | ((val2 & 0xFF) << 8);
 
 	if (ret)
 		return ret;
 
-	if (read_data != PR2100_CHIP_ID) {
-		dev_err(&client->dev, "chip id(%x) mismatch, read(%x)\n",
-			PR2100_CHIP_ID, read_data);
-		return -EIO;
-	}
+	// if (read_data != PR2020_CHIP_ID) {
+	// 	dev_err(&client->dev, "chip id(%x) mismatch, read(%x)\n",
+	// 		PR2020_CHIP_ID, read_data);
+	// 	return -EIO;
+	// }
 
 	return 0;
 }
 
-static int pr2100_get_info_from_dts(struct pr2100 *pr2100, int index_id) {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+static int pr2020_get_info_from_dts(struct pr2020 *pr2020, int index_id)
+{
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	struct device_node *np = client->dev.of_node;
 	u32 i, ret, len, num_lanes, num_lanes_swap;
 	u32 lane[LANE_MAX_NUM] = {0}, lane_swap[LANE_MAX_NUM] = {0};
@@ -775,37 +635,37 @@ static int pr2100_get_info_from_dts(struct pr2100 *pr2100, int index_id) {
 	}
 
 	for (i = 0; i < LANE_MAX_NUM; i++) {
-		pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
+		pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_DATA_LANE0 + i] =
 			i >= num_lanes ? -1 : lane[i];
-		pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
+		pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_PN_SWAP0 + i] =
 			i >= num_lanes_swap ? 0 : lane_swap[i];
 	}
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
-	pr2100_link_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_MIPI_DEV] = mipi_dev;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_MCLK_NUM] = mclk_num;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_WDR_MODE] = wdr_mode;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_DPHY_SETTLE] = hs_settle;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_DPHY_EN] = dphy_enable;
+	pr2020_link_bt656_cif_menu[index_id][SNS_CFG_TYPE_PHY_MODE] = cif_mode;
 
 	return 0;
 }
 
-static long pr2100_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+static long pr2020_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 	long ret = 0;
 
 	switch (cmd) {
 	case SNS_V4L2_GET_TYPE:
 	{
 		int type = 0;
-		int index = pr2100->module_index;
+		int index = pr2020->module_index;
 
 		if (index < 0 || index >= MAX_SENSOR_DEVICE) {
 			pr_info("invalid module_index:%d\n", index);
 		}
 
-		type = pr2100_type_map[index];
+		type = pr2020_type_map[index];
 		memcpy(arg, &type, sizeof(int));
 
 		break;
@@ -813,7 +673,7 @@ static long pr2100_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 	case SNS_V4L2_GET_I2C_INFO:
 	{
-		struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+		struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 		sns_i2c_info_t i2c_info;
 
 		i2c_info.i2c_addr =  client->addr;
@@ -824,7 +684,7 @@ static long pr2100_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 
 	case SNS_V4L2_SET_SNS_SYNC_INFO:
 	{
-		memcpy(&pr2100->cur_mode->pr2100_sync_info, arg, sizeof(sns_sync_info_t));
+		memcpy(&pr2020->cur_mode->pr2020_sync_info, arg, sizeof(sns_sync_info_t));
 		break;
 	}
 
@@ -837,7 +697,7 @@ static long pr2100_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 }
 
 #ifdef CONFIG_COMPAT
-static long pr2100_compat_ioctl32(struct v4l2_subdev *sd,
+static long pr2020_compat_ioctl32(struct v4l2_subdev *sd,
 				   unsigned int cmd, unsigned long arg)
 {
 	long ret;
@@ -852,18 +712,18 @@ static long pr2100_compat_ioctl32(struct v4l2_subdev *sd,
 }
 #endif
 
-static const struct v4l2_subdev_core_ops pr2100_core_ops = {
-	.ioctl = pr2100_ioctl,
+static const struct v4l2_subdev_core_ops pr2020_core_ops = {
+	.ioctl = pr2020_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl32 = pr2100_compat_ioctl32,
+	.compat_ioctl32 = pr2020_compat_ioctl32,
 #endif
 };
 
-static const struct v4l2_subdev_video_ops pr2100_video_ops = {
+static const struct v4l2_subdev_video_ops pr2020_video_ops = {
 	.s_stream = set_stream,
 };
 
-static const struct v4l2_subdev_pad_ops pr2100_pad_ops = {
+static const struct v4l2_subdev_pad_ops pr2020_pad_ops = {
 	.enum_mbus_code = enum_mbus_code,
 	.get_fmt = get_pad_format,
 	.set_fmt = set_pad_format,
@@ -872,31 +732,31 @@ static const struct v4l2_subdev_pad_ops pr2100_pad_ops = {
 	.get_mbus_config = g_mbus_config,
 };
 
-static const struct v4l2_subdev_ops pr2100_subdev_ops = {
-	.core	= &pr2100_core_ops,
-	.video  = &pr2100_video_ops,
-	.pad    = &pr2100_pad_ops,
+static const struct v4l2_subdev_ops pr2020_subdev_ops = {
+	.core	= &pr2020_core_ops,
+	.video  = &pr2020_video_ops,
+	.pad    = &pr2020_pad_ops,
 };
 
-static const struct media_entity_operations pr2100_subdev_entity_ops = {
+static const struct media_entity_operations pr2020_subdev_entity_ops = {
 	.link_validate = v4l2_subdev_link_validate,
 };
 
-static const struct v4l2_subdev_internal_ops pr2100_internal_ops = {
-	.open = pr2100_open,
+static const struct v4l2_subdev_internal_ops pr2020_internal_ops = {
+	.open = pr2020_open,
 };
 
 /* Initialize control handlers */
-static int pr2100_init_controls(struct pr2100 *pr2100, int index_id)
+static int pr2020_init_controls(struct pr2020 *pr2020, int index_id)
 {
-	struct i2c_client *client = v4l2_get_subdevdata(&pr2100->sd);
+	struct i2c_client *client = v4l2_get_subdevdata(&pr2020->sd);
 	struct v4l2_fwnode_device_properties props;
 	struct v4l2_ctrl_handler *ctrl_hdlr;
 	struct v4l2_ctrl *ctrl;
 	int ret;
 	int i;
 
-	ctrl_hdlr = &pr2100->ctrl_handler;
+	ctrl_hdlr = &pr2020->ctrl_handler;
 	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
 	if (ret) {
 		dev_err(&client->dev, "%s ctrl handler init failed (%d)\n",
@@ -904,17 +764,17 @@ static int pr2100_init_controls(struct pr2100 *pr2100, int index_id)
 		return ret;
 	}
 
-	pr2100_get_info_from_dts(pr2100, index_id);
+	pr2020_get_info_from_dts(pr2020, index_id);
 
-	mutex_init(&pr2100->mutex);
-	ctrl_hdlr->lock = &pr2100->mutex;
-	for (i = 0; i < SNS_CFG_TYPE_MAX; i++) {
+	mutex_init(&pr2020->mutex);
+	ctrl_hdlr->lock = &pr2020->mutex;
+	for (i = 0; i < DVP_SNS_CFG_TYPE_MAX; i++) {
 		if (i == SNS_CFG_TYPE_WDR_MODE)
-			pr2100->cur_mode->mipi_wdr_mode = pr2100_link_cif_menu[index_id][i];
+			pr2020->cur_mode->mipi_wdr_mode = pr2020_link_bt656_cif_menu[index_id][i];
 
-		ctrl = v4l2_ctrl_new_int_menu(ctrl_hdlr, &pr2100_ctrl_ops, V4L2_CID_LINK_FREQ,
-					      pr2100_link_cif_menu[index_id][i], 0,
-					       (const s64 *)pr2100_link_cif_menu[index_id]);
+		ctrl = v4l2_ctrl_new_int_menu(ctrl_hdlr, &pr2020_ctrl_ops, V4L2_CID_LINK_FREQ,
+					      pr2020_link_bt656_cif_menu[index_id][i], 0,
+					       (const s64 *)pr2020_link_bt656_cif_menu[index_id]);
 
 		if (ctrl)
 			ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
@@ -931,90 +791,64 @@ static int pr2100_init_controls(struct pr2100 *pr2100, int index_id)
 	if (ret)
 		goto error;
 
-	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &pr2100_ctrl_ops,
+	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &pr2020_ctrl_ops,
 					      &props);
 	if (ret)
 		goto error;
 
-	pr2100->sd.ctrl_handler = ctrl_hdlr;
+	pr2020->sd.ctrl_handler = ctrl_hdlr;
 
 	return 0;
 
 error:
 	v4l2_ctrl_handler_free(ctrl_hdlr);
-	mutex_destroy(&pr2100->mutex);
+	mutex_destroy(&pr2020->mutex);
 
 	return ret;
 }
 
-static void pr2100_free_controls(struct pr2100 *pr2100)
+static void pr2020_free_controls(struct pr2020 *pr2020)
 {
-	v4l2_ctrl_handler_free(pr2100->sd.ctrl_handler);
-	mutex_destroy(&pr2100->mutex);
+	v4l2_ctrl_handler_free(pr2020->sd.ctrl_handler);
+	mutex_destroy(&pr2020->mutex);
 }
 
-static void pr2100_confirm_sensor_type(int id)
-{
-	int i;
-
-	if (id < 0 || id >= MAX_SENSOR_DEVICE || force_slave[id] == 0xFF)
-		return;
-
-	if (force_slave[id] == 1) {
-		for (i = id - 2; i <= id; i++) {
-			pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_4CH_25FPS_8BIT;
-			pr2100_link_cif_menu[i][SNS_CFG_TYPE_WDR_MODE] = MIPI_WDR_MODE_VC;
-		}
-	} else if (force_slave[id] == 0 && id > 0) {
-		if (force_slave[id - 1] != 1)
-			for (i = id - 1; i <= id; i++) {
-				if (pr2100_link_cif_menu[i][SNS_CFG_TYPE_DATA_LANE3] == -1) //if 2 lane
-					pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_2CH_2L_25FPS_8BIT;
-				else
-					pr2100_type_map[i] = V4L2_PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT;
-			}
-	} else {
-		pr2100_type_map[id] = V4L2_PIXELPLUS_PR2100_2M_25FPS_8BIT;
-		pr2100_link_cif_menu[id][SNS_CFG_TYPE_WDR_MODE] = MIPI_WDR_MODE_VC;
-	}
-}
-
-static int pr2100_probe(struct i2c_client *client,
+static int pr2020_probe(struct i2c_client *client,
 			 const struct i2c_device_id *devid)
 {
-	struct pr2100 *pr2100;
+	struct pr2020 *pr2020;
 	struct v4l2_subdev *sd;
 	struct device *dev = &client->dev;
-	int index_id = pr2100_probe_index;
+	int index_id = pr2020_probe_index;
 	u32 bus_id, i2c_addr, use_defualt = 1;
 	int ret = -1;
 
-	dev_info(dev, "probe id[%d] start\n", pr2100_probe_index);
+	dev_info(dev, "probe id[%d] start\n", pr2020_probe_index);
 
-	pr2100_probe_index++;
+	pr2020_probe_index++;
 
 	if (index_id >= MAX_SENSOR_DEVICE || index_id < 0) {
 		dev_info(dev, "invalid devid(%d)\n", index_id);
 		return ret;
 	}
 
-	pr2100 = devm_kzalloc(&client->dev, sizeof(*pr2100), GFP_KERNEL);
-	if (!pr2100)
+	pr2020 = devm_kzalloc(&client->dev, sizeof(*pr2020), GFP_KERNEL);
+	if (!pr2020)
 		return -ENOMEM;
 
-	sd = &pr2100->sd;
+	sd = &pr2020->sd;
 
-	if (!of_property_read_u32(client->dev.of_node,"reg-addr", &i2c_addr) &&
-		!of_property_read_u32(client->dev.of_node,"bus-id", &bus_id) &&
-		!pr2100_count) {
-		printk("pr2100_probe reg = %x\n", i2c_addr);
-		printk("pr2100_probe bus-id = %x\n", bus_id);
+	if (!of_property_read_u32(client->dev.of_node, "reg-addr", &i2c_addr) &&
+		!of_property_read_u32(client->dev.of_node, "bus-id", &bus_id) &&
+		!pr2020_count) {
+		printk("pr2020_probe reg = %x\n", i2c_addr);
+		printk("pr2020_probe bus-id = %x\n", bus_id);
 		client->addr = i2c_addr;
 		client->adapter = i2c_get_adapter(bus_id);
-		pr2100->client = client;
-		v4l2_i2c_subdev_init(sd, client, &pr2100_subdev_ops);
+		pr2020->client = client;
+		v4l2_i2c_subdev_init(sd, client, &pr2020_subdev_ops);
 		/* Check module identity */
-		ret = pr2100_identify_module(pr2100);
+		ret = pr2020_identify_module(pr2020);
 		if (ret) {
 			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] no sensor found,use default\n",
 				index_id, bus_id, client->addr);
@@ -1027,7 +861,7 @@ static int pr2100_probe(struct i2c_client *client,
 	}
 	if (use_defualt) {
 		if (force_bus[index_id] == 0xFF)
-			bus_id = pr2100_bus_map[index_id];
+			bus_id = pr2020_bus_map[index_id];
 		else
 			bus_id = force_bus[index_id];
 
@@ -1035,60 +869,57 @@ static int pr2100_probe(struct i2c_client *client,
 			return ret;
 
 		if (force_i2caddr[index_id] == 0xFF && use_defualt) {
-			if (index_id >= ARRAY_SIZE(pr2100_i2caddr_map))
-				client->addr = pr2100_i2caddr_map[index_id - 1];
+			if (index_id >= ARRAY_SIZE(pr2020_i2caddr_map))
+				client->addr = pr2020_i2caddr_map[index_id - 1];
 			else
-				client->addr = pr2100_i2caddr_map[index_id];
+				client->addr = pr2020_i2caddr_map[index_id];
 		} else
 			client->addr = force_i2caddr[index_id];
 
 		client->adapter = i2c_get_adapter(bus_id);
-		pr2100->client = client;
-		v4l2_i2c_subdev_init(sd, client, &pr2100_subdev_ops);
+		pr2020->client = client;
+		v4l2_i2c_subdev_init(sd, client, &pr2020_subdev_ops);
 
 	/* Check module identity */
-		ret = pr2100_identify_module(pr2100);
+		ret = pr2020_identify_module(pr2020);
 		if (ret) {
 			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] no sensor found\n",
 				 index_id, bus_id, client->addr);
-
 			return ret;
 		} else
 			dev_info(dev, "id[%d] bus[%d] i2c_addr[0x%x] sensor found\n",
 				 index_id, bus_id, client->addr);
 		}
-	pr2100->module_index = index_id;
+	pr2020->module_index = index_id;
 
-	pr2100_confirm_sensor_type(index_id);
+	pr2020->cur_mode = devm_kzalloc(&client->dev,
+					sizeof(struct pr2020_mode), GFP_KERNEL);
+	memcpy(pr2020->cur_mode, &supported_modes[0], sizeof(struct pr2020_mode));
 
-	pr2100->cur_mode = devm_kzalloc(&client->dev,
-					sizeof(struct pr2100_mode), GFP_KERNEL);
-	memcpy(pr2100->cur_mode, &supported_modes[0], sizeof(struct pr2100_mode));
+	memset(&pr2020->cur_mode->pr2020_sync_info, 0, sizeof(sns_sync_info_t));
 
-	memset(&pr2100->cur_mode->pr2100_sync_info, 0, sizeof(sns_sync_info_t));
+	mutex_init(&pr2020->mutex);
 
-	mutex_init(&pr2100->mutex);
-
-	ret = pr2100_init_controls(pr2100, index_id);
+	ret = pr2020_init_controls(pr2020, index_id);
 	if (ret)
 		return ret;
 
 	/* Initialize subdev */
-	sd->internal_ops = &pr2100_internal_ops;
+	sd->internal_ops = &pr2020_internal_ops;
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
-	sd->entity.ops = &pr2100_subdev_entity_ops;
+	sd->entity.ops = &pr2020_subdev_entity_ops;
 	sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
 
 	/* Initialize source pad */
-	pr2100->pad.flags = MEDIA_PAD_FL_SOURCE;
-	ret = media_entity_pads_init(&sd->entity, 1, &pr2100->pad);
+	pr2020->pad.flags = MEDIA_PAD_FL_SOURCE;
+	ret = media_entity_pads_init(&sd->entity, 1, &pr2020->pad);
 	if (ret) {
 		dev_err(&client->dev, "failed to init pads:%d\n", ret);
 		goto error_handler_free;
 	}
 
 	snprintf(sd->name, sizeof(sd->name), "cam%d_%s %s",
-		 pr2100->module_index, "pr2100", dev_name(sd->dev));
+		 pr2020->module_index, "pr2020", dev_name(sd->dev));
 
 	ret = v4l2_async_register_subdev_sensor_common(sd);
 	if (ret < 0) {
@@ -1109,36 +940,36 @@ static int pr2100_probe(struct i2c_client *client,
 	return 0;
 
 error_media_entity:
-	media_entity_cleanup(&pr2100->sd.entity);
+	media_entity_cleanup(&pr2020->sd.entity);
 
 error_handler_free:
-	pr2100_free_controls(pr2100);
+	pr2020_free_controls(pr2020);
 	dev_err(&client->dev, "%s failed:%d\n", __func__, ret);
 
 	return ret;
 }
 
-static int pr2100_remove(struct i2c_client *client)
+static int pr2020_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct pr2100 *pr2100 = to_pr2100(sd);
+	struct pr2020 *pr2020 = to_pr2020(sd);
 
-	pr2100_probe_index = 0;
-	pr_info("== pr2100_remove_index = %d ==\n", pr2100_probe_index);
+	pr2020_probe_index = 0;
+	pr_info("== pr2020_remove_index = %d ==\n", pr2020_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
-	pr2100_free_controls(pr2100);
+	pr2020_free_controls(pr2020);
 
 	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
 	pm_runtime_suspend(&client->dev);
 
-	dev_info(&client->dev, "sensor_%d remove success\n", pr2100_probe_index);
+	dev_info(&client->dev, "sensor_%d remove success\n", pr2020_probe_index);
 	return 0;
 }
 
-static const struct of_device_id pr2100_of_match[] = {
+static const struct of_device_id pr2020_of_match[] = {
 	{ .compatible = "v4l2,sensor0" },
 	{ .compatible = "v4l2,sensor1" },
 	{ .compatible = "v4l2,sensor2" },
@@ -1153,38 +984,38 @@ static const struct of_device_id pr2100_of_match[] = {
 	{ .compatible = "v4l2,sensor11" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, pr2100_of_match);
+MODULE_DEVICE_TABLE(of, pr2020_of_match);
 
-static const struct dev_pm_ops pr2100_pm_ops = {
+static const struct dev_pm_ops pr2020_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(suspend, resume)
 };
 
-static struct i2c_driver pr2100_i2c_driver = {
+static struct i2c_driver pr2020_i2c_driver = {
 	.driver = {
-		.name = "pr2100",
-		.pm = &pr2100_pm_ops,
+		.name = "pr2020",
+		.pm = &pr2020_pm_ops,
 		.owner = THIS_MODULE,
-		.of_match_table = of_match_ptr(pr2100_of_match),
+		.of_match_table = of_match_ptr(pr2020_of_match),
 	},
-	.probe    = pr2100_probe,
-	.remove   = pr2100_remove,
+	.probe    = pr2020_probe,
+	.remove   = pr2020_remove,
 };
 
 static int __init sensor_mod_init(void)
 {
-	pr_info("== pr2100 mod add ==\n");
+	pr_info("== pr2020 mod add ==\n");
 
-	return i2c_add_driver(&pr2100_i2c_driver);
+	return i2c_add_driver(&pr2020_i2c_driver);
 }
 
 static void __exit sensor_mod_exit(void)
 {
-	pr_info("== pr2100 mod rmmod ==\n");
-	i2c_del_driver(&pr2100_i2c_driver);
+	pr_info("== pr2020 mod rmmod ==\n");
+	i2c_del_driver(&pr2020_i2c_driver);
 }
 
 module_init(sensor_mod_init);
 module_exit(sensor_mod_exit);
 
-MODULE_DESCRIPTION("pr2100 sensor driver");
+MODULE_DESCRIPTION("pr2020 sensor driver");
 MODULE_LICENSE("GPL v2");

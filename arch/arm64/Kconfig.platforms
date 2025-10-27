@@ -549,4 +549,11 @@ config ARCH_CV952X_ASIC
 endchoice
 endif # end ARCH_CV952X
 
+config SD_BOOT
+	bool "SD Card Boot Priority"
+	depends on ARCH_CVITEK
+	default n
+	help
+		Enable SD card boot priority optimization
+
 endmenu

@@ -430,24 +430,22 @@ static void handle_thermal_trip(struct thermal_zone_device *tz, int trip)
 
 	if (tz->last_temperature != THERMAL_TEMP_INVALID) {
 		if (tz->last_temperature < trip_temp &&
-		    tz->temperature >= trip_temp) {
+		    tz->temperature >= trip_temp)
 			thermal_notify_tz_trip_up(tz->id, trip);
-			handle_non_critical_trips(tz, trip);
-		}
+
 		if ((tz->last_temperature >= trip_temp &&
 		     tz->temperature < (trip_temp - hyst)) ||
 		    (tz->last_temperature < trip_temp &&
 		     tz->last_temperature >= (trip_temp - hyst) &&
-		     tz->temperature < (trip_temp - hyst))) {
+		     tz->temperature < (trip_temp - hyst)))
 			thermal_notify_tz_trip_down(tz->id, trip);
-			handle_non_critical_trips(tz, trip);
-		}
+
 	}
 
 	if (type == THERMAL_TRIP_CRITICAL || type == THERMAL_TRIP_HOT)
 		handle_critical_trips(tz, trip, type);
-	/* else */
-	/*     handle_non_critical_trips(tz, trip); */
+	else
+		handle_non_critical_trips(tz, trip);
 	/*
 	 * Alright, we handled this trip successfully.
 	 * So, start monitoring again.
@@ -569,10 +567,9 @@ void thermal_zone_device_update(struct thermal_zone_device *tz,
 
 	tz->notify_event = event;
 
-	for (count = 0; count < tz->trips; count++) {
+	for (count = 0; count < tz->trips; count++)
 		handle_thermal_trip(tz, count);
-		handle_thermal_trip(tz, tz->trips - count - 1);
-	}
+
 }
 EXPORT_SYMBOL_GPL(thermal_zone_device_update);
 

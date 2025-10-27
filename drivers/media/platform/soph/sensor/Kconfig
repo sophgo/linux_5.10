@@ -85,9 +85,23 @@ config SENSOR_V4L2_GC4653
 	help
 	  Support for Sensor on the CV186X SoC.
 
+config SENSOR_V4L2_GC8613
+	depends on VIDEO_V4L2 && I2C
+	tristate "gc8613 support"
+	default n
+	help
+	  Support for Sensor on the CV186X SoC.
+
 config SENSOR_V4L2_PR2100
 	depends on VIDEO_V4L2 && I2C
 	tristate "pr2100 support"
+	default n
+	help
+	  Support for Sensor on the CV186X SoC.
+
+config SENSOR_V4L2_PR2020
+	depends on VIDEO_V4L2 && I2C
+	tristate "pr2020 support"
 	default n
 	help
 	  Support for Sensor on the CV186X SoC.
@@ -123,6 +137,14 @@ config SENSOR_V4L2_SC233HGS
 config SENSOR_V4L2_SC500AI
 	depends on VIDEO_V4L2 && I2C
 	tristate "sc500ai support"
+	default n
+	help
+	  Support for Sensor on the CV186X SoC.
+
+
+config SENSOR_V4L2_SC831HAI
+	depends on VIDEO_V4L2 && I2C
+	tristate "sc831hai support"
 	default n
 	help
 	  Support for Sensor on the CV186X SoC.

@@ -469,10 +469,11 @@ static void dwc_descriptor_complete(struct dw_dma_chan *dwc, struct dw_desc *des
 	fix_dma_bug_copy_put(dwc, &dwc->chan);
 #endif
 
-	dmaengine_desc_callback_invoke(&cb, NULL);
 	dwc_unprepare_clk(dw);
 
 	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	dmaengine_desc_callback_invoke(&cb, NULL);
 }
 
 static void dwc_complete_all(struct dw_dma *dw, struct dw_dma_chan *dwc)
