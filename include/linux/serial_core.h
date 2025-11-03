@@ -179,6 +179,7 @@ struct uart_port {
 #define UPF_SAK			((__force upf_t) ASYNC_SAK            /* 2  */ )
 #define UPF_SPD_HI		((__force upf_t) ASYNC_SPD_HI         /* 4  */ )
 #define UPF_SPD_VHI		((__force upf_t) ASYNC_SPD_VHI        /* 5  */ )
+#define UPF_NO_TXEN_TEST        ((__force upf_t) (1 << 15))
 #define UPF_SPD_CUST		((__force upf_t) ASYNC_SPD_CUST   /* 0x0030 */ )
 #define UPF_SPD_WARP		((__force upf_t) ASYNC_SPD_WARP   /* 0x1010 */ )
 #define UPF_SPD_MASK		((__force upf_t) ASYNC_SPD_MASK   /* 0x1030 */ )

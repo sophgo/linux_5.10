@@ -26,6 +26,7 @@
 #include <linux/clk.h>
 #include <linux/reset.h>
 #include <linux/pm_runtime.h>
+#include <linux/printk.h>
 
 #include <asm/byteorder.h>
 
@@ -162,7 +163,6 @@ static void dw8250_serial_out(struct uart_port *p, int offset, int value)
 	struct dw8250_data *d = to_dw8250_data(p->private_data);
 
 	writeb(value, p->membase + (offset << p->regshift));
-
 	if (offset == UART_LCR && !d->uart_16550_compatible)
 		dw8250_check_lcr(p, value);
 }
@@ -576,9 +576,16 @@ static int dw8250_probe(struct platform_device *pdev)
 
 	/* If we have a valid fifosize, try hooking up DMA */
 	if (p->fifosize) {
-		data->data.dma.rxconf.src_maxburst = p->fifosize / 4;
-		data->data.dma.txconf.dst_maxburst = p->fifosize / 4;
-		up->dma = &data->data.dma;
+//		data->dma.rxconf.src_maxburst = p->fifosize / 4;
+		data->data.dma.rxconf.src_maxburst = 1;
+		data->data.dma.rxconf.dst_maxburst = 16;
+		data->data.dma.txconf.src_maxburst = 16;
+		data->data.dma.txconf.dst_maxburst = 16;
+#if !defined(CONFIG_SERIAL_8250_DMA) && defined(CONFIG_ARCH_BM1880)
+		uart.dma = NULL;
+#else
+		uart.dma = &data->data.dma;
+#endif
 	}
 
 	data->data.line = serial8250_register_8250_port(up);
@@ -731,6 +738,9 @@ static struct platform_driver dw8250_platform_driver = {
 	.remove			= dw8250_remove,
 };
 
+#ifdef CONFIG_CVITEK_FASTBOOT
+#define module_init(x) deferred_initcall(x)
+#endif
 module_platform_driver(dw8250_platform_driver);
 
 MODULE_AUTHOR("Jamie Iles");

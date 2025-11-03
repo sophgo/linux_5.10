@@ -257,6 +257,7 @@ struct cvi_i2s_dev {
 	unsigned int tx_ptr;
 	bool mclk_out;
 #ifdef CONFIG_PM_SLEEP
+	int real_status;
 	struct cvi_i2s_reg_context *reg_ctx;
 #endif
 };

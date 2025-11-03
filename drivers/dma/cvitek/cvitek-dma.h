@@ -321,6 +321,7 @@ struct dw_dma_chan {
 	enum dma_transfer_direction direction;
 
 	spinlock_t lock;
+	spinlock_t handle_cyclic_lock;
 
 	/* these other elements are all protected by lock */
 	unsigned long flags;
@@ -347,6 +348,8 @@ struct dw_dma_chan {
 	struct dma_pool *bug_fix_dma_pool;
 	u32 hw_pos;
 	u32 interrupt_count;
+	u8 has_interrupt;
+	u32 dma_last_irq_pos;
 };
 
 /* LLI == Linked List Item; a.k.a. DMA block descriptor */

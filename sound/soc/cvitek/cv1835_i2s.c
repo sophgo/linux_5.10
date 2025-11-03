@@ -328,6 +328,8 @@ static int cvi_i2s_startup(struct snd_pcm_substream *substream,
 				  SNDRV_PCM_HW_PARAM_PERIOD_BYTES, -1);
 	if (ret < 0)
 		return ret;
+	dev->tx_substream = substream;
+	dev_dbg(dev->dev, "%s i2s_dev:%d,substream:%p\n", __func__, dev->dev_id, dev->tx_substream);
 
 	return 0;
 }
@@ -1320,6 +1322,16 @@ static int cvi_i2s_pm_suspend(struct device *dev)
 			return -ENOMEM;
 	}
 
+	i2s_dev->real_status = i2s_read_reg(i2s_dev->i2s_base, I2S_ENABLE);
+	dev_dbg(i2s_dev->dev, "suspend check devID:%d,really_state:%d,stream:%p\n",
+		i2s_dev->dev_id, i2s_dev->real_status, i2s_dev->tx_substream);
+	if (i2s_dev->real_status && i2s_dev->tx_substream) {
+		// stop dma
+		snd_dmaengine_pcm_trigger(i2s_dev->tx_substream, SNDRV_PCM_TRIGGER_STOP);
+		//stop i2s
+		i2s_stop(i2s_dev, i2s_dev->tx_substream);
+	}
+
 	i2s_dev->reg_ctx->blk_setting = i2s_read_reg(i2s_dev->i2s_base, BLK_MODE_SETTING);
 	i2s_dev->reg_ctx->frame_setting = i2s_read_reg(i2s_dev->i2s_base, FRAME_SETTING);
 	i2s_dev->reg_ctx->slot_setting1 = i2s_read_reg(i2s_dev->i2s_base, SLOT_SETTING1);
@@ -1361,6 +1373,12 @@ static int cvi_i2s_pm_resume(struct device *dev)
 	i2s_write_reg(i2s_dev->i2s_base, I2S_CLK_CTRL1, i2s_dev->reg_ctx->i2c_clk_ctl1);
 	i2s_write_reg(i2s_dev->i2s_base, I2S_PCM_SYNTH, i2s_dev->reg_ctx->i2s_pcm_synth);
 
+	if (i2s_dev->real_status && i2s_dev->tx_substream) {
+		// start dma
+		snd_dmaengine_pcm_trigger(i2s_dev->tx_substream, SNDRV_PCM_TRIGGER_START);
+		//start i2s
+		i2s_start(i2s_dev, i2s_dev->tx_substream);
+	}
 	return 0;
 }
 

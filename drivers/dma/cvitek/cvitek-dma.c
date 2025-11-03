@@ -37,6 +37,7 @@ static void dw_dma_off(struct dw_dma *dw);
 static void dw_dma_on(struct dw_dma *dw);
 static bool dw_dma_filter(struct dma_chan *chan, void *param);
 static int dw_dma_cyclic_start(struct dma_chan *chan);
+static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc,u8 mode);
 
 #define to_dw_desc(h)	list_entry(h, struct dw_desc, desc_node)
 
@@ -244,7 +245,6 @@ static void dwc_initialize(struct dw_dma_chan *dwc)
 	channel_writeq(dwc, INTSTATUS_ENABLEREG, int_status_reg);
 
 	set_bit(DW_DMA_IS_INITIALIZED, &dwc->flags);
-	dwc->status &= ~DWC_CH_INTSIG_DMA_TRA_DONE;
 }
 
 /* Called with dwc->lock held and bh disabled */
@@ -495,7 +495,7 @@ static void dwc_descriptor_complete(struct dw_dma_chan *dwc, struct dw_desc *des
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	dma_cookie_complete(txd);
-	dwc->status &= ~DWC_CH_INTSIG_DMA_TRA_DONE;
+
 	if (callback_required)
 		dmaengine_desc_get_callback(txd, &cb);
 	else
@@ -511,10 +511,10 @@ static void dwc_descriptor_complete(struct dw_dma_chan *dwc, struct dw_desc *des
 	fix_dma_bug_copy_put(dwc, &dwc->chan);
 #endif
 
-	dmaengine_desc_callback_invoke(&cb, NULL);
 	dwc_unprepare_clk(dw);
-
 	spin_unlock_irqrestore(&dwc->lock, flags);
+	dmaengine_desc_callback_invoke(&cb, NULL);
+
 }
 
 static void dwc_complete_all(struct dw_dma *dw, struct dw_dma_chan *dwc)
@@ -578,6 +578,7 @@ static int dwc_resume(struct dma_chan *chan)
 	}
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
+	dwc_handle_cyclic(dw, dwc,0); /* trigger callback to update flushed data information */
 	return 0;
 }
 
@@ -593,22 +594,34 @@ static int dwc_pause(struct dma_chan *chan)
 	spin_lock_irqsave(&dwc->lock, flags);
 
 	dma_set_bit(dw, CH_EN,
-		    (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET))
-		    | (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_EN_OFFSET)));
+		(1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET))
+		| (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_EN_OFFSET)));
 
 	while (!(dma_readq(dw, CH_EN)
-		 & (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET)))
-	       && count--)
-		udelay(2);
+		& (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET)))
+		&& count--)
+		continue;
 
-	dma_ch_en = dma_readq(dw, CH_EN);
-	dma_ch_en |= (dwc->mask << DW_DMAC_CH_EN_WE_OFFSET);
-	dma_ch_en &= ~dwc->mask;
-	dma_writeq(dw, CH_EN, dma_ch_en);
 
 	set_bit(DW_DMA_IS_PAUSED, &dwc->flags);
 
+	if (chan->immediate_resume)
+	{
+		if (test_bit(DW_DMA_IS_PAUSED, &dwc->flags)) {
+			u64 ch_en;
+
+			ch_en = (dma_readq(dw, CH_EN) & ~(1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET)))
+					| (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_EN_OFFSET));
+			dma_writeq(dw, CH_EN, ch_en);
+
+			clear_bit(DW_DMA_IS_PAUSED, &dwc->flags);
+		}
+	}
+
 	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	if (chan->immediate_resume)
+		dwc_handle_cyclic(dw, dwc,0); /* trigger callback to update flushed data information */
 
 	return 0;
 }
@@ -714,7 +727,6 @@ static int dwc_stop_cyclic_all(struct dw_dma_chan *dwc)
 
 	spin_lock_irqsave(&dwc->lock, flags);
 	dma_cookie_complete(txd);
-	dwc->status &= ~DWC_CH_INTSIG_DMA_TRA_DONE;
 
 	clear_bit(DW_DMA_IS_CYCLIC, &dwc->flags);
 
@@ -743,7 +755,7 @@ static int dwc_terminate_all(struct dma_chan *chan)
 	dwc_chan_disable(dw, dwc);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
-	dwc_resume(chan);
+	//dwc_resume(chan);
 
 	if (test_bit(DW_DMA_IS_CYCLIC, &dwc->flags))
 		return dwc_stop_cyclic_all(dwc);
@@ -1375,53 +1387,137 @@ out_err:
 }
 
 
-static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc)
+static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc,u8 mode)
 {
 	dma_addr_t llp;
 	int i;
 	u32 sent_total = 0;
+	u32 sent_len = 0;
 	struct dw_desc *desc, *first;
 	struct dmaengine_desc_callback cb;
 	u32 new_hw_pos = 0;
+	dma_addr_t first_dar;
+	dma_addr_t current_dar;
+	unsigned long irq_flag1, irq_flag2;
 
 	llp = channel_readq(dwc, LLP);
 	first = dwc->cdesc->desc[0];
+	first_dar = lli_read(first, dar);
 	sent_total += dwc->cdesc->last_sent;
 
-	if (first->txd.phys != DWC_LLP_LOC(llp)) {
-		for (i = 1; i < dwc->cdesc->periods; i++) {
-			desc = dwc->cdesc->desc[i];
-			new_hw_pos += dwc_get_sent(dwc);
-			if (desc->txd.phys == DWC_LLP_LOC(llp))
-				break;
+
+	if(dwc->direction == DMA_DEV_TO_MEM){
+
+		spin_lock_irqsave(&dwc->handle_cyclic_lock, irq_flag1);
+
+		if (mode == 1) {
+			llp = channel_readq(dwc, LLP);
+
+			for (i = 0; i < dwc->cdesc->periods; i++) {
+				desc = dwc->cdesc->desc[i];
+
+				if (desc->txd.phys == DWC_LLP_LOC(llp)) {
+					if (i == 0)
+						current_dar = lli_read(dwc->cdesc->desc[dwc->cdesc->periods-1], dar);
+					else
+						current_dar = lli_read(dwc->cdesc->desc[i-1], dar);
+					break;
+				}
+			}
 		}
-	} else
-		new_hw_pos = 0; /* back to ring buffer head */
+		else
+			current_dar = channel_readq(dwc, DAR);
 
-	if (new_hw_pos >= first->hw_pos)
-		sent_total += new_hw_pos - first->hw_pos;
-	else
-		sent_total += first->total_len + new_hw_pos - first->hw_pos;
+		if (current_dar == first_dar + first->total_len)
+			current_dar = first_dar;
 
-	first->hw_pos = new_hw_pos;
-	first->residue = first->total_len - (new_hw_pos - new_hw_pos % dwc->cdesc->period_len);
-	dwc->hw_pos = new_hw_pos;
-	dwc->interrupt_count++;
+		new_hw_pos = current_dar - first_dar; /* calculate newest hw position */
 
-	if (sent_total > dwc->cdesc->period_len) {
-		dmaengine_desc_get_callback(&first->txd, &cb);
-		dmaengine_desc_callback_invoke(&cb, NULL);
-		dwc->cdesc->last_sent = new_hw_pos % dwc->cdesc->period_len;
-	} else {
-		dwc->cdesc->last_sent = sent_total;
+		if((new_hw_pos > dwc->dma_last_irq_pos) && (new_hw_pos < first->hw_pos)){
+			spin_unlock_irqrestore(&dwc->handle_cyclic_lock, irq_flag1);
+			return;
+		}
+		if((first->hw_pos > new_hw_pos) && (first->hw_pos < dwc->dma_last_irq_pos)){
+			spin_unlock_irqrestore(&dwc->handle_cyclic_lock, irq_flag1);
+			return;
+		}
+
+		if(mode == 1)
+			dwc->dma_last_irq_pos = new_hw_pos;
+
+		if (new_hw_pos >= first->hw_pos) {
+			//dev_info(chan2dev(&dwc->chan),"cal within ring\n");
+			sent_len += new_hw_pos - first->hw_pos;
+		}
+		else {
+			//dev_info(chan2dev(&dwc->chan),"cal exceed ring\n");
+			sent_len += first->total_len + new_hw_pos - first->hw_pos;
+		}
+
+		spin_lock_irqsave(&dwc->lock, irq_flag2);
+
+		first->hw_pos = new_hw_pos; /* record newest how position */
+		first->residue = first->total_len - new_hw_pos;
+		dwc->hw_pos = new_hw_pos;
+		dwc->interrupt_count++;
+
+		spin_unlock_irqrestore(&dwc->lock, irq_flag2);
+
+		spin_unlock_irqrestore(&dwc->handle_cyclic_lock, irq_flag1);
+
+		if (sent_len != 0) {
+			if (dw->log_on)
+			dev_info(chan2dev(&dwc->chan),"%s, updated first->residue=%d, first->hw_pos=%d, dwc->hw_pos=%d, sent_len=%d\n",
+			__func__, first->residue, first->hw_pos,dwc->hw_pos, sent_len);
+
+			dmaengine_desc_get_callback(&first->txd, &cb);
+			dmaengine_desc_callback_invoke(&cb, NULL);
+			dwc->cdesc->last_sent = sent_len;
+
+			if (dw->log_on)
+			dev_info(chan2dev(&dwc->chan),
+			"SAR:0x%llx DAR:0x%llx residue:%d sent_len:%d ch_status:0x%llx int_status:0x%llx\n",
+			channel_readq(dwc, SAR), channel_readq(dwc, DAR), first->residue, sent_len,
+			channel_readq(dwc, STATUS), channel_readq(dwc, INTSTATUS));
+		}
+
+	}else{
+
+		if (first->txd.phys != DWC_LLP_LOC(llp)) {
+			for (i = 1; i < dwc->cdesc->periods; i++) {
+				desc = dwc->cdesc->desc[i];
+				new_hw_pos += dwc_get_sent(dwc);
+				if (desc->txd.phys == DWC_LLP_LOC(llp))
+					break;
+			}
+		} else
+			new_hw_pos = 0; /* back to ring buffer head */
+
+		if (new_hw_pos >= first->hw_pos)
+			sent_total += new_hw_pos - first->hw_pos;
+		else
+			sent_total += first->total_len + new_hw_pos - first->hw_pos;
+
+		first->hw_pos = new_hw_pos;
+		first->residue = first->total_len - (new_hw_pos - new_hw_pos % dwc->cdesc->period_len);
+		dwc->hw_pos = new_hw_pos;
+		dwc->interrupt_count++;
+
+		if (sent_total > dwc->cdesc->period_len) {
+			dmaengine_desc_get_callback(&first->txd, &cb);
+			dmaengine_desc_callback_invoke(&cb, NULL);
+			dwc->cdesc->last_sent = new_hw_pos % dwc->cdesc->period_len;
+		} else {
+			dwc->cdesc->last_sent = sent_total;
+		}
+
+		if (dw->log_on)
+			dev_info(chan2dev(&dwc->chan),
+			"SAR:0x%llx DAR:0x%llx residue:%d sent_total:%d ch_status:0x%llx int_status:0x%llx\n",
+			channel_readq(dwc, SAR), channel_readq(dwc, DAR), first->residue, sent_total,
+			channel_readq(dwc, STATUS), channel_readq(dwc, INTSTATUS));
+
 	}
-
-	if (dw->log_on)
-		dev_info(chan2dev(&dwc->chan),
-			 "SAR:0x%llx DAR:0x%llx residue:%d sent_total:%d ch_status:0x%llx int_status:0x%llx\n",
-			 channel_readq(dwc, SAR), channel_readq(dwc, DAR), first->residue, sent_total,
-			 channel_readq(dwc, STATUS), channel_readq(dwc, INTSTATUS));
-
 	/* TODO error resuem */
 }
 
@@ -1487,7 +1583,7 @@ static void dwc_free_chan_resources(struct dma_chan *chan)
 
 	/* Disable controller in case it was a last user */
 	dw->in_use &= ~dwc->mask;
-	dwc->status &= ~DWC_CH_INTSIG_DMA_TRA_DONE;
+
 	if (!dw->in_use)
 		dw_dma_off(dw);
 
@@ -1543,20 +1639,18 @@ static void dw_dma_tasklet(unsigned long data)
 	ch_en = dma_readq(dw, CH_EN);
 
 	for (i = 0; i < dw->dma.chancnt; i++) {
-
 		dwc = &dw->chan[i];
-		if (test_bit(DW_DMA_IS_CYCLIC, &dwc->flags)) {
-			if ((ch_en >> i) & 0x1)
-				dwc_handle_cyclic(dw, dwc);
-		} else{
-		    if(dwc->status == DWC_CH_INTSIG_DMA_TRA_DONE)
-				dwc_scan_descriptors(dw, dwc);
+		if (dwc->has_interrupt == 1) {
+			dwc_handle_cyclic(dw, dwc,1);
+			dwc->has_interrupt = 0;
+		} else {
+			// if (dwc->status == DWC_CH_INTSIG_DMA_TRA_DONE)
+ 				dwc_scan_descriptors(dw, dwc);
         }
 		//dwc_interrupts_set(dwc, true);
 	}
 }
 #endif
-
 
 static void dw_dma_off(struct dw_dma *dw)
 {
@@ -1594,8 +1688,10 @@ static void instead_of_tasklet(struct dw_dma *dw)
 	for (i = 0; i < dw->dma.chancnt; i++) {
 		dwc = &dw->chan[i];
 		if (test_bit(DW_DMA_IS_CYCLIC, &dwc->flags)) {
-			if ((ch_en >> i) & 0x1)
-				dwc_handle_cyclic(dw, dwc);
+			if (dwc->has_interrupt == 1) {
+				dwc_handle_cyclic(dw, dwc,1);
+				dwc->has_interrupt = 0;
+			}
 		} else
 			dwc_scan_descriptors(dw, dwc);
 		//dwc_interrupts_set(dwc, true);
@@ -1606,7 +1702,7 @@ static void instead_of_tasklet(struct dw_dma *dw)
 static irqreturn_t dw_dma_interrupt(int irq, void *dev_id)
 {
 	int i;
-	u64 status,dwc_status;
+	u64 status, dwc_status;
 	struct dw_dma *dw = dev_id;
 	struct dw_dma_chan *dwc;
 
@@ -1619,13 +1715,13 @@ static irqreturn_t dw_dma_interrupt(int irq, void *dev_id)
 	if (!status)
 		return IRQ_NONE;
 
-
 	dma_writeq(dw, COMM_INTCLEAR, 0x10f); /* clear all common interrupts */
 	for (i = 0; i < dw->dma.chancnt; i++) {
 		dwc = &dw->chan[i];
+		if (((status >> i) & 0x1) && (test_bit(DW_DMA_IS_CYCLIC, &dwc->flags))) {
+			dwc->has_interrupt = 1;
+		}
 		dwc_status = channel_readq(dwc, INTSTATUS);
-		if(dwc_status == DWC_CH_INTSIG_DMA_TRA_DONE)
-			dwc->status = DWC_CH_INTSIG_DMA_TRA_DONE;
 		channel_writeq(dwc, INTCLEARREG, dwc_status);
 		//dwc_interrupts_set(dwc, false);
 	}

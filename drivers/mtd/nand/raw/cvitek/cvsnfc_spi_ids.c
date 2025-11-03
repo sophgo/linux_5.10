@@ -26,6 +26,12 @@ static struct spi_nand_driver  spi_nand_driver_general = {
 	.write_enable = spi_general_write_enable,
 };
 
+static struct spi_nand_driver spi_nand_driver_unim = {
+	.wait_ready = spi_general_wait_ready,
+	.write_enable = spi_general_write_enable,
+	.qe_enable = spi_nand_gd_qe_enable,
+};
+
 static struct spi_nand_driver  spi_nand_driver_gd = {
 	.wait_ready   = spi_general_wait_ready,
 	.write_enable = spi_general_write_enable,
@@ -113,6 +119,18 @@ short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, 
 
 /*
  *      ECCS3   ECCS2   ECCS1   ECCS0   Description
+ *      X       X       0       0       No bit errors were detected during the previous read algorithm
+ *      0       0       0       1       Bit errors (<=4) were detected and corrected
+ *      0       1       0       1       Bit errors (5) were detected and corrected
+ *      1       0       0       1       Bit errors (6) were detected and corrected
+ *      1       1       0       1       Bit errors (7) were detected and corrected
+ *      X       X       1       0       Bit errors greater than ECC capability (8 bits) and not corrected
+ *      X       X       1       1       Bit errors reach ECC capability (8 bits) and corrected
+ */
+short ECC_XT26G0xDWSIGA[16] = {0, 4, -1, 8, 0, 5, -1, 8, 0, 6, -1, 8, 0, 7, -1, 8};
+
+/*
+ *      ECCS3   ECCS2   ECCS1   ECCS0   Description
  *      0       0       0       0       No bit errors were detected during the previous read algorithm
  *      0       0       0       1       Bit errors (1) were detected and corrected
  *      0       0       1       0       Bit errors (2) were detected and corrected
@@ -124,7 +142,7 @@ short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, 
  *      1       0       0       0       Bit errors (8) were detected and corrected
  *      1       1       1       1       Bit errors greater than ECC capability (8 bits) and not corrected
  */
-short ECC_XT26G02CWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, -1};
+short ECC_XT26G0xCWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, -1};
 
 struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	{
@@ -336,6 +354,58 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
+		{	.name = "XT26G01DWSIGA",
+			.id = {0x0b, 0x31},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XT26G0xDWSIGA
+		},
+		.driver = &spi_nand_driver_gd,
+		.flags = 0
+	},
+
+	{
+		{	.name = "XT26G01CWSIGA",
+			.id = {0x0b, 0x11},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0xF,
+			.remap = ECC_XT26G0xCWSIGA
+		},
+		.driver = &spi_nand_driver_gd,
+		.flags = 0
+	},
+
+	{
 		{	.name = "XT26G02CWSIGA",
 			.id = {0x0b, 0x12},
 			.pagesize = SZ_2K,
@@ -355,7 +425,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.ecc_bits = 4,
 			.ecc_bit_shift = 4,
 			.uncorr_val = 0xF,
-			.remap = ECC_XT26G02CWSIGA
+			.remap = ECC_XT26G0xCWSIGA
 		},
 		.driver = &spi_nand_driver_gd,
 		.flags = 0
@@ -1479,6 +1549,32 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_gd,
+		.flags = 0
+	},
+
+	{
+		{	.name = "UM19A0HISW",
+			.id = {0xB0, 0x14},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0x0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 3,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_3bits_remap
+		},
+		.driver = &spi_nand_driver_unim,
 		.flags = 0
 	},
 

@@ -13,6 +13,9 @@
 
 #include "../serial_mctrl_gpio.h"
 
+#define UART_TIMEOUT 1
+#define DMA_RX_SIZE 32 * 1024
+
 struct uart_8250_dma {
 	int (*tx_dma)(struct uart_8250_port *p);
 	int (*rx_dma)(struct uart_8250_port *p);
@@ -40,6 +43,9 @@ struct uart_8250_dma {
 	dma_cookie_t		rx_cookie;
 	dma_cookie_t		tx_cookie;
 
+	unsigned int		rx_head_pos;
+	bool			    start_rx_dma;
+
 	void			*rx_buf;
 
 	size_t			rx_size;
@@ -48,6 +54,7 @@ struct uart_8250_dma {
 	unsigned char		tx_running;
 	unsigned char		tx_err;
 	unsigned char		rx_running;
+	unsigned char		rx_suspend;
 };
 
 struct old_serial_port {
@@ -305,6 +312,8 @@ static inline int is_omap1510_8250(struct uart_8250_port *pt)
 extern int serial8250_tx_dma(struct uart_8250_port *);
 extern int serial8250_rx_dma(struct uart_8250_port *);
 extern void serial8250_rx_dma_flush(struct uart_8250_port *);
+extern void serial8250_rx_dma_flush(struct uart_8250_port *);
+extern void serial8250_rx_dma_flush2(struct uart_8250_port *);
 extern int serial8250_request_dma(struct uart_8250_port *);
 extern void serial8250_release_dma(struct uart_8250_port *);
 #else
@@ -345,3 +354,6 @@ static inline int serial_index(struct uart_port *port)
 {
 	return port->minor - 64;
 }
+
+void uart_flush_timer_reset(struct uart_8250_port *up);
+int uart_flush_timer_init(struct uart_8250_port *up);

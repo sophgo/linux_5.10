@@ -671,6 +671,7 @@ retry_tuning:
 static void sdhci_cv180x_emmc_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -707,14 +708,20 @@ static void sdhci_cv180x_emmc_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV180X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV180X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 
 static void sdhci_cv180x_sd_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -746,14 +753,20 @@ static void sdhci_cv180x_sd_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV180X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV180X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 
 static void sdhci_cv180x_sdio_reset(struct sdhci_host *host, u8 mask)
 {
 	u16 ctrl_2;
+	u32 phy_rx_tx_dly_reg = 0;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
@@ -793,8 +806,13 @@ static void sdhci_cv180x_sdio_reset(struct sdhci_host *host, u8 mask)
 		sdhci_writel(host,
 			sdhci_readl(host, CVI_CV180X_SDHCI_PHY_CONFIG) | BIT(0),
 			CVI_CV180X_SDHCI_PHY_CONFIG);
-		//reg_0x240[25:24] = 1 reg_0x240[22:16] = 0 reg_0x240[9:8] = 1 reg_0x240[6:0] = 0
-		sdhci_writel(host, 0x1000100, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
+		//reg_0x240[25:24] = 00'b/01'b; reg_0x240[22:16] = 0
+		//reg_0x240[9:8] = 00'b/01'b reg_0x240[6:0] = 0
+		if (!(host->quirks2 & SDHCI_QUIRK2_RX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(24);
+		if (!(host->quirks2 & SDHCI_QUIRK2_TX_PHASE_FORWARD))
+			phy_rx_tx_dly_reg |= BIT(8);
+		sdhci_writel(host, phy_rx_tx_dly_reg, CVI_CV180X_SDHCI_PHY_TX_RX_DLY);
 	}
 }
 

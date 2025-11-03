@@ -350,6 +350,7 @@ struct dma_chan {
 	void *route_data;
 
 	void *private;
+	bool immediate_resume;
 };
 
 /**

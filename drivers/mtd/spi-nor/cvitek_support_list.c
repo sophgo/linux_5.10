@@ -104,6 +104,11 @@ static const struct flash_info cvitek_parts[] = {
 	{ "W25Q64JV-IQ", CVI_INFO(0xef4017, 0, 64 * 1024, 128, 3, 256,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr_bit1_qe_fixups },
+
+	{ "W25Q512JV", CVI_INFO(0xef4020, 0, 64 * 1024, 1024, 3, 256,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | 
+			SPI_NOR_SUPPORT_OTP | SPI_NOR_4B_OPCODES)
+		.fixups = &sr_bit1_qe_fixups },
 	/* Juyang 32M Nor Flash(JY25VQ256A) uses the same wafers as MXIC */
 	{ "MX25L25645G", CVI_INFO(0xc22019, 0, 64 * 1024, 512, 3, 256,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
@@ -121,7 +126,7 @@ static const struct flash_info cvitek_parts[] = {
 	{ "EN25QH256A",  CVI_INFO(0x1c7019, 0, 64 * 1024,  512, 0, 0,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
 			SPI_NOR_4B_OPCODES) },
-	{ "GD25Q128E", CVI_INFO(0xc84018, 0, 64 * 1024, 256, 3, 1024,
+	{ "GD25Q128E/H", CVI_INFO(0xc84018, 0, 64 * 1024, 256, 3, 1024,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr_bit1_qe_fixups },
 	{ "GD25Q64E", CVI_INFO(0xc84017, 0, 64 * 1024, 128, 3, 1024,

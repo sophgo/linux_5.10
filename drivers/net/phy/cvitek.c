@@ -14,6 +14,7 @@
 #define REG_EPHY_TOP_WRAP 0x03009800
 #define REG_EPHY_BASE 0x03009000
 #define EPHY_EFUSE_TXECHORC_FLAG 0x00000100 // bit 8
+#define EFUSE_MARSE_FLAG 0x00000100 // bit 8
 #define EPHY_EFUSE_TXITUNE_FLAG 0x00000200 // bit 9
 #define EPHY_EFUSE_TXRXTERM_FLAG 0x00000800 // bit 11
 
@@ -71,14 +72,14 @@ static int cv182xa_read_status(struct phy_device *phydev)
 				if ((phy_read(phydev, 0x1) & 0x20) == 0)
 					break;
 
-				mdelay(10);
+				msleep(10);
 				}
 			pr_notice("i=%d\n", i);
 			phy_modify(phydev, MII_BMCR, BMCR_ISOLATE, BMCR_ANENABLE | BMCR_ANRESTART);
 			for (i = 0; i < 1000; i++) {
 				if (phy_read(phydev, 0x1) & 0x20)
 					break;
-				mdelay(10);
+				msleep(10);
 			}
 			lp_val = phy_read(phydev, 0x5);
 			lp_val_cap = lp_val & 0xde0;
@@ -92,7 +93,7 @@ static int cv182xa_read_status(struct phy_device *phydev)
 					if (phy_read(phydev, 0x1) & 0x20)
 						break;
 
-					mdelay(10);
+					msleep(10);
 				}
 				//mdelay(8000);
 				//lp_val = phy_read(phydev, 0x5);
@@ -235,7 +236,16 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 
 	// Set Double TX Bias Current
 	writel(0x0000, reg_ephy_base + 0x54);
-
+#if CONFIG_ARCH_CV181X
+	if ((cvi_efuse_read_from_shadow(0x08) & EFUSE_MARSE_FLAG) ==
+	EFUSE_MARSE_FLAG) {
+		// change clk
+		// rg_eth_pll_loopdiv
+		writel(0X64, reg_ephy_base + 0X44);
+		// rg_eth_toptest DIV4
+		writel(0X200, reg_ephy_base + 0X6C);
+	}
+#endif
 	// Switch to MII-page16
 	writel(0x1000, reg_ephy_base + 0x7c);
 
