@@ -129,20 +129,6 @@ static int bm_dwmac_probe(struct platform_device *pdev)
 	pdev->dev.dma_mask = &bm_dma_mask;
 	pdev->dev.coherent_dma_mask = bm_dma_mask;
 
-	bm_eth_reset_phy(pdev);
-
-	ret = stmmac_get_platform_resources(pdev, &stmmac_res);
-	if (ret)
-		return ret;
-
-	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
-	if (IS_ERR(plat_dat))
-		return PTR_ERR(plat_dat);
-
-	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
-	if (ret)
-		goto err_remove_config_dt;
-
 	bsp_priv = devm_kzalloc(&pdev->dev, sizeof(*bsp_priv), GFP_KERNEL);
 	if (!bsp_priv)
 		return PTR_ERR(bsp_priv);
@@ -163,6 +149,21 @@ static int bm_dwmac_probe(struct platform_device *pdev)
 		dev_warn(&pdev->dev, "Cannot get gate_clk_axi4!\n");
 	else
 		clk_prepare_enable(bsp_priv->gate_clk_axi4);
+
+
+	bm_eth_reset_phy(pdev);
+
+	ret = stmmac_get_platform_resources(pdev, &stmmac_res);
+	if (ret)
+		return ret;
+
+	plat_dat = stmmac_probe_config_dt(pdev, &stmmac_res.mac);
+	if (IS_ERR(plat_dat))
+		return PTR_ERR(plat_dat);
+
+	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
+	if (ret)
+		goto err_remove_config_dt;
 
 	plat_dat->bsp_priv = bsp_priv;
 	plat_dat->exit = bm_dwmac_exit;

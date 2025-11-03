@@ -88,7 +88,6 @@ struct i2s_subsys_obj {
 	struct device *dev;
 	u32 master_id;
 	u32 master_base;
-	u32 src_clk_freq[8];
 #ifdef CONFIG_PM_SLEEP
 	struct subsys_reg_context *reg_ctx;
 #endif
@@ -98,8 +97,8 @@ struct i2s_subsys_obj {
 #define	FREQ_22579_MHZ	22579200   /* 22.5792 Mhz */
 #define	FREQ_24576_MHZ	24576000   /* 24.576 Mhz */
 
-void subsys_set_mclk(u32 i2s_id, u32 freq);
-u32 subsys_get_mclk(u32 id);
+int subsys_set_mclk(struct clk *i2s_clk, u32 freq);
+u32 subsys_get_mclk(struct clk *i2s_clk);
 
 void dwi2s_get_subsys(void);
 void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1);

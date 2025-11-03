@@ -145,8 +145,10 @@ int mmc_send_app_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 		}
 
 		err = -ETIMEDOUT;
-
-		mmc_delay(10);
+		if (!(host->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+			mmc_delay(10);
+		else
+			mmc_delay(1);
 	}
 
 	if (!i)

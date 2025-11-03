@@ -20,6 +20,8 @@ struct cvi_saradc_device {
 	struct reset_control *rst_saradc;
 	struct iio_chan_spec iio_channels[SARADC_CHAN_NUM];
 	struct clk *clk_saradc;
+	struct clk *clk_rtc_sys_saradc;
+	struct clk *clk_rtc_sys_saradc1;
 	void __iomem *saradc_vaddr;
 	void __iomem *top_saradc0_base_addr;
 	void __iomem *top_saradc1_base_addr;

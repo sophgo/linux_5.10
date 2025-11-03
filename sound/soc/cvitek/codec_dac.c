@@ -18,6 +18,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/of_gpio.h>
 #include <linux/proc_fs.h>
+#include <linux/clk.h>
 
 static void mute_amp(struct dac_obj *dac, bool enable)
 {
@@ -620,7 +621,7 @@ static int dac_proc_show(struct seq_file *m, void *v)
 	struct dac_obj *dac = m->private;
 
 	clk_pll_en = ioremap(dac->sdma_clk_en, 0x4);
-	audio_freq = subsys_get_mclk(dac->id);
+	audio_freq = clk_get_rate(dac->clk);
 
 	seq_printf(m, "\n----------------- DAC[%d] INFO ----------------\n", dac->id);
 	seq_puts(m, "\n------------- CVI AO ATTRIBUTE -------------\n");
@@ -710,6 +711,8 @@ static int dac_probe(struct platform_device *pdev)
 
 	dac->amp_gpio_l = of_get_named_gpio_flags(pdev->dev.of_node, "mute-gpio-l", 0, &flags);
 	dac->amp_gpio_r = of_get_named_gpio_flags(pdev->dev.of_node, "mute-gpio-r", 0, &flags);
+	dac->clk = of_clk_get(pdev->dev.of_node, 0);
+
 	dac->dev = &pdev->dev;
 	dev_set_drvdata(&pdev->dev, dac);
 	ret = dac_misc_register(dac);

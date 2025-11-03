@@ -110,7 +110,10 @@ static const struct flash_info cvitek_parts[] = {
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ |
 			SPI_NOR_HAS_LOCK | SPI_NOR_HAS_TB | SPI_NOR_4B_OPCODES)
 		.fixups = &sr_bit1_qe_fixups },
-
+	{ "W25Q512JV", CVI_INFO(0xef4020, 0, 64 * 1024, 1024, 3, 256,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
+			SPI_NOR_4B_OPCODES | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr_bit1_qe_fixups },
 	{ "W25Q64JV-IQ", CVI_INFO(0xef4017, 0, 64 * 1024, 128, 3, 256,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr_bit1_qe_fixups },

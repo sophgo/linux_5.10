@@ -632,8 +632,8 @@ bool can_dma(struct dw_spi *dws, const struct spi_mem_op *op)
 {
 	//FIXME: disabled temporarily, fix dma transfer later
 
-    // if ((op->data.dir == SPI_MEM_DATA_IN) && (op->data.nbytes > dws->fifo_len * dws->n_bytes))
-    // return true;
+    if ((op->data.dir == SPI_MEM_DATA_IN) && (op->data.nbytes > dws->fifo_len * dws->n_bytes / 2))
+    	return true;
 
 	return false;
 }
@@ -1200,21 +1200,19 @@ static int dw_spi_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 	 * manually restricting the SPI bus frequency using the
 	 * dws->max_mem_freq parameter.
 	 */
-	local_irq_save(flags);
-	preempt_disable();
-
 	if (support_dma) {
 		ret = dw_spinor_dma_transfer(dws, mem->spi, op);
-		dev_err(&dws->master->dev, "DW SPINOR DMA transfer failed\n");
+		if (ret)
+			dev_err(&dws->master->dev, "DW SPINOR DMA transfer failed\n");
 		goto out;
 	}
 	else {
+		local_irq_save(flags);
+		preempt_disable();
 		ret = dw_spi_write_then_read(dws, mem->spi, op);
+		local_irq_restore(flags);
+		preempt_enable();
 	}
-
-	local_irq_restore(flags);
-	preempt_enable();
-
 	/*
 	 * Wait for the operation being finished and check the controller
 	 * status only if there hasn't been any run-time error detected. In the

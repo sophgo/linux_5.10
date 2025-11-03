@@ -11,6 +11,7 @@
 #include <linux/proc_fs.h>
 #include <sound/soc.h>
 #include <sound/control.h>
+#include <linux/clk.h>
 #include "codec_ioctl.h"
 #include "codec_common.h"
 #include "plat_i2s.h"
@@ -753,7 +754,7 @@ static int adc_proc_show(struct seq_file *m, void *v)
 	struct adc_obj *adc = m->private;
 
 	clk_pll_en = ioremap(adc->sdma_clk_en, 0x10);
-	audio_freq = subsys_get_mclk(adc->id);
+	audio_freq =  clk_get_rate(adc->clk);
 
 	seq_printf(m, "\n----------------- ADC[%d] INFO ----------------\n", adc->id);
 	seq_puts(m, "\n------------- CVI AI ATTRIBUTE -------------\n");
@@ -859,6 +860,7 @@ static int adc_probe(struct platform_device *pdev)
 	of_property_read_u32_array(pdev->dev.of_node, "reset_cntl", adc->reset_info, 2);
 	dev_info(&pdev->dev, "reset_control,addr:%x,offset:%d\n", adc->reset_info[0], adc->reset_info[1]);
 	mutex_init(&adc->mutex);
+	adc->clk = of_clk_get(pdev->dev.of_node, 0);
 
 	adc->dev = &pdev->dev;
 	dev_set_drvdata(&pdev->dev, adc);

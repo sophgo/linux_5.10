@@ -2265,6 +2265,8 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
 	ssize_t ret, chunk_len;
+	// Workaround for Mars3 SPI-NOR, see more details in CV184XSDK-681 and CV184XSDK-486
+	const size_t MAX_READ_LEN = 128;
 
 	dev_dbg(nor->dev, "from 0x%08x, len %zd\n", (u32)from, len);
 
@@ -2280,6 +2282,9 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 		if (len >= 4) {
 			chunk_len = len & ~0x03;
 
+			// Workaround for Mars3 SPI-NOR, see more details in CV184XSDK-681 and CV184XSDK-486
+			if (chunk_len > MAX_READ_LEN)
+				chunk_len = MAX_READ_LEN;
 			ret = spi_nor_read_data(nor, addr, chunk_len, buf);
 			if (ret == 0) {
 				/* We shouldn't see 0-length reads */
@@ -2289,7 +2294,10 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 			if (ret < 0)
 				goto read_err;
 		} else {
-			ret = spi_nor_read_data(nor, addr, len, buf);
+			// Workaround for Mars3 SPI-NOR, see more details in CV184XSDK-681 and CV184XSDK-486
+			size_t read_len = len > MAX_READ_LEN ? MAX_READ_LEN : len;
+
+			ret = spi_nor_read_data(nor, addr, read_len, buf);
 			if (ret == 0) {
 				/* We shouldn't see 0-length reads */
 				ret = -EIO;

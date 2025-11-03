@@ -63,7 +63,7 @@ static int platform_wiegand_clk_init(struct cvi_wiegand_device *ndev)
 {
 	//enable clock
 	if (ndev->clk_wiegand) {
-		pr_debug("wiegand enable clock\n");
+		pr_debug("%s: enable clock\n", dev_name(ndev->dev));
 		clk_prepare_enable(ndev->clk_wiegand);
 	}
 
@@ -74,7 +74,7 @@ static void platform_wiegand_clk_deinit(struct cvi_wiegand_device *ndev)
 {
 	//disable clock
 	if (ndev->clk_wiegand) {
-		pr_debug("wiegand disable clock\n");
+		pr_debug("%s: enable clock\n", dev_name(ndev->dev));
 		clk_disable_unprepare(ndev->clk_wiegand);
 	}
 }
@@ -189,9 +189,10 @@ static int cvi_wiegand_tx(struct cvi_wiegand_device *ndev, unsigned long arg)
 
 	writel((uint32_t)(ndev->tx_data), ndev->wiegand_vaddr + TX_BUFFER);
 	writel((uint32_t)(ndev->tx_data >> 32), ndev->wiegand_vaddr + TX_BUFFER1);
+	writel(1, ndev->wiegand_vaddr + TX_TRIGGER);
+
 	while (readl(ndev->wiegand_vaddr + TX_BUSY))
 		;
-	writel(1, ndev->wiegand_vaddr + TX_TRIGGER);
 	return 0;
 }
 
@@ -376,7 +377,7 @@ static int cvi_wiegand_open(struct inode *inode, struct file *filp)
 	struct cvi_wiegand_device *ndev =
 		container_of(inode->i_cdev, struct cvi_wiegand_device, cdev);
 
-	pr_debug("cvi_wiegand_open\n");
+	pr_debug("%s: %s\n", __func__, dev_name(ndev->dev));
 
 	platform_wiegand_clk_init(ndev);
 
@@ -397,7 +398,7 @@ static int cvi_wiegand_close(struct inode *inode, struct file *filp)
 
 	filp->private_data = NULL;
 
-	pr_debug("cvi_wiegand_close\n");
+	pr_debug("%s: %s\n", __func__, dev_name(ndev->dev));
 	return 0;
 }
 
@@ -467,7 +468,7 @@ static int cvi_wiegand_probe(struct platform_device *pdev)
 	if (ret)
 		return -ENXIO;
 
-	ndev->clk_wiegand = devm_clk_get(&pdev->dev, "clk_wgn_xclk");
+	ndev->clk_wiegand = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(ndev->clk_wiegand)) {
 		dev_err(dev, "failed to retrieve wiegand clk_wgn\n");
 		ndev->clk_wiegand = NULL;

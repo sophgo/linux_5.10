@@ -12,7 +12,6 @@
 #include "plat_i2s_subsys.h"
 
 struct i2s_subsys_obj *dev;
-u32 current_freq;
 void __iomem *subsys_reg;
 
 typedef struct _audio_power_ctrl_ {
@@ -46,6 +45,7 @@ int aud_register_clk(u32 freq)
 		dev_err(dev->dev, "Get clk_a0pll failed\n");
 		return -1;
 	}
+
 	switch (freq) {
 	case FREQ_16384_MHZ:
 		dev_info(dev->dev, "Set clk_aud0~3 to 16384000\n");
@@ -66,123 +66,54 @@ int aud_register_clk(u32 freq)
 		clk_set_rate(aud_pwm_ctrl.aud_clk[1], 24576000);
 		clk_set_rate(aud_pwm_ctrl.aud_clk[2], 24576000);
 		clk_set_rate(aud_pwm_ctrl.aud_clk[3], 24576000);
-	dev_info(dev->dev, "Set clk_aud0~3 to 24576000\n");
+		dev_info(dev->dev, "Set clk_aud0~3 to 24576000\n");
 		break;
 	default:
-		dev_info(dev->dev, "Unrecognised freq\n");
+		clk_set_rate(aud_pwm_ctrl.aud_clk[0], freq);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[1], freq);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[2], freq);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[3], freq);
+		dev_info(dev->dev, "Unrecognised freq :%d\n", freq);
 		break;
 	}
-	dev->src_clk_freq[1] = freq;
-	dev->src_clk_freq[2] = freq;
-	dev->src_clk_freq[3] = freq;
-	dev->src_clk_freq[4] = freq;
 
 	return 0;
 }
 
-void subsys_set_mclk(u32 i2s_id, u32 freq)
+int subsys_set_mclk(struct clk *i2s_clk, u32 freq)
 {
-	struct clk *clk_a0pll;
-	struct clk *clk_sdma_aud0;
-	struct clk *clk_sdma_aud1;
-	struct clk *clk_sdma_aud2;
-	struct clk *clk_sdma_aud3;
-#ifdef CONFIG_ARCH_CV183X_ASIC
-	void __iomem *gp_reg3 = ioremap(0x0300008c, 4);
-	u32 chip_id = readl(gp_reg3);
-#endif
-
-	if (current_freq != freq)
-		current_freq = freq;
-	else
-		return;
-
-	clk_a0pll = devm_clk_get(dev->dev, "clk_a0pll");
-	if (IS_ERR(clk_a0pll)) {
-		dev_err(dev->dev, "Get clk_a0pll failed\n");
-		return;
-	}
-
-	clk_sdma_aud0 = devm_clk_get(dev->dev, "clk_aud0");
-	if (IS_ERR(clk_sdma_aud0)) {
-		dev_err(dev->dev, "Get clk_sdma_aud0 failed\n");
-		return;
-	}
-
-	clk_sdma_aud1 = devm_clk_get(dev->dev, "clk_aud1");
-	if (IS_ERR(clk_sdma_aud1)) {
-		dev_err(dev->dev, "Get clk_sdma_aud1 failed\n");
-		return;
-	}
-
-	clk_sdma_aud2 = devm_clk_get(dev->dev, "clk_aud2");
-	if (IS_ERR(clk_sdma_aud2)) {
-		dev_err(dev->dev, "Get clk_sdma_aud2 failed\n");
-		return;
-	}
-
-	clk_sdma_aud3 = devm_clk_get(dev->dev, "clk_aud3");
-	if (IS_ERR(clk_sdma_aud3)) {
-		dev_err(dev->dev, "Get clk_sdma_aud3 failed\n");
-		return;
-	}
+	dev_info(dev->dev, "%s,%d:set clk_name:%s, clk:%d\n", __func__, __LINE__, __clk_get_name(i2s_clk), freq);
 
 	switch (freq) {
 	case FREQ_16384_MHZ:
-#ifdef CONFIG_ARCH_CV183X_ASIC
-		if (chip_id != 0x1838) {
-			dev_info(dev->dev, "Set clk_a0pll to 406425600\n");
-			clk_set_rate(clk_a0pll, 406425600);
-		}
-#endif
 		dev_info(dev->dev, "Set clk_sdma_aud0~5 to 16384000\n");
-		clk_set_rate(clk_sdma_aud0, 16384000);
-		clk_set_rate(clk_sdma_aud1, 16384000);
-		clk_set_rate(clk_sdma_aud2, 16384000);
-		clk_set_rate(clk_sdma_aud3, 16384000);
+		clk_set_rate(i2s_clk, 16384000);
 		break;
 	case FREQ_22579_MHZ:
-#ifdef CONFIG_ARCH_CV183X_ASIC
-		if (chip_id != 0x1838) {
-			dev_info(dev->dev, "Set clk_a0pll to 406425600\n");
-			clk_set_rate(clk_a0pll, 406425600);
+		struct clk *clk_a24k = devm_clk_get(dev->dev, "a24k");
+
+		if (IS_ERR(clk_a24k)) {
+			dev_err(dev->dev, "Get clk_a24k failed\n");
+			return -1;
 		}
-#endif
+		clk_set_rate(clk_a24k, 112896000);
 		dev_info(dev->dev, "Set clk_sdma_aud0~5 to 22579200\n");
-		clk_set_rate(clk_sdma_aud0, 22579200);
-		clk_set_rate(clk_sdma_aud1, 22579200);
-		clk_set_rate(clk_sdma_aud2, 22579200);
-		clk_set_rate(clk_sdma_aud3, 22579200);
+		clk_set_rate(i2s_clk, 22579200);
 		break;
 	case FREQ_24576_MHZ:
-#ifdef CONFIG_ARCH_CV183X_ASIC
-		if (chip_id != 0x1838) {
-			dev_info(dev->dev, "Set clk_a0pll to 417792000\n");
-			clk_set_rate(clk_a0pll, 417792000);
-		}
-#endif
 		dev_info(dev->dev, "Set clk_sdma_aud0~5 to 24576000\n");
-		clk_set_rate(clk_sdma_aud0, 24576000);
-		clk_set_rate(clk_sdma_aud1, 24576000);
-		clk_set_rate(clk_sdma_aud2, 24576000);
-		clk_set_rate(clk_sdma_aud3, 24576000);
+		clk_set_rate(i2s_clk, 24576000);
 		break;
 	default:
 		dev_info(dev->dev, "Unrecognised freq\n");
 		break;
 	}
-	dev->src_clk_freq[1] = freq;
-	dev->src_clk_freq[2] = freq;
-	dev->src_clk_freq[3] = freq;
-	dev->src_clk_freq[4] = freq;
-#ifdef CONFIG_ARCH_CV183X_ASIC
-	iounmap(gp_reg3);
-#endif
+	return 0;
 }
 
-u32 subsys_get_mclk(u32 id)
+u32 subsys_get_mclk(struct clk *i2s_clk)
 {
-	return dev->src_clk_freq[id + 1];
+	return clk_get_rate(i2s_clk);
 }
 
 void aud_clk_enable(void)
@@ -254,8 +185,6 @@ void audio_clk_debug(struct device *dev)
 static int i2s_subsys_probe(struct platform_device *pdev)
 {
 	struct resource *res;
-	struct clk *i2sclk;
-	const char *clk_id;
 	u32 audio_clk;
 	struct proc_dir_entry *proc_audio;
 
@@ -270,13 +199,8 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 	dev->dev = &pdev->dev;
 
 	subsys_reg = dev->subsys_base;
-	//audio_clk_debug(&pdev->dev);
-	clk_id = "i2sclk";
-	i2sclk = devm_clk_get(&pdev->dev, clk_id);
-	if (IS_ERR(i2sclk))
-		return PTR_ERR(i2sclk);
 
-	audio_clk = clk_get_rate(i2sclk);
+	device_property_read_u32(&pdev->dev, "default-freq", &audio_clk);
 	pr_info("get audio clk=%d\n", audio_clk);
 
 	if (aud_register_clk(audio_clk)) {

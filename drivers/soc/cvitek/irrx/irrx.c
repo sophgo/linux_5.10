@@ -92,7 +92,7 @@ static int cvi_irrx_probe(struct platform_device *pdev)
 	struct device	*dev = &pdev->dev;
 	struct rc_dev	*rc;
 	struct cvi_irrx *irrx;
-	dev_dbg(dev, "irrx driver probe start!\n");
+	dev_info(dev, "irrx driver probe start!\n");
 
 	irrx = devm_kzalloc(dev, sizeof(*irrx), GFP_KERNEL);
 	if (!irrx)
@@ -110,11 +110,11 @@ static int cvi_irrx_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	// irrx->clk = devm_clk_get(dev, "clk_irrx");
-	// if (IS_ERR(irrx->clk)) {
-	// 	dev_err(dev, "get clk failed!\n");
-	// 	return PTR_ERR(irrx->clk);
-	// }
+	irrx->clk = devm_clk_get(dev, "clk_rtc_sys_irrx");
+	if (IS_ERR(irrx->clk)) {
+		dev_err(dev, "get clk_rtc_sys_irrx failed!\n");
+		return PTR_ERR(irrx->clk);
+	}
 
 	rc = devm_rc_allocate_device(dev, RC_DRIVER_SCANCODE);
 	if (!rc)

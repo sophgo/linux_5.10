@@ -335,7 +335,6 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 	u32 bclk_div = 0;
 
 	config->ch_num = params_channels(params);
-
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 	case SNDRV_PCM_FORMAT_U16_LE:
@@ -507,7 +506,7 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 		return -1;
 	}
 	//audio_clk_debug(i2s->dev);
-	subsys_set_mclk(0, audio_clk);
+	subsys_set_mclk(i2s->clk, audio_clk);
 	//audio_clk_debug(i2s->dev);
 	if (!strcmp(substream->pcm->card->shortname, "cvi_adc")) {
 		/* cv183x internal adc codec need dynamic MCLK frequency input */
@@ -592,6 +591,7 @@ static int i2s_hw_params(struct snd_pcm_substream *substream,
 		} else
 			dev_err(i2s->dev, "Get unexpected audio system clk=%d\n", audio_clk);
 	}
+
 	/* Configure I2S word length,  bclk_div and sync_div here*/
 	switch (i2s->wss) {
 	case (WSS_32_CLKCYCLE):
@@ -1007,7 +1007,6 @@ static int i2s_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret, irq;
 	struct snd_soc_dai_driver *i2s_dai;
-	const char *clk_id;
 	unsigned int val;
 	struct proc_dir_entry *proc_i2s;
 	char *i2s_dev_name;
@@ -1052,9 +1051,8 @@ static int i2s_probe(struct platform_device *pdev)
 	}
 	device_property_read_u32(&pdev->dev, "dev-id", &i2s->dev_id);
 	dev_info(&pdev->dev, "dev_id=0x%x\n", i2s->dev_id);
-	clk_id = "i2sclk";
 	ret = i2s_configure_dai_by_dt(i2s, i2s_dai, res);
-	i2s->clk = devm_clk_get(&pdev->dev, clk_id);
+	i2s->clk = of_clk_get(pdev->dev.of_node, 0);
 	if (ret < 0)
 		return ret;
 

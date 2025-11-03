@@ -27,6 +27,11 @@ struct adc_keys_state {
 	u32 last_key;
 	u32 keyup_voltage;
 	const struct adc_keys_button *map;
+
+	/* support debounce */
+	u32 debounce_steps;
+	u32 stable_cnt;
+	u32 candidate_key;
 };
 
 static void adc_keys_poll(struct input_dev *input)
@@ -34,7 +39,7 @@ static void adc_keys_poll(struct input_dev *input)
 	struct adc_keys_state *st = input_get_drvdata(input);
 	int i, value, ret;
 	u32 diff, closest = 0xffffffff;
-	int keycode = 0;
+	u32 keycode = 0;
 
 	ret = iio_read_channel_processed(st->channel, &value);
 	if (unlikely(ret < 0)) {
@@ -51,16 +56,30 @@ static void adc_keys_poll(struct input_dev *input)
 	}
 
 	if (abs(st->keyup_voltage - value) < closest)
-		keycode = 0;
+		keycode = 0; /* key up */
 
-	if (st->last_key && st->last_key != keycode)
-		input_report_key(input, st->last_key, 0);
+	/* debounce logic */
+	if (keycode == st->candidate_key) {
+		st->stable_cnt++;
+	} else {
+		st->candidate_key = keycode;
+		st->stable_cnt = 1;
+	}
 
-	if (keycode)
-		input_report_key(input, keycode, 1);
+	if (st->stable_cnt >= st->debounce_steps) {
+		if (st->last_key != st->candidate_key) {
+			/* release previous key */
+			if (st->last_key)
+				input_report_key(input, st->last_key, 0);
 
-	input_sync(input);
-	st->last_key = keycode;
+			/* report new key */
+			if (st->candidate_key)
+				input_report_key(input, st->candidate_key, 1);
+
+			input_sync(input);
+			st->last_key = st->candidate_key;
+		}
+	}
 }
 
 static int adc_keys_load_keymap(struct device *dev, struct adc_keys_state *st)
@@ -115,6 +134,17 @@ static int adc_keys_probe(struct platform_device *pdev)
 	st = devm_kzalloc(dev, sizeof(*st), GFP_KERNEL);
 	if (!st)
 		return -ENOMEM;
+
+	st->debounce_steps = 1; /*default 1, compatible with old configs */
+	if (device_property_read_u32(dev, "debounce-steps",
+				     &st->debounce_steps)) {
+		dev_dbg(dev, "debounce-steps not found, using default=%u\n",
+			st->debounce_steps);
+	}
+	if (st->debounce_steps > 5) {
+		dev_warn(dev, "debounce-steps:%u, may lead to high latency!\n",
+			 st->debounce_steps);
+	}
 
 	st->channel = devm_iio_channel_get(dev, "buttons");
 	if (IS_ERR(st->channel))

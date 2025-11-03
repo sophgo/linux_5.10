@@ -156,7 +156,8 @@ int mmc_go_idle(struct mmc_host *host)
 
 	err = mmc_wait_for_cmd(host, &cmd, 0);
 
-	mmc_delay(1);
+	if (!(host->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+		mmc_delay(1);
 
 	if (!mmc_host_is_spi(host)) {
 		mmc_set_chip_select(host, MMC_CS_DONTCARE);

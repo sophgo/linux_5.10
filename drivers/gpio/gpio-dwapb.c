@@ -708,13 +708,16 @@ static int dwapb_gpio_probe(struct platform_device *pdev)
 	if (!gpio->ports)
 		return -ENOMEM;
 
+	err = dwapb_get_clks(gpio);
+	if (err)
+		return err;
+
 	gpio->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(gpio->regs))
 		return PTR_ERR(gpio->regs);
 
-	err = dwapb_get_clks(gpio);
-	if (err)
-		return err;
+	writel(0X0, gpio->regs + GPIO_INTEN);
+	writel(0xFFFFFFFF, gpio->regs + GPIO_PORTA_EOI);
 
 	gpio->flags = (uintptr_t)device_get_match_data(dev);
 

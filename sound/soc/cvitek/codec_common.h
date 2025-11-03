@@ -648,6 +648,7 @@ struct fmt_config {
 
 struct adc_obj {
 	void __iomem *base_addr;
+	struct clk *clk;
 	struct device *dev;
 	struct miscdevice miscdev;
 //	u32 mclk_source;

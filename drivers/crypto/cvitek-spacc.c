@@ -53,9 +53,8 @@ struct cvi_spacc {
 	dev_t tdev;
 	void __iomem *spacc_base;
 	struct class *spacc_class;
-#ifdef CONFIG_PM_SLEEP
 	struct clk *efuse_clk;
-#endif
+	struct clk *pclk;
 };
 struct cvi_spacc_private {
 	struct mutex lock;        // 添加互斥锁
@@ -152,13 +151,19 @@ static int cvitek_spacc_suspend(struct device *dev)
 	struct cvi_spacc *spacc = dev_get_drvdata(dev);
 	void __iomem *sec_top;
 
-	clk_prepare_enable(spacc->efuse_clk);
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_prepare_enable(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_prepare_enable(spacc->pclk);
 
 	sec_top = ioremap(0x020b0000, 4);
 	iowrite32(0x3, sec_top);
 	iounmap(sec_top);
 
-	clk_disable_unprepare(spacc->efuse_clk);
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_disable_unprepare(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_disable_unprepare(spacc->pclk);
 	return 0;
 }
 
@@ -167,13 +172,19 @@ static int cvitek_spacc_resume(struct device *dev)
 	struct cvi_spacc *spacc = dev_get_drvdata(dev);
 	void __iomem *sec_top;
 
-	clk_prepare_enable(spacc->efuse_clk);
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_prepare_enable(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_prepare_enable(spacc->pclk);
 
 	sec_top = ioremap(0x020b0000, 4);
 	iowrite32(0x0, sec_top);
 	iounmap(sec_top);
 
-	clk_disable_unprepare(spacc->efuse_clk);
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_disable_unprepare(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_disable_unprepare(spacc->pclk);
 	return 0;
 }
 #endif /* CONFIG_PM_SLEEP */
@@ -776,6 +787,11 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	mutex_lock(&spacc_private->lock);
 
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_prepare_enable(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_prepare_enable(spacc->pclk);
+
 	switch (cmd) {
 	case IOCTL_SPACC_CREATE_MEMPOOL: {
 		unsigned int size = 0;
@@ -1139,6 +1155,11 @@ static long spacc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		goto out_unlock;
 	}
 out_unlock:
+	if(!IS_ERR(spacc->efuse_clk))
+		clk_disable_unprepare(spacc->efuse_clk);
+	if(!IS_ERR(spacc->pclk))
+		clk_disable_unprepare(spacc->pclk);
+
     mutex_unlock(&spacc_private->lock);
     return ret;
 }
@@ -1166,6 +1187,16 @@ static int cvitek_spacc_drv_probe(struct platform_device *pdev)
 	if (IS_ERR(spacc->spacc_base)) {
 		dev_err(dev, "Failed to ioremap resource\n");
 		return PTR_ERR(spacc->spacc_base);
+	}
+
+	spacc->efuse_clk = devm_clk_get(dev, "tclk");
+	if (IS_ERR(spacc->efuse_clk)) {
+		dev_err(dev, "Failed to get spacc tclk\n");
+	}
+
+	spacc->pclk = devm_clk_get(dev, "pclk");
+	if (IS_ERR(spacc->pclk)) {
+		dev_err(dev, "Failed to get spacc pclk\n");
 	}
 
 	ret = alloc_chrdev_region(&spacc->tdev, 0, 1, DEVICE_NAME);

@@ -249,6 +249,14 @@ static int platform_saradc_clk_init(struct cvi_saradc_device *ndev)
 		pr_debug("cvi_saradc enable	clock\n");
 		clk_prepare_enable(ndev->clk_saradc);
 	}
+	if (ndev->clk_rtc_sys_saradc) {
+		pr_debug("clk_rtc_sys_saradc enable	clock\n");
+		clk_prepare_enable(ndev->clk_rtc_sys_saradc);
+	}
+	if (ndev->clk_rtc_sys_saradc1) {
+		pr_debug("clk_rtc_sys_saradc1 enable	clock\n");
+		clk_prepare_enable(ndev->clk_rtc_sys_saradc1);
+	}
 
 	return 0;
 }
@@ -259,6 +267,14 @@ static void	platform_saradc_clk_deinit(struct cvi_saradc_device	*ndev)
 	if (ndev->clk_saradc) {
 		pr_debug("cvi_saradc disable clock\n");
 		clk_disable_unprepare(ndev->clk_saradc);
+	}
+	if (ndev->clk_rtc_sys_saradc) {
+		pr_debug("clk_rtc_sys_saradc disable clock\n");
+		clk_disable_unprepare(ndev->clk_rtc_sys_saradc);
+	}
+	if (ndev->clk_rtc_sys_saradc1) {
+		pr_debug("clk_rtc_sys_saradc1 disable clock\n");
+		clk_disable_unprepare(ndev->clk_rtc_sys_saradc1);
 	}
 }
 
@@ -566,6 +582,16 @@ static int cvi_saradc_probe(struct platform_device *pdev)
 	if (IS_ERR(ndev->clk_saradc)) {
 		dev_err(dev, "failed to	retrieve clk_saradc\n");
 		ndev->clk_saradc = NULL;
+	}
+	ndev->clk_rtc_sys_saradc = devm_clk_get(&pdev->dev,	"clk_rtc_sys_saradc");
+	if (IS_ERR(ndev->clk_rtc_sys_saradc)) {
+		dev_err(dev, "failed to	retrieve clk_rtc_sys_saradc\n");
+		ndev->clk_rtc_sys_saradc = NULL;
+	}
+	ndev->clk_rtc_sys_saradc1 = devm_clk_get(&pdev->dev,	"clk_rtc_sys_saradc1");
+	if (IS_ERR(ndev->clk_rtc_sys_saradc1)) {
+		dev_err(dev, "failed to	retrieve clk_rtc_sys_saradc1\n");
+		ndev->clk_rtc_sys_saradc1 = NULL;
 	}
 
 	cvi_saradc_trim(ndev);

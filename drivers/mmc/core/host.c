@@ -309,6 +309,8 @@ int mmc_of_parse(struct mmc_host *host)
 		host->caps2 |= MMC_CAP2_NO_SD;
 	if (device_property_read_bool(dev, "no-mmc"))
 		host->caps2 |= MMC_CAP2_NO_MMC;
+	if (device_property_read_bool(dev, "mmc-always-power-on"))
+		host->caps2 |= MMC_CAP2_ALWAYS_POWER_ON;
 
 	/* add for no pre-scan power up */
 	if (device_property_read_bool(dev, "no-prescan-powerup"))

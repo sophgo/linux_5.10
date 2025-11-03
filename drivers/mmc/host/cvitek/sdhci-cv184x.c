@@ -851,6 +851,7 @@ void sdhci_cv184x_sd_voltage_restore(struct sdhci_host *host, bool bunplug)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
+	struct mmc_host *mmc = host->mmc;
 
 	pr_debug("%s\n", __func__);
 
@@ -870,7 +871,8 @@ void sdhci_cv184x_sd_voltage_restore(struct sdhci_host *host, bool bunplug)
 	}
 
 	//wait 1ms
-	mdelay(1);
+	if (!(mmc->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+		mdelay(1);
 
 	// restore to DS/HS setting
 	sdhci_writel(host,
@@ -879,7 +881,8 @@ void sdhci_cv184x_sd_voltage_restore(struct sdhci_host *host, bool bunplug)
 	sdhci_writel(host, 0x1000100, CVI_CV184X_SDHCI_PHY_TX_RX_DLY);
 	sdhci_writel(host, 1, CVI_CV184X_SDHCI_PHY_CONFIG);
 
-	mdelay(1);
+	if (!(mmc->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+		mdelay(1);
 }
 
 static void sdhci_cv184x_sd_set_power(struct sdhci_host *host, unsigned char mode,
@@ -894,13 +897,15 @@ static void sdhci_cv184x_sd_set_power(struct sdhci_host *host, unsigned char mod
 		sdhci_cv184x_sd_voltage_restore(host, false);
 		sdhci_cv184x_sd_setup_pad(host, false);
 		sdhci_cv184x_sd_setup_io(host, false);
-		mdelay(5);
+		if (!(mmc->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+			mdelay(5);
 	} else if (mode == MMC_POWER_OFF) {
 		sdhci_cv184x_sd_setup_pad(host, true);
 		sdhci_cv184x_sd_setup_io(host, true);
 		sdhci_cv184x_sd_voltage_restore(host, true);
 		sdhci_set_power_noreg(host, mode, vdd);
-		mdelay(30);
+		if (!(mmc->caps2 & MMC_CAP2_ALWAYS_POWER_ON))
+			mdelay(30);
 	}
 }
 

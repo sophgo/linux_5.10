@@ -86,6 +86,13 @@
 #define REG_CLK_BYP_0			0x104
 #define REG_CLK_BYP_1			0x108
 #define REG_CLK_BYP_2			0x10C
+// --- rtc system enable reg ---
+#define REG_RTC_SYS_BASE_ADDR   0x05025000
+#define REG_CLK_EN_6_FOR_RTC	0x034
+// --- rtc system bypass reg ---
+#define REG_CLK_BYP_3_FOR_RTC   0x030   //bit[0]: clk_fab , 0: clk_fab_pre, 1: xtal (default)
+// --- rtc system clk mux ---
+#define REG_CLK_MUX_FOR_RTC     0x01C
 
 /* Clock Divider Register Definitions (Base Address: 0x0) */
 // --- TOP ---

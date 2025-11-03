@@ -44,7 +44,6 @@ static struct snd_soc_dai_driver dummy_dai_driver = {
 		.formats = DUMMY_FORMATS,
 	},
 	.ops = &dummy_dai_ops,
-	.symmetric_rates = 1,
 
 };
 
