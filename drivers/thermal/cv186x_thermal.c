@@ -362,43 +362,118 @@ static void cv186x_thermal_uninit(struct cv186x_thermal *ct)
     TEMPSEN_SET(base, sta_tempsen_intr_clr, regval);
 }
 
-static int calc_temp(int result)
+int find_mid(int a, int b, int c)
 {
-	/* return (((uint64_t)result * 1000 * 654643) / 1801439 - 271280); */
 
-	/* Original calculation formula */
-	// y = 0.3634x - 271.28
+	if ((a >= b && a <= c) || (a >= c && a <= b))
+		return a;
+	else if ((b >= a && b <= c) || (b >= c && b <= a))
+		return b;
+	else
+		return c;
 
-	return (result * 4074 - 3046900) / 10;
-	// y = 0.4074x - 304.69
+}
+
+static int calc_temp(int ts1, int ts2, int ts3)
+{
+	int temp1, temp2, temp3;
+
+	// TS1: y=0.3757x-278.79
+	temp1 = (ts1 * 3757 - 2787900) / 10;
+
+	// TS2: y=0.3563x-259.37
+	temp2 = (ts2 *3563 - 2593700) / 10;
+
+	// TS3: y=0.3729x-278.11
+	temp3 = (ts3 * 3729 - 2781100) / 10;
+
+	pr_debug("avg temp: (ts1, ts2, ts3) = (%d, %d, %d)\n", temp1, temp2, temp3);
+	return find_mid(temp1, temp2, temp3);
+}
+
+static void array_sort(int *arr, size_t num)
+{
+	size_t i, j;
+	int temp;
+
+	if (!arr || num <= 1)
+		return;
+
+	for (i = 0; i < num - 1; i++) {
+		for (j = 0; j < num - i - 1; j++) {
+			if (arr[j] > arr[j + 1]) {
+				temp = arr[j];
+				arr[j] = arr[j + 1];
+				arr[j + 1] = temp;
+			}
+		}
+	}
+}
+
+static int calc_average(int array[])
+{
+	int sum, buffer_array[20];
+
+	memcpy(buffer_array, array, 20 * sizeof(int));
+
+	array_sort(buffer_array, 20);
+	sum = buffer_array[8] + buffer_array[9] + buffer_array[10] + buffer_array[11];
+	// pr_debug("%d %d %d %d", buffer_array[8], buffer_array[9], buffer_array[10], buffer_array[11]);
+	return sum / 4;
 }
 
 static int cv186x_read_temp(void *data, int *temperature)
 {
 	struct cv186x_thermal_zone *ctz = data;
-	void __iomem		    *base = ctz->base;
-	unsigned int		     ch = ctz->ch;
-	int			     result, r1, r2, r3;
+	void __iomem *base = ctz->base;
+	unsigned int ch = ctz->ch;
+	static int index, read_cnt, r1[20], r2[20], r3[20];
+	int average_r1, average_r2, average_r3;
 
 	/* read temperature */
 	switch (ch) {
 	case 0:
-		r1 = TEMPSEN_GET(base, sta_tempsen_ch0_result);
-		r2 = TEMPSEN_GET(base, sta_tempsen_ch1_result);
-		r3 = TEMPSEN_GET(base, sta_tempsen_ch2_result);
+		r1[index] = TEMPSEN_GET(base, sta_tempsen_ch0_result);
+		r2[index] = TEMPSEN_GET(base, sta_tempsen_ch1_result);
+		r3[index] = TEMPSEN_GET(base, sta_tempsen_ch2_result);
+		if (likely(read_cnt == 19)) {
+			average_r1 = calc_average(r1);
+			average_r2 = calc_average(r2);
+			average_r3 = calc_average(r3);
+		} else {
+			average_r1 = r1[index];
+			average_r2 = r2[index];
+			average_r3 = r3[index];
+			read_cnt++;
+		}
+		index = (index + 1) % 20;
 		break;
 	case 1:
-		result = TEMPSEN_GET(base, sta_tempsen_ch1_result);
+		r2[index] = TEMPSEN_GET(base, sta_tempsen_ch1_result);
+		average_r2 = r2[index];
+		index = (index + 1) % 20;
 		break;
 	case 2:
-		result = TEMPSEN_GET(base, sta_tempsen_ch2_result);
+		r3[index] = TEMPSEN_GET(base, sta_tempsen_ch2_result);
+		average_r3 = r3[index];
+		index = (index + 1) % 20;
 		break;
 	default:
-		result = 0;
+		average_r1 = average_r2 = average_r3 = 0;
 	}
-	result = MAX(r1, r2, r3);
-	*temperature = calc_temp(result);
-	pr_debug("ch%d temp = %d mC(0x%x)\n", ch, *temperature, result);
+
+	// pr_debug("ts1: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+	//	r1[0], r1[1], r1[2], r1[3], r1[4], r1[5], r1[6], r1[7], r1[8], r1[9],
+	//	r1[10], r1[11], r1[12], r1[13], r1[14], r1[15], r1[16], r1[17], r1[18], r1[19]);
+	// pr_debug("ts2: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+	//	r2[0], r2[1], r2[2], r2[3], r2[4], r2[5], r2[6], r2[7], r2[8], r2[9],
+	//	r2[10], r2[11], r2[12], r2[13], r2[14], r2[15], r2[16], r2[17], r2[18], r2[19]);
+	// pr_debug("ts3: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+	//	r3[0], r3[1], r3[2], r3[3], r3[4], r3[5], r3[6], r3[7], r3[8], r3[9],
+	//	r3[10], r3[11], r3[12], r3[13], r3[14], r3[15], r3[16], r3[17], r3[18], r3[19]);
+	// pr_debug("avg: (ts1, ts2, ts3) = (%d, %d, %d)\n", average_r1, average_r2, average_r3);
+	*temperature = calc_temp(average_r1, average_r2, average_r3);
+	pr_debug("ch%d temp = %d mC\n", ch, *temperature);
 
 	return 0;
 }
