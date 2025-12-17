@@ -302,6 +302,32 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
+		{	.name = "F50L1G41LC-2P",
+			.id = {0x8C, 0x2C},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 1,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_2bits_remap
+		},
+		.driver = &spi_nand_driver_general,
+		.flags = 0
+	},
+
+	{
 		{	.name = "F50L2G41XA",
 			.id = {0x2c, 0x24},
 			.pagesize = SZ_2K,

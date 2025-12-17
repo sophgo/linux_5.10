@@ -172,4 +172,6 @@
 #define CV181X_CLK_CSI_MAC2_VIP			159
 #define CV181X_CLK_CAM0_VIP			160
 
+#define CV181X_CLK_A24K				161
+
 #endif /* __DT_BINDINGS_CLK_CV181X_H__ */

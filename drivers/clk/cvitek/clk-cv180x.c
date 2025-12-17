@@ -355,9 +355,9 @@ static struct cv180x_pll_hw_clock cv180x_pll_clks[] = {
 	CLK_G2D_PLL(CV180X_CLK_MIPIMPLL_D3, "clk_mipimpll_d3", cv180x_pll_parent, REG_MIPIMPLL_CSR,
 		0, 3, CLK_IGNORE_UNUSED),
 	CLK_G2D_PLL(CV180X_CLK_CAM0PLL_D2, "clk_cam0pll_d2", cv180x_frac_pll_parent, REG_CAM0PLL_CSR,
-		REG_CAM0PLL_SSC_SYN_CTRL, 2, CLK_IGNORE_UNUSED),
+		REG_CAM0PLL_SSC_SYN_CTRL, 4, CLK_IGNORE_UNUSED),
 	CLK_G2D_PLL(CV180X_CLK_CAM0PLL_D3, "clk_cam0pll_d3", cv180x_frac_pll_parent, REG_CAM0PLL_CSR,
-		REG_CAM0PLL_SSC_SYN_CTRL, 3, CLK_IGNORE_UNUSED),
+		REG_CAM0PLL_SSC_SYN_CTRL, 6, CLK_IGNORE_UNUSED),
 };
 
 /*
@@ -672,7 +672,7 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		0, -1,
 		0),
 	CV180X_CLK(CV180X_CLK_SDMA_AUD0, "clk_sdma_aud0",
-		((const char *[]) {"osc", "clk_a0pll", "a24k_clk"}),
+		((const char *[]) {"osc", "clk_a0pll", "clk_a24k"}),
 		REG_CLK_EN_1, 2,
 		REG_DIV_CLK_SDMA_AUD0, 16, 8, 18,
 		0, -1, 0, 0,
@@ -681,7 +681,7 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		REG_DIV_CLK_SDMA_AUD0, 8,
 		CLK_IS_CRITICAL),
 	CV180X_CLK(CV180X_CLK_SDMA_AUD1, "clk_sdma_aud1",
-		((const char *[]) {"osc", "clk_a0pll", "a24k_clk"}),
+		((const char *[]) {"osc", "clk_a0pll", "clk_a24k"}),
 		REG_CLK_EN_1, 3,
 		REG_DIV_CLK_SDMA_AUD1, 16, 8, 18,
 		0, -1, 0, 0,
@@ -690,7 +690,7 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		REG_DIV_CLK_SDMA_AUD1, 8,
 		CLK_IS_CRITICAL),
 	CV180X_CLK(CV180X_CLK_SDMA_AUD2, "clk_sdma_aud2",
-		((const char *[]) {"osc", "clk_a0pll", "a24k_clk"}),
+		((const char *[]) {"osc", "clk_a0pll", "clk_a24k"}),
 		REG_CLK_EN_1, 4,
 		REG_DIV_CLK_SDMA_AUD2, 16, 8, 18,
 		0, -1, 0, 0,
@@ -699,7 +699,7 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		REG_DIV_CLK_SDMA_AUD2, 8,
 		CLK_IS_CRITICAL),
 	CV180X_CLK(CV180X_CLK_SDMA_AUD3, "clk_sdma_aud3",
-		((const char *[]) {"osc", "clk_a0pll", "a24k_clk"}),
+		((const char *[]) {"osc", "clk_a0pll", "clk_a24k"}),
 		REG_CLK_EN_1, 5,
 		REG_DIV_CLK_SDMA_AUD3, 16, 8, 18,
 		0, -1, 0, 0,
@@ -1527,7 +1527,7 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		0, -1,
 		CLK_IGNORE_UNUSED),
 	CV180X_CLK(CV180X_CLK_AUDSRC, "clk_audsrc",
-		((const char *[]) {"osc", "clk_a0pll", "a24k_clk"}),
+		((const char *[]) {"osc", "clk_a0pll", "clk_a24k"}),
 		REG_CLK_EN_4, 1,
 		REG_DIV_CLK_AUDSRC, 16, 8, 18,
 		0, -1, 0, 0,
@@ -1715,6 +1715,15 @@ static struct cv180x_hw_clock cv180x_clks[] = {
 		0, -1,
 		0, -1,
 		CLK_IS_CRITICAL),
+	CV180X_CLK(CV180X_CLK_A24K, "clk_a24k",
+		((const char *[]) {"clk_mipimpll"}),
+		REG_APLL_FRAC_DIV_CTRL, 0,
+		REG_APLL_FRAC_DIV_M, 0, 22, -1,
+		REG_APLL_FRAC_DIV_N, 0, 22, -1,
+		0, -1,
+		0, -1,
+		0, -1,
+		CLK_IGNORE_UNUSED),
 };
 
 static int __init cvi_clk_flags_setup(char *arg)
@@ -2199,6 +2208,8 @@ static long cv180x_clk_div_calc_round_rate(struct clk_hw *hw, unsigned long rate
 {
 	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
 
+	if (*prate == 0)
+		return 0;
 	if (clk_hw->div[0].shift > 0)
 		return divider_round_rate(hw, rate, prate, NULL,
 					clk_hw->div[0].width, clk_hw->div[0].flags);
@@ -2541,6 +2552,190 @@ static const struct clk_ops cv180x_clk_ops = {
 	.set_parent = cv180x_clk_mux_set_parent,
 };
 
+
+//------------------a24k clk gate------------------
+static int cv180x_a24k_clk_gate_enable(struct clk_hw *hw)
+{
+	u32 reg;
+	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
+	void __iomem *reg_addr = clk_hw->base + clk_hw->gate.reg;
+
+	reg = readl(reg_addr);
+	reg |= BIT(0) | BIT(1) | BIT(3);
+	writel(reg, reg_addr);
+
+	return 0;
+}
+//------------------a24k clk gate------------------
+static void cv180x_a24k_clk_gate_disable(struct clk_hw *hw)
+{
+	u32 reg;
+	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
+	void __iomem *reg_addr = clk_hw->base + clk_hw->gate.reg;
+
+	reg = readl(reg_addr);
+	reg &= ~(BIT(0) | BIT(1) | BIT(3));
+	writel(reg, reg_addr);
+}
+
+static int cv180x_a24k_clk_gate_is_enabled(struct clk_hw *hw)
+{
+	u32 reg;
+	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
+	void __iomem *reg_addr = clk_hw->base + clk_hw->gate.reg;
+
+	reg = readl(reg_addr);
+	reg &= (BIT(0) | BIT(1) | BIT(3));
+
+	if (clk_hw_get_flags(hw) & CLK_IGNORE_UNUSED)
+		return __clk_get_enable_count(hw->clk) ? (reg ? 1 : 0) : 0;
+	else
+		return reg ? 1 : 0;
+}
+
+#define CALIBRATE_MIPILLL    (900059000ULL)
+#define CALIBRATE_MIPILLL_D2 (900059000ULL / 2)
+// a24k clk_get_rate
+static unsigned long cv180x_a24k_clk_div_recalc_rate(struct clk_hw *hw,
+					      unsigned long parent_rate)
+{
+	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
+	void __iomem *reg_M_addr = clk_hw->base + clk_hw->div[0].reg;
+	void __iomem *reg_N_addr = clk_hw->base + clk_hw->div[1].reg;
+	u64 val_M, val_N;
+	u64 rate;
+
+	//a24k clk = parent_rate * div[1] / div[0] / 2
+	//         = parent_rate / (div[0] * 2 / div[1])
+	if ((clk_hw->div[0].initval > 0) && (clk_hw->div[1].initval > 0)) {
+		val_M = clk_hw->div[0].initval;
+		val_N = clk_hw->div[1].initval;
+	} else {
+		val_M = readl(reg_M_addr) >> clk_hw->div[0].shift;
+		val_N = readl(reg_N_addr) >> clk_hw->div[1].shift;
+	}
+	if (parent_rate == 900000000)
+		parent_rate = CALIBRATE_MIPILLL;
+	rate = parent_rate * val_N;
+	val_M *= 2;
+	if (val_M > 0)
+		do_div(rate, val_M);
+
+	return rate;
+}
+
+void find_optimal_values(unsigned long parent_rate, unsigned int *m, unsigned int *n, unsigned long Y)
+{
+	u64 K = 450000000ULL;  //initval
+	unsigned int best_m = 1;
+	unsigned int best_n = 0;
+	unsigned int best_error = UINT_MAX;
+	u64 product;
+	unsigned int n_candidate, error, m_val;
+
+	if (parent_rate != 0)
+		K = parent_rate / 2;
+
+	if (parent_rate == 900000000)
+		K = CALIBRATE_MIPILLL_D2;
+
+#define MAX_VAL 4194303  // 2^22 - 1
+	// M from 1 to MAX_VAL
+	for (m_val = 1; m_val <= MAX_VAL; m_val++) {
+		//product = Y * M + K/2
+		product = (u64)Y * m_val;
+		product += K / 2;
+
+		u64 n_val = product;
+		do_div(n_val, K);
+
+		//N:[0, MAX_VAL]
+		if (n_val > MAX_VAL) {
+			n_candidate = MAX_VAL;
+		} else {
+			n_candidate = (unsigned int)n_val;
+		}
+
+		// y_calc = (K * n_candidate) / M
+		u64 y_calc = K * n_candidate;
+		do_div(y_calc, m_val);
+
+		// |y_calc - Y|
+		if (y_calc > Y) {
+			error = (unsigned int)(y_calc - Y);
+		} else {
+			error = (unsigned int)(Y - y_calc);
+		}
+
+		if (error < best_error) {
+			best_error = error;
+			best_m = m_val;
+			best_n = n_candidate;
+		}
+	}
+
+	*m = best_m;
+	*n = best_n;
+}
+// a24k clk_round_rate
+static long cv180x_a24k_clk_div_round_rate(struct clk_hw *hw, unsigned long rate,
+				      unsigned long *prate)
+{
+	return rate;
+}
+
+// a24k clk set_rate
+static int cv180x_a24k_clk_div_set_rate(struct clk_hw *hw, unsigned long rate,
+				 unsigned long parent_rate)
+{
+	struct cv180x_hw_clock *clk_hw = to_cv180x_clk(hw);
+	void __iomem *reg_M_addr = clk_hw->base + clk_hw->div[0].reg;
+	void __iomem *reg_N_addr = clk_hw->base + clk_hw->div[1].reg;
+	unsigned long flags = 0;
+	int m, n;
+	u32 val;
+
+	find_optimal_values(parent_rate, &m, &n, rate);
+	pr_debug("%s()_%d:%s, rate=%ld, parent_rate=%ld, M=%d, N=%d\n",
+		__func__, __LINE__, clk_hw->name, rate, parent_rate, m, n);
+
+	if (clk_hw->lock)
+		spin_lock_irqsave(clk_hw->lock, flags);
+	else
+		__acquire(clk_hw->lock);
+
+	val = (u32)m << clk_hw->div[0].shift;
+	writel(val, reg_M_addr);
+	val = (u32)n << clk_hw->div[1].shift;
+	writel(val, reg_N_addr);
+
+	if (clk_hw->lock)
+		spin_unlock_irqrestore(clk_hw->lock, flags);
+	else
+		__release(clk_hw->lock);
+
+	return 0;
+}
+
+static u8 cv180x_a24k_clk_mux_get_parent(struct clk_hw *hw)
+{
+	return 0;
+}
+static const struct clk_ops cv180x_a24k_clk_ops = {
+	// gate
+	.enable = cv180x_a24k_clk_gate_enable,
+	.disable = cv180x_a24k_clk_gate_disable,
+	.is_enabled = cv180x_a24k_clk_gate_is_enabled,
+
+	// div
+	.recalc_rate = cv180x_a24k_clk_div_recalc_rate,
+	.round_rate = cv180x_a24k_clk_div_round_rate,
+	.set_rate = cv180x_a24k_clk_div_set_rate,
+
+	//mux: not support .set_parent
+	.get_parent = cv180x_a24k_clk_mux_get_parent,
+};
+
 static struct clk_hw *cv180x_register_clk(struct cv180x_hw_clock *cv180x_clk,
 					  void __iomem *sys_base)
 {
@@ -2593,6 +2788,14 @@ static int cv180x_register_clks(struct cv180x_hw_clock *clks,
 
 	for (i = 0; i < num_clks; i++) {
 		struct cv180x_hw_clock *cv180x_clk = &clks[i];
+
+		if (cv180x_clk->id == CV180X_CLK_A24K) {
+			struct clk_init_data init;
+			/* copy clk_init_data for modification */
+			memcpy(&init, cv180x_clk->hw.init, sizeof(init));
+			init.ops = &cv180x_a24k_clk_ops;
+			memcpy(cv180x_clk->hw.init, &init, sizeof(init));
+		}
 
 		hw = cv180x_register_clk(cv180x_clk, sys_base);
 

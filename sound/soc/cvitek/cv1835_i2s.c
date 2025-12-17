@@ -1143,7 +1143,6 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret, irq;
 	struct snd_soc_dai_driver *cvi_i2s_dai;
-	const char *clk_id;
 	unsigned int val;
 	struct proc_dir_entry *proc_i2s;
 	char *i2s_dev_name;
@@ -1189,16 +1188,14 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 
 	if (pdata) {
 		dev->capability = pdata->cap;
-		clk_id = NULL;
 		dev->quirks = pdata->quirks;
 	} else {
-		clk_id = "i2sclk";
 		ret = cvi_configure_dai_by_dt(dev, cvi_i2s_dai, res);
+		if (ret < 0)
+			return ret;
 		device_property_read_u32(&pdev->dev, "dev-id", &dev->dev_id);
 		dev->clk = of_clk_get(pdev->dev.of_node, 0);
 	}
-	if (ret < 0)
-		return ret;
 
 	if (dev->capability & CVI_I2S_MASTER) {
 		if (pdata) {

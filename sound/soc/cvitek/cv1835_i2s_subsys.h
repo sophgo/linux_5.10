@@ -68,7 +68,7 @@ u32 i2s_subsys_query_master(void);
 void i2s_master_clk_switch_on(bool on);
 void i2s_set_master_clk(u32 clk_ctrl1);
 void i2s_set_master_frame_setting(u32 frame_format);
-void cv1835_set_mclk(char *clk_name, u32 freq);
+int cv1835_set_mclk(char *clk_name, u32 freq);
 u32 cv1835_get_mclk(char *clk_name);
 void cv182x_reset_dac(void);
 void cv182x_reset_adc(void);
