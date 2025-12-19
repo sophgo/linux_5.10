@@ -140,6 +140,31 @@
 #define SOFT_RST_C906_0              107    //NOT USED
 #define SOFT_RST_C906_1              108
 
+// ====================== reg_soft_reset_x_* ======================
+#define RST_RTC_RESET_START          109    //TAG, MUST SAME AS THE FIRST
+#define RST_RTC_FAB                  109    //NOT USED
+#define RST_RTC_MCU                  110
+#define RST_RTC_SDIO                 111
+#define RST_RTC_UART                 112
+#define RST_RTC_SPINOR               113
+#define RST_RTC_ICTL                 114
+#define RST_RTC_MBOX                 115
+#define RST_RTC_HS2RTC               116
+#define RST_RTC_RTC2AP               117
+#define RST_RTC_SRAM                 118
+#define RST_RTC_APB                  119    //NOT LOAD
+#define RST_RTC_TIMER                120
+#define RST_RTC_TIMER0               121
+#define RST_RTC_TIMER1               122
+#define RST_RTC_OSC                  123
+#define RST_RTC_GPIO                 124
+#define RST_RTC_I2C                  125
+#define RST_RTC_SARADC               126
+#define RST_RTC_WDT                  127
+#define RST_RTC_IRRX                 128
+#define RST_RTC_F32KLESS             129
+#define RST_RTC_RESET_END            129   //TAG, MUST SAME AS THE LAST
+
 // ========== Top Level Clocks ===========
 #define CLK_RST_FAB_100M          0   // reg_top_clk_fab_100m_en
 #define CLK_RST_HSPERI            1   // reg_top_clk_hsperi_en

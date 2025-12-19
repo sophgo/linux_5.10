@@ -94,6 +94,45 @@ static inline void dw_spi_debugfs_remove(struct dw_spi *dws)
 }
 #endif /* CONFIG_DEBUG_FS */
 
+void dw_spi_dump_regs(struct dw_spi *dws)
+{
+	pr_err("============ DW_SPI REGISTER DUMP ===========\n");
+	pr_err("CTRLR0:    0x%08x | CTRLR1:    0x%08x\n",
+		   dw_readl(dws, DW_SPI_CTRLR0),
+		   dw_readl(dws, DW_SPI_CTRLR1));
+	pr_err("SSIENR:    0x%08x | MWCR:      0x%08x\n",
+		   dw_readl(dws, DW_SPI_SSIENR),
+		   dw_readl(dws, DW_SPI_MWCR));
+	pr_err("SER:       0x%08x | BAUDR:     0x%08x\n",
+		   dw_readl(dws, DW_SPI_SER),
+		   dw_readl(dws, DW_SPI_BAUDR));
+	pr_err("TXFTLR:    0x%08x | RXFTLR:    0x%08x\n",
+		   dw_readl(dws, DW_SPI_TXFTLR),
+		   dw_readl(dws, DW_SPI_RXFTLR));
+	pr_err("TXFLR:     0x%08x | RXFLR:     0x%08x\n",
+		   dw_readl(dws, DW_SPI_TXFLR),
+		   dw_readl(dws, DW_SPI_RXFLR));
+	pr_err("SR:        0x%08x | IMR:       0x%08x\n",
+		   dw_readl(dws, DW_SPI_SR),
+		   dw_readl(dws, DW_SPI_IMR));
+	pr_err("ISR:       0x%08x | RISR:      0x%08x\n",
+		   dw_readl(dws, DW_SPI_ISR),
+		   dw_readl(dws, DW_SPI_RISR));
+	pr_err("DMACR:     0x%08x | DMATDLR:   0x%08x\n",
+		   dw_readl(dws, DW_SPI_DMACR),
+		   dw_readl(dws, DW_SPI_DMATDLR));
+	pr_err("DMARDLR:   0x%08x | IDR:       0x%08x\n",
+		   dw_readl(dws, DW_SPI_DMARDLR),
+		   dw_readl(dws, DW_SPI_IDR));
+	pr_err("SSI_ID:    0x%08x | RX_DLY:    0x%08x\n",
+		   dw_readl(dws, DW_SPI_VERSION),
+		   dw_readl(dws, DW_SPI_RX_SAMPLE_DLY));
+	pr_err("CTRLR0_EXT:0x%08x | TXD_EDGE:  0x%08x\n",
+		   dw_readl(dws, DW_SPI_CTRLR0_EXT),
+		   dw_readl(dws, DW_SPI_TXD_DRIVE_EDGE));
+	pr_err("=============================================\n");
+}
+
 void dw_spi_set_cs(struct spi_device *spi, bool enable)
 {
 	struct dw_spi *dws = spi_controller_get_devdata(spi->controller);
@@ -189,16 +228,19 @@ int dw_spi_check_status(struct dw_spi *dws, bool raw)
 
 	if (irq_status & SPI_INT_RXOI) {
 		dev_err(&dws->master->dev, "RX FIFO overflow detected\n");
+		dw_spi_dump_regs(dws);
 		ret = -EIO;
 	}
 
 	if (irq_status & SPI_INT_RXUI) {
 		dev_err(&dws->master->dev, "RX FIFO underflow detected\n");
+		dw_spi_dump_regs(dws);
 		ret = -EIO;
 	}
 
 	if (irq_status & SPI_INT_TXOI) {
 		dev_err(&dws->master->dev, "TX FIFO overflow detected\n");
+		dw_spi_dump_regs(dws);
 		ret = -EIO;
 	}
 

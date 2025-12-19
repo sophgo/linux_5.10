@@ -157,30 +157,6 @@ static void dwc_interrupts_set(struct dw_dma_chan *dwc, bool val)
 }
 #endif
 
-static void dwc_prepare_clk(struct dw_dma *dw)
-{
-	int err;
-
-	dw->clk_count++;
-	if (dw->clk_count == 1)	{
-		err = clk_enable(dw->clk);
-		if (err)
-			dev_err(dw->dev, "CVITEK DMA enable clk_sdma_axi failed\n");
-	}
-}
-
-static void dwc_unprepare_clk(struct dw_dma *dw)
-{
-
-	dw->clk_count--;
-
-	if (dw->clk_count == 0)
-		clk_disable(dw->clk);
-
-	if (dw->clk_count < 0)
-		dev_err(dw->dev, "CVITEK sysDMA clk count is invalid\n");
-}
-
 static void dwc_initialize(struct dw_dma_chan *dwc)
 {
 	u64 cfg = 0, int_status_reg;
@@ -269,8 +245,6 @@ static void dwc_dostart(struct dw_dma_chan *dwc, struct dw_desc *first)
 		}
 		retry_count++;
 	}
-
-	dwc_initialize(dwc);
 
 	channel_writeq(dwc, LLP, first->txd.phys);
 
@@ -511,8 +485,6 @@ static void dwc_descriptor_complete(struct dw_dma_chan *dwc, struct dw_desc *des
 	fix_dma_bug_copy_put(dwc, &dwc->chan);
 #endif
 
-	dwc_unprepare_clk(dw);
-
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	dmaengine_desc_callback_invoke(&cb, NULL);
@@ -737,7 +709,6 @@ static int dwc_stop_cyclic_all(struct dw_dma_chan *dwc)
 	kfree(dwc->cdesc->desc);
 	kfree(dwc->cdesc);
 
-	dwc_unprepare_clk(dw);
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	return 0;
@@ -872,7 +843,6 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_memcpy(struct dma_chan *chan
 	struct dw_desc *desc;
 	struct dw_desc *first;
 	struct dw_desc *prev;
-	unsigned long spin_flags;
 	u32 trans_block;
 
 	m_master = dwc->dws.m_master;
@@ -886,11 +856,6 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_memcpy(struct dma_chan *chan
 
 	if (unlikely(!len))
 		return NULL;
-
-	spin_lock_irqsave(&dwc->lock, spin_flags);
-	dwc_prepare_clk(dw);
-	spin_unlock_irqrestore(&dwc->lock, spin_flags);
-
 
 	dwc->direction = DMA_MEM_TO_MEM;
 
@@ -947,6 +912,8 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_memcpy(struct dma_chan *chan
 	first->txd.flags = flags;
 	first->total_len = len;
 
+	dwc_initialize(dwc);
+
 	return &first->txd;
 
 err_desc_get:
@@ -975,12 +942,7 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_slave_sg(struct dma_chan *ch
 	struct dw_desc *prev;
 	struct dw_desc *first;
 	struct scatterlist *sg;
-	unsigned long spin_flags;
 	u64 tmp;
-
-	spin_lock_irqsave(&dwc->lock, spin_flags);
-	dwc_prepare_clk(dw);
-	spin_unlock_irqrestore(&dwc->lock, spin_flags);
 
 	m_master = dwc->dws.m_master;
 	src_max_burst = sconfig->src_maxburst;
@@ -994,6 +956,7 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_slave_sg(struct dma_chan *ch
 	dwc->direction = direction;
 
 	prev = first = NULL;
+
 	switch (direction) {
 	case DMA_MEM_TO_DEV:
 		reg_width = __ffs(sconfig->dst_addr_width);
@@ -1140,6 +1103,8 @@ slave_sg_fromdev_fill_desc:
 	prev->lli.llp = 0;
 	first->total_len = total_len;
 
+	dwc_initialize(dwc);
+
 	return &first->txd;
 
 err_desc_get:
@@ -1232,7 +1197,6 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_cyclic(struct dma_chan *chan
 	struct dw_dma *dw = to_dw_dma(chan->device);
 
 	spin_lock_irqsave(&dwc->lock, flags);
-	dwc_prepare_clk(dw);
 
 	if (!list_empty(&dwc->queue) || !list_empty(&dwc->active_list)) {
 		spin_unlock_irqrestore(&dwc->lock, flags);
@@ -1372,6 +1336,8 @@ static struct dma_async_tx_descriptor *dwc_prep_dma_cyclic(struct dma_chan *chan
 	dwc->cdesc = cdesc;
 	dwc->hw_pos = 0;
 	dwc->interrupt_count = 0;
+
+	dwc_initialize(dwc);
 
 	return &cdesc->desc[0]->txd;
 
@@ -1975,14 +1941,8 @@ static int dma_proc_show(struct seq_file *m, void *v)
 {
 	struct dw_dma *dw = m->private;
 
-	if (!dma_readq(dw, CH_EN))
-		dwc_prepare_clk(dw);
-
 	seq_printf(m, "CFG: 0x%llx, CH_EN=0x%llx, INT_STATUS=0x%llx, COMM_INTSTATUS=0x%llx\n",
 		   dma_readq(dw, CFG), dma_readq(dw, CH_EN), dma_readq(dw, INTSTATUS),  dma_readq(dw, COMM_INTSTATUS));
-
-	if (!dma_readq(dw, CH_EN))
-		dwc_unprepare_clk(dw);
 
 	return 0;
 }
@@ -1997,9 +1957,6 @@ static int ch_proc_show(struct seq_file *m, void *v)
 	struct dw_dma *dw = m->private;
 	int i;
 
-	if (!dma_readq(dw, CH_EN))
-		dwc_prepare_clk(dw);
-
 	for (i = 0; i < dw->nr_channels; i++) {
 		struct dw_dma_chan *dwc = &dw->chan[i];
 
@@ -2008,9 +1965,6 @@ static int ch_proc_show(struct seq_file *m, void *v)
 			   channel_readq(dwc, STATUS), channel_readq(dwc, INTSTATUS),
 			   dwc->hw_pos, dwc->interrupt_count);
 	}
-
-	if (!dma_readq(dw, CH_EN))
-		dwc_unprepare_clk(dw);
 
 	return 0;
 }
@@ -2125,8 +2079,7 @@ static int dw_dma_probe(struct platform_device *pdev)
 		return PTR_ERR(dw->clk);
 	}
 
-	err = clk_prepare(dw->clk);
-	dw->clk_count = 0;
+	err = clk_prepare_enable(dw->clk);
 
 	if (err)
 		return err;
@@ -2209,7 +2162,7 @@ static int dw_dma_remove(struct platform_device *pdev)
 
 	__dw_dma_remove(dw);
 	pm_runtime_disable(&pdev->dev);
-	clk_unprepare(dw->clk);
+	clk_disable_unprepare(dw->clk);
 
 	return 0;
 }
@@ -2245,6 +2198,7 @@ static int dw_dma_suspend_late(struct device *dev)
 	struct dw_dma *dw = platform_get_drvdata(pdev);
 
 	dw_dma_off(dw);
+	clk_disable_unprepare(dw->clk);
 
 	return 0;
 }

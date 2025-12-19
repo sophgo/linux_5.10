@@ -19,12 +19,14 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <dt-bindings/reset/cv184x-resets.h>
 
 #define BITS_PER_REG	32
 
 struct bm_reset_data {
 	spinlock_t			lock;
 	void __iomem			*membase;
+	void __iomem			*rtc_membase;
 	struct reset_controller_dev	rcdev;
 };
 
@@ -34,15 +36,24 @@ static int bm_reset_assert(struct reset_controller_dev *rcdev,
 	struct bm_reset_data *data = container_of(rcdev,
 						     struct bm_reset_data,
 						     rcdev);
-	int bank = id / BITS_PER_REG;
-	int offset = id % BITS_PER_REG;
+	int bank = 0;
+	int offset = 0;
 	unsigned long flags;
 	u32 reg;
+	void __iomem *membase;
+
+	if (unlikely(id >= RST_RTC_RESET_START && id <= RST_RTC_RESET_END)) {
+		id = id - RST_RTC_RESET_START;
+		membase = data->rtc_membase;
+	} else {
+		membase = data->membase;
+	}
+	bank = id / BITS_PER_REG;
+	offset = id % BITS_PER_REG;
 
 	spin_lock_irqsave(&data->lock, flags);
-	reg = readl(data->membase + (bank * 4));
-	writel(reg & ~BIT(offset), data->membase + (bank * 4));
-
+	reg = readl(membase + (bank * 4));
+	writel(reg & ~BIT(offset), membase + (bank * 4));
 	spin_unlock_irqrestore(&data->lock, flags);
 
 	return 0;
@@ -54,14 +65,24 @@ static int bm_reset_deassert(struct reset_controller_dev *rcdev,
 	struct bm_reset_data *data = container_of(rcdev,
 						     struct bm_reset_data,
 						     rcdev);
-	int bank = id / BITS_PER_REG;
-	int offset = id % BITS_PER_REG;
+	int bank = 0;
+	int offset = 0;
 	unsigned long flags;
 	u32 reg;
+	void __iomem *membase;
+
+	if (unlikely(id >= RST_RTC_RESET_START && id <= RST_RTC_RESET_END)) {
+		id = id - RST_RTC_RESET_START;
+		membase = data->rtc_membase;
+	} else {
+		membase = data->membase;
+	}
+	bank = id / BITS_PER_REG;
+	offset = id % BITS_PER_REG;
 
 	spin_lock_irqsave(&data->lock, flags);
-	reg = readl(data->membase + (bank * 4));
-	writel(reg | BIT(offset), data->membase + (bank * 4));
+	reg = readl(membase + (bank * 4));
+	writel(reg | BIT(offset), membase + (bank * 4));
 	spin_unlock_irqrestore(&data->lock, flags);
 
 	return 0;
@@ -89,7 +110,7 @@ static int bm_reset_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (res == NULL) {
+	if (!res) {
 		pr_err("no resource found\n");
 		goto out_free_devm;
 	}
@@ -97,7 +118,17 @@ static int bm_reset_probe(struct platform_device *pdev)
 	data->membase = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(data->membase))
 		goto out_free_devm;
-	data->rcdev.nr_resets = resource_size(res) * 32;
+	data->rcdev.nr_resets = resource_size(res) * 8;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	if (!res) {
+		pr_err("no rtc reg resource found\n");
+	} else {
+		data->rtc_membase = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(data->rtc_membase))
+			goto out_free_devm;
+		data->rcdev.nr_resets += resource_size(res) * 8;
+	}
 
 	spin_lock_init(&data->lock);
 

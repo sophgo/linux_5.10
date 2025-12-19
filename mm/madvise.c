@@ -1077,7 +1077,7 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 	if ((behavior == MADV_DONTNEED)
 		&& (len_in == 0x20000)
 		&& ((start & 0xF0000000) == 0x80000000)) {
-		pr_info("untagged start : 0x%lx, len_in : 0x%x\n", start, len_in);
+		pr_debug("untagged start : 0x%lx, len_in : 0x%x\n", start, len_in);
 		arch_sync_dma_for_device(start, len_in, DMA_FROM_DEVICE);
 		return 0;
 	}

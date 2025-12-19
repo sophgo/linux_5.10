@@ -2157,15 +2157,6 @@ config WDTPCI
 	  To compile this driver as a module, choose M here: the
 	  module will be called wdt_pci.
 
-config WATCHDOG_CVITEK
-	tristate "Cvitek Watchdog Timer Support"
-	depends on WATCHDOG_CORE
-	help
-	  This option enables support for the Cvitek Watchdog Timer.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called cvitek_wdt.
-
 #
 # USB-based Watchdog Cards
 #

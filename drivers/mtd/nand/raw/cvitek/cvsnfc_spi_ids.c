@@ -32,6 +32,12 @@ static struct spi_nand_driver  spi_nand_driver_gd = {
 	.qe_enable = spi_nand_gd_qe_enable,
 };
 
+static struct spi_nand_driver  spi_nand_driver_xtx = {
+	.wait_ready   = spi_general_wait_ready,
+	.write_enable = spi_general_write_enable,
+	.qe_enable = spi_nand_gd_qe_enable,
+};
+
 static struct spi_nand_driver  spi_nand_driver_winbond_multi = {
 	.wait_ready   = spi_general_wait_ready,
 	.write_enable = spi_general_write_enable,
@@ -411,7 +417,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0x2,
 			.remap = ECC_XT26G0xDWSIGA
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -442,7 +448,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0xF,
 			.remap = ECC_XT26G0xCWSIGA
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -473,7 +479,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0xF,
 			.remap = ECC_XT26G0xCWSIGA
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -504,7 +510,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0x2,
 			.remap = ECC_XT26G11C
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -512,6 +518,38 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		},
 		.flags = 0
 	},
+
+	{
+		{       .name = "XT26G04D",
+			.id = {0x0b, 0x33},
+			.pagesize = SZ_4K,
+			.chipsize = SZ_512,
+			.erasesize = SZ_256K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_256,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XTX_4bit_remap
+		},
+		.driver = &spi_nand_driver_xtx,
+		{
+			.start = 2 * SZ_4K,
+			.length = 4 * SZ_4K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
 
 	{
 		{       .name = "XT26G11D",
@@ -535,7 +573,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0x2,
 			.remap = ECC_XTX_4bit_remap
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -545,7 +583,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
-		{       .name = "XT26G12D",
+		{       .name = "XT26G12D-B",
 			.id = {0x0b, 0x35},
 			.pagesize = SZ_2K,
 			.chipsize = SZ_256,
@@ -566,7 +604,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.uncorr_val = 0x2,
 			.remap = ECC_XTX_4bit_remap
 		},
-		.driver = &spi_nand_driver_gd,
+		.driver = &spi_nand_driver_xtx,
 		{
 			.start = 0,
 			.length = 4 * SZ_2K,
@@ -1658,6 +1696,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		{
 			.start = 0,
 			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "F35SQB002G",
+			.id = {0xCD, 0x52, 0x52},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0x0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 3,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x7,
+			.remap = NULL
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 62 * SZ_2K,
 			.locked = 0,
 		},
 		.flags = 0

@@ -38,6 +38,7 @@
 #define DW_SPI_DR			0x60
 #define DW_SPI_RX_SAMPLE_DLY		0xf0
 #define DW_SPI_CTRLR0_EXT		0xf4
+#define DW_SPI_TXD_DRIVE_EDGE		0xf8
 
 #ifndef DW_VERSION_4_04
 #define DW_SPI_CS_OVERRIDE		0xf4
@@ -192,7 +193,21 @@ struct dw_spi {
 	struct completion	dma_completion;
 
 #ifdef CONFIG_PM_SLEEP
-	u32			dw_spi_div;
+	u32			ctrl0;
+	u32			ctrl1;
+	u32			ssienr;
+	u32			mwcr;
+	u32			ser;
+	u32			baurd;
+	u32			txftlr;
+	u32			rxftlr;
+	u32			txflr;
+	u32			rxflr;
+	u32			dmacr;
+	u32			dmatdlr;
+	u32			dmardlr;
+	u32			rx_delay;
+	u32			ctrl0_ext;
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -292,7 +307,7 @@ static inline void spi_shutdown_chip(struct dw_spi *dws)
 	spi_enable_chip(dws, 0);
 	spi_set_clk(dws, 0);
 }
-
+extern void dw_spi_dump_regs(struct dw_spi *dws);
 extern void dw_spi_set_cs(struct spi_device *spi, bool enable);
 extern void dw_spictrl_update_config(struct dw_spi *dws, struct spi_device *spi,
 			  struct dw_spi_cfg *cfg);

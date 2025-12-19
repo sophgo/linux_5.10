@@ -367,8 +367,15 @@ static int dw_spi_suspend(struct device *dev)
 	struct dw_spi_mmio *dwsmmio = dev_get_drvdata(dev);
 	struct dw_spi *dws  = &dwsmmio->dws;
 
-	dws->dw_spi_div = dw_readl(dws, DW_SPI_BAUDR);
+	dws->baurd = dw_readl(dws, DW_SPI_BAUDR);
+	dws->dmardlr = dw_readl(dws, DW_SPI_DMARDLR);
+	dws->dmatdlr = dw_readl(dws, DW_SPI_DMATDLR);
 	dw_spi_suspend_host(dws);
+
+	clk_disable_unprepare(dwsmmio->pclk);
+	clk_disable_unprepare(dwsmmio->clk_sf);
+	clk_disable_unprepare(dwsmmio->clk);
+
 	return 0;
 }
 
@@ -377,8 +384,15 @@ static int dw_spi_resume(struct device *dev)
 	struct dw_spi_mmio *dwsmmio = dev_get_drvdata(dev);
 	struct dw_spi *dws  = &dwsmmio->dws;
 
-	spi_set_clk(dws, dws->dw_spi_div);
+	clk_prepare_enable(dwsmmio->clk);
+	clk_prepare_enable(dwsmmio->clk_sf);
+	clk_prepare_enable(dwsmmio->pclk);
+
+	spi_set_clk(dws, dws->baurd);
+	dw_writel(dws, DW_SPI_DMARDLR, dws->dmardlr);
+	dw_writel(dws, DW_SPI_DMATDLR, dws->dmatdlr);
 	dw_spi_resume_host(dws);
+
 	return 0;
 }
 #endif
