@@ -29,6 +29,7 @@
 #include <linux/reset.h>
 #include <linux/watchdog.h>
 #include <linux/debugfs.h>
+#include <linux/sched/debug.h>
 
 #define WDOG_CONTROL_REG_OFFSET			0x00
 #define WDOG_CONTROL_REG_WDT_EN_MASK		0x01
@@ -56,7 +57,8 @@
 #define DW_WDT_NUM_TOPS		16
 #define DW_WDT_FIX_TOP(_idx)	(1U << (16 + _idx))
 
-#define DW_WDT_DEFAULT_SECONDS	30
+#define DW_WDT_DEFAULT_SECONDS	85
+#define DW_WDT_BACKTRACE_TIMEOUT (50*1000) /* 50 seconds */
 
 static const u32 dw_wdt_fix_tops[DW_WDT_NUM_TOPS] = {
 	DW_WDT_FIX_TOP(0), DW_WDT_FIX_TOP(1), DW_WDT_FIX_TOP(2),
@@ -193,25 +195,43 @@ static void cpu_alive(void *passed_regs)
 }
 #endif
 static int isFirst = 1;
+static ktime_t last_feed_time;
 static int dw_wdt_ping(struct watchdog_device *wdd)
 {
 	struct dw_wdt *dw_wdt = to_dw_wdt(wdd);
+	ktime_t now = ktime_get();
+	s64 delta_ms = ktime_to_ms(ktime_sub(now, last_feed_time));
+	int cpu;
 
 #ifdef CONFIG_SMP
 	unsigned int ncpus;
-
+	cpumask_set_cpu(smp_processor_id(), &cpus_alive);
 	ncpus = num_online_cpus() - 1;
 
 	if ((isFirst == 1) || cpumask_weight(&cpus_alive) >= ncpus) {
 #endif
+		pr_debug("Watchdog feed interval: %lld ms max:%d ncpus:%d alive: %*pbl\n",
+			delta_ms, wdd->timeout,
+			ncpus, cpumask_pr_args(&cpus_alive));
+		last_feed_time = now;
 		writel(WDOG_COUNTER_RESTART_KICK_VALUE, dw_wdt->regs +
 			WDOG_COUNTER_RESTART_REG_OFFSET);
 
 #ifdef CONFIG_SMP
 		isFirst = 0;
 		cpus_alive = CPU_MASK_NONE;
-	} else {
-		pr_err("all_cpus: %d, alive_cpus: %d\n", ncpus, cpumask_weight(&cpus_alive));
+	} else if (delta_ms > DW_WDT_BACKTRACE_TIMEOUT) {
+        pr_err("Watchdog feed blocked %lld ms! Tout: %d, (%d)Responded CPUs: %*pbl\n",
+               delta_ms, wdd->timeout,ncpus, cpumask_pr_args(&cpus_alive));
+
+        for_each_online_cpu(cpu) {
+            if (!cpumask_test_cpu(cpu, &cpus_alive)) {
+                pr_err("=== Backtrace for CPU %d (current CPU: %d) ===\n",
+                       cpu, smp_processor_id());
+                dump_cpu_task(cpu);
+                pr_err("=== End backtrace for CPU %d ===\n", cpu);
+            }
+        }
 	}
 	smp_call_function(cpu_alive, NULL, 0);
 	// memory barrier
@@ -368,10 +388,11 @@ static int dw_wdt_restart(struct watchdog_device *wdd,
 
 	writel(0, dw_wdt->regs + WDOG_TIMEOUT_RANGE_REG_OFFSET);
 	dw_wdt_update_mode(dw_wdt, DW_WDT_RMOD_RESET);
-	if (dw_wdt_is_enabled(dw_wdt))
+	if (dw_wdt_is_enabled(dw_wdt)) {
+		last_feed_time = ktime_get();
 		writel(WDOG_COUNTER_RESTART_KICK_VALUE,
 		       dw_wdt->regs + WDOG_COUNTER_RESTART_REG_OFFSET);
-	else
+	} else
 		dw_wdt_arm_system_reset(dw_wdt);
 
 	/* wait for reset to assert... */

@@ -495,11 +495,11 @@ static int get_sensor_index(struct v4l2_subdev *sd)
 	if (name[1] < '0' || name[1] > '9')
 		name[1] = 0;
 
-	CIF_PR(CIF_DEBUG, "index = %s", name);
+	CIF_PR(CIF_DEBUG, "sd->name = %s", sd->name);
 
 	ret = kstrtouint(name, 10, &index); //cmaX
 
-	CIF_PR(CIF_DEBUG, "index = %s", name);
+	CIF_PR(CIF_DEBUG, "index = %d", index);
 	return index;
 }
 
@@ -554,6 +554,7 @@ static int cif_notifier_bound(struct v4l2_async_notifier *notifier,
 	}
 
 	dev->num_sensors++;
+	sns_number = dev->num_sensors;
 
 	sensor = &dev->sensors[sensor_index];
 	sensor->sd = sd;
@@ -596,6 +597,8 @@ static int cif_notifier_bound(struct v4l2_async_notifier *notifier,
 	}
 
 	ret = v4l2_device_register_subdev_nodes(&dev->v4l2_dev);
+	CIF_PR(CIF_DEBUG, "cif bound sensor[%s] finish, index:%d, dev->num_sensors:%d, sns_number:%d\n",
+						sd->name, sensor_index, dev->num_sensors, sns_number);
 
 	return 0;
 }
@@ -609,11 +612,9 @@ static void cif_notifier_unbind(struct v4l2_async_notifier *notifier,
 						  notifier);
 	struct cif_sensor_info *sensor = sd_to_sensor(dev, sd);
 	int i;
+	int sensor_index = get_sensor_index(sd);
 
-	CIF_PR(CIF_DEBUG, "cif_notifier_unbind sensor[%s],index:%d\n", sd->name, get_sensor_index(sd));
-
-	media_entity_remove_links(&dev->sd.entity);
-	CIF_PR(CIF_DEBUG, "media_entity_remove_links from isp finish\n");
+	CIF_PR(CIF_DEBUG, "cif_notifier_unbind sensor[%s],index:%d\n", sd->name, sensor_index);
 
 	media_entity_remove_links(&sensor->sd->entity);
 	CIF_PR(CIF_DEBUG, "media_entity_remove_links from cif finish\n");
@@ -625,19 +626,17 @@ static void cif_notifier_unbind(struct v4l2_async_notifier *notifier,
 		sensor->sd = NULL;
 
 	if (dev)
-		dev->num_sensors = 0;
+		dev->num_sensors--;
 
-	if (sns_number) {
-		CIF_PR(CIF_DEBUG, "sns_number = %d\n", sns_number);
-		sns_number = 0;
-	}
+	sns_number = dev->num_sensors;
 
 	for (i = 0; i < MAX_LINK_NUM; i++) {
 		if (g_attr[i] != NULL)
 			g_attr[i] = NULL;
 	}
 
-	CIF_PR(CIF_DEBUG, "cif_notifier_unbind finish \n");
+	CIF_PR(CIF_DEBUG, "cif unbind sensor[%s] finish, index:%d, dev->num_sensors:%d, sns_number:%d\n",
+						sd->name, sensor_index, dev->num_sensors, sns_number);
 }
 
 static int subdev_notifier_complete(struct v4l2_async_notifier *notifier)
@@ -756,21 +755,6 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 
 	CIF_PR(CIF_DEBUG, "Into cif_init_subdev \n");
 
-	/*init v4l2 dev*/
-	v4l2_dev = &dev->v4l2_dev;
-	rc = strscpy(v4l2_dev->name, "cif_v4l2", sizeof(dev->sd.name));
-	if (rc < 0) {
-		dev_err(&pdev->dev, "failed to copy v4l2_dev name :%d\n", rc);
-	}
-
-	rc = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
-	if (rc < 0) {
-		dev_err(&pdev->dev, "Failed to register v4l2 device:%d\n", rc);
-		return rc;
-	} else {
-		dev_info(&pdev->dev, "v4l2 device registered successfully\n");
-	}
-
 	snprintf(dev->media_dev.model,
 		sizeof(dev->media_dev.model),"%s", "cif_media");
 	strscpy(dev->media_dev.driver_name, "cif_subdev",
@@ -778,7 +762,20 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 
 	dev->media_dev.dev = &pdev->dev;
 	dev->media_dev.ops = &cif_media_ops;
+
+	/*init v4l2 dev*/
+	v4l2_dev = &dev->v4l2_dev;
 	v4l2_dev->mdev = &dev->media_dev;
+	strlcpy(v4l2_dev->name, dev->name, sizeof(v4l2_dev->name));
+
+	rc = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);
+	if (rc < 0) {
+		dev_err(&pdev->dev, "Failed to register v4l2 device:%d\n", rc);
+		return rc;
+	} else {
+		dev_info(&pdev->dev, "cif v4l2 device registered successfully\n");
+	}
+
 	media_device_init(&dev->media_dev);
 	rc = media_device_register(&dev->media_dev);
 	if (rc < 0) {
@@ -787,6 +784,17 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 
 	/*init subdev*/
 	v4l2_subdev_init(&dev->sd, &cif_subdev_ops);
+	/*set subdev parameter, must be set after init subdev*/
+	//dev->sd.dev = &pdev->dev;
+	dev->sd.owner = THIS_MODULE;
+	dev->sd.grp_id = GRP_ID_CIF;
+	dev->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
+	dev->sd.entity.ops = &cif_entity_ops;
+	dev->sd.entity.function = MEDIA_INTF_T_V4L_SUBDEV;
+	rc = strscpy(dev->sd.name, CIF_SUBDEV_NAME, sizeof(dev->sd.name));
+	if (rc < 0) {
+		dev_err(&pdev->dev, "failed to copy subdev name :%d\n", rc);
+	}
 
 	/*init pads*/
 	for (i = 0; i < CIF_PAD_NUM; i++) {
@@ -800,21 +808,9 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 		MEDIA_PAD_FL_SINK | MEDIA_PAD_FL_MUST_CONNECT;
 	dev->pads[CIF_PAD_ISP].flags =
 		MEDIA_PAD_FL_SOURCE | MEDIA_PAD_FL_MUST_CONNECT;
-	dev->sd.entity.ops = &cif_entity_ops;
-	dev->sd.entity.function = MEDIA_INTF_T_V4L_SUBDEV;
-
 	rc = media_entity_pads_init(&dev->sd.entity, CIF_PAD_NUM, dev->pads);
 	if (rc < 0) {
 		dev_err(&pdev->dev, "Failed to init isp pads :%d\n", rc);
-	}
-
-	/*set subdev parameter, must be set after init subdev*/
-	//dev->sd.dev = &pdev->dev;
-	dev->sd.owner = THIS_MODULE;
-	dev->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
-	rc = strscpy(dev->sd.name, "cif_v4l2", sizeof(dev->sd.name));
-	if (rc < 0) {
-		dev_err(&pdev->dev, "failed to copy subdev name :%d\n", rc);
 	}
 
 	v4l2_set_subdevdata(&dev->sd, dev);
@@ -824,7 +820,7 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 		dev_err(&pdev->dev, "failed to register subdev : %d\n", rc);
 		return rc;
 	} else {
-		dev_info(&pdev->dev, "subdev registered successfully\n");
+		dev_info(&pdev->dev, "cif subdev registered successfully\n");
 	}
 
 	rc = cif_notifier(dev);
@@ -832,7 +828,15 @@ int cif_init_subdev(struct platform_device *pdev, struct cvi_cif_dev *dev)
 		dev_err(&pdev->dev, "failed to register notifier : %d\n", rc);
 		return rc;
 	} else {
-		dev_info(&pdev->dev, " register notifier successfully\n");
+		dev_info(&pdev->dev, "cif_notifier register notifier successfully\n");
+	}
+
+	rc = v4l2_device_register_subdev_nodes(v4l2_dev);
+	if (rc < 0) {
+		dev_err(&pdev->dev, "Failed to register subdevs node:%d\n", rc);
+		return rc;
+	} else {
+		dev_info(&pdev->dev, "cif subdev nodes registered successfully\n");
 	}
 
 	for (i = 0; i < MAX_LINK_NUM; i++) {

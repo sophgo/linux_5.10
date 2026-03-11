@@ -1046,12 +1046,17 @@ static int sc020hgs_remove(struct i2c_client *client)
 	struct sc020hgs *sc020hgs = to_sc020hgs(sd);
 
 	sc020hgs_probe_index = 0;
+	pr_info("== sc020hgs_remove_index = %d ==\n", sc020hgs_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	sc020hgs_free_controls(sc020hgs);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", sc020hgs_probe_index);
 
 	return 0;
 }
@@ -1091,6 +1096,8 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== sc020hgs mod rmmod ==\n");
+
 	i2c_del_driver(&sc020hgs_i2c_driver);
 }
 

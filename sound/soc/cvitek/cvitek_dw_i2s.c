@@ -34,6 +34,43 @@ struct proc_dir_entry *proc_dwi2s_dir;
 u32 dwi2s_mode_txrx;
 u32 dei2s_mode_masterslave;
 
+#define CVI_PCM_ALIGN(x, a)      (((x) + ((a) - 1)) & ~((a) - 1))
+static int snd_pcm_hw_rule_period_size(struct snd_pcm_hw_params *params,
+				       struct snd_pcm_hw_rule *rule)
+{
+	struct snd_interval t;
+	int refine = 0;
+	int ret = 0;
+	struct snd_pcm_substream *substream = rule->private;
+	struct snd_interval *a = hw_param_interval_c(params, rule->deps[0]);
+
+	snd_interval_copy(&t, a);
+	if (a->max < CVI_PCM_ALIGN(a->max, 64)) {
+		refine = 1;
+		t.max = a->max - a->max % 64;
+//		t.min = a->min;
+	}
+	if (t.min < CVI_PCM_ALIGN(a->min, 64)) {
+		refine = 1;
+		t.min = CVI_PCM_ALIGN(a->min, 64);
+//        t.max = a->max;
+	}
+	if (refine) {
+		if (t.min > t.max)
+			t.max = t.min;
+		ret = snd_interval_refine(hw_param_interval(params, rule->var), &t);
+		if (ret < 0) {
+			pr_err("ret=%d rule_var:%d=%d, t info: t_max %d t_min %d,t_empty:%d\n",
+			       ret, rule->deps[0], rule->var, t.max, t.min, t.empty);
+			pr_err("a info: min:%d max:%d openmin:%d openmax:%d,a_empty:%d\n",
+			       a->min, a->max, a->openmin, a->openmax, a->empty);
+		}
+		return ret;
+	}
+
+	return 0;
+}
+
 static inline void i2s_write_reg(void __iomem *io_base, int reg, u32 val)
 {
 	iowrite32(val, io_base + reg);
@@ -314,6 +351,7 @@ static int cvi_dwi2s_resume(struct snd_soc_dai *dai)
 static int cvi_dwi2s_startup(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *cpu_dai)
 {
+	int ret;
 	struct cvi_i2s_dev *dev = snd_soc_dai_get_drvdata(cpu_dai);
 	union cvi_i2s_snd_dma_data *dma_data = NULL;
 
@@ -340,6 +378,11 @@ static int cvi_dwi2s_startup(struct snd_pcm_substream *substream,
 
 	dev_info(dev->dev, "%s start *dma_data = %px\n", __func__, dma_data);
 	snd_soc_dai_set_dma_data(cpu_dai, substream, (void *)dma_data);
+	ret = snd_pcm_hw_rule_add(substream->runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+				  snd_pcm_hw_rule_period_size, substream,
+				  SNDRV_PCM_HW_PARAM_PERIOD_BYTES, -1);
+	if (ret < 0)
+		return ret;
 	dev_info(dev->dev, "%s end cpu_dai->playback_dma_data = %p\n",
 		__func__, cpu_dai->playback_dma_data);
 	return 0;
@@ -861,11 +904,11 @@ static int cvi_dw_i2s_probe(struct platform_device *pdev)
 		clk_id = NULL;
 		dev->quirks = pdata->quirks;
 	} else {
-		clk_id = "i2sclk";
+		clk_id = "clk_aud_dw";
+		dev->clk = devm_clk_get(&pdev->dev, clk_id);
 		ret = cvi_configure_dai_by_dt(dev, cvi_i2s_dai, res);
 		device_property_read_u32(&pdev->dev, "dev-id",
 					 &dev->dev_id);
-		dev->clk = devm_clk_get(&pdev->dev, clk_id);
         if (ret < 0)
             return ret;
 	}
@@ -891,11 +934,12 @@ static int cvi_dw_i2s_probe(struct platform_device *pdev)
 	}
 	device_property_read_string(&pdev->dev, "mclk_out", &mclk_out);
 
-	if (!strcmp(mclk_out, "true"))
+	if (!strcmp(mclk_out, "true")) {
+		dwi2s_set_mclk(DWI2S_MODE_REG_VAL, DWI2S_SLAVEMODE_SOURCE, DWI2S_CLK_CTRL0_VAL, 0x10001);
 		dev->mclk_out = true;
-	else
+	} else {
 		dev->mclk_out = false;
-
+	}
 //i2s subsys set I2S_CLK_CTRL0
 
  	dev_set_drvdata(&pdev->dev, dev);

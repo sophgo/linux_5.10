@@ -1069,6 +1069,9 @@ void crash_smp_send_stop(void)
 
 	cpus_stopped = 1;
 
+#if 1
+	smp_send_stop();
+#else
 	/*
 	 * If this cpu is the only one alive at this point in time, online or
 	 * not, there are no stop messages to be sent around, so just back out.
@@ -1096,6 +1099,7 @@ void crash_smp_send_stop(void)
 			cpumask_pr_args(&mask));
 
 	sdei_mask_local_cpu();
+#endif
 }
 
 bool smp_crash_stop_failed(void)

@@ -24,6 +24,8 @@
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 
+#include "pinctrl-cv186x.h"
+
 struct dcs_cmd {
 	u8	delay;
 	u8	size;
@@ -418,6 +420,10 @@ static int hx8399_probe(struct mipi_dsi_device *dsi)
 	struct device *dev = &dsi->dev;
 	struct hx8399 *ctx;
 	int ret;
+
+	PINMUX_CONFIG(GPIO1, GPIO112, G12);
+	PINMUX_CONFIG(GPIO2, GPIO113, G12);
+	PINMUX_CONFIG(GPIO3, GPIO114, G12);
 
 	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)

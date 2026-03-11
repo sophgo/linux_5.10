@@ -1063,12 +1063,17 @@ static int imx900_remove(struct i2c_client *client)
 	struct imx900 *imx900 = to_imx900(sd);
 
 	imx900_probe_index = 0;
+	pr_info("== imx900_remove_index = %d ==\n", imx900_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	imx900_free_controls(imx900);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", imx900_probe_index);
 
 	return 0;
 }
@@ -1104,6 +1109,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== imx900 mod rmmod ==\n");
 	i2c_del_driver(&imx900_i2c_driver);
 }
 

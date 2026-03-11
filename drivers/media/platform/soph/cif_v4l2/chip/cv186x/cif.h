@@ -46,6 +46,11 @@
 //#include <cif_cb.h>
 
 #define CIF_MAX_CSI_NUM		8
+#define CIF_SUBDEV_NAME   "cif_v4l2_subdev"
+
+#define GRP_ID_SENSOR    BIT(0)
+#define GRP_ID_CIF       BIT(1)
+#define GRP_ID_ISP       BIT(2)
 
 
 #define MIPI_LANE_NUM	8
@@ -97,11 +102,11 @@
 #define  MAC_CLK_NORM_DIV_VAL_CSI_MAC7_MASK   0x1f0000
 #define  MAC_CLK_NORM_DIV_VAL_CSI_MAC7_BITS   0x5
 //MAC_CLK_ENABLE
-#define  MAC_CLK_NORM_DIV_EN_CSI_MAC0   0x38
+#define  MAC_CLK_NORM_DIV_EN_CSI_MAC0   0x44
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC0_OFFSET 0
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC0_MASK   0x1
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC0_BITS   0x1
-#define  MAC_CLK_NORM_DIV_EN_CSI_MAC1   0x40
+#define  MAC_CLK_NORM_DIV_EN_CSI_MAC1   0x48
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC1_OFFSET 0
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC1_MASK   0x1
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC1_BITS   0x1
@@ -130,11 +135,11 @@
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC7_MASK   0x1
 #define  MAC_CLK_NORM_DIV_EN_CSI_MAC7_BITS   0x1
 //MAC_CLK_UPDATE
-#define  MAC_CLK_UPDATE_SEL_CSI_MAC0   0x38
+#define  MAC_CLK_UPDATE_SEL_CSI_MAC0   0x44
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC0_OFFSET 2
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC0_MASK   0x4
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC0_BITS   0x1
-#define  MAC_CLK_UPDATE_SEL_CSI_MAC1   0x40
+#define  MAC_CLK_UPDATE_SEL_CSI_MAC1   0x48
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC1_OFFSET 2
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC1_MASK   0x4
 #define  MAC_CLK_UPDATE_SEL_CSI_MAC1_BITS   0x1
@@ -649,6 +654,7 @@ struct cif_sensor_info {
 };
 
 struct cvi_cif_dev {
+	char name[128];
 	struct device				*dev;
 	struct v4l2_subdev			sd;
 	struct v4l2_subdev			*isp_sd;

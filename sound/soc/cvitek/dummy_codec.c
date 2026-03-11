@@ -90,25 +90,25 @@ static int dummy_codec_remove(struct platform_device *dev)
 
 static void dummy_codec_release(struct device *dev)
 {
-	return 0;
+	return;
 }
 
+static const struct of_device_id dummy_codec_match_ids[] = {
+	{
+		.compatible = "cvitek,dummy-codec",
+		//.data = (void *) &cv182xa_adc_dai,
+	},
+	{},
+};
 
-
+MODULE_DEVICE_TABLE(of, dummy_codec_match_ids)
 static struct platform_driver cvitek_dummy_codec_driver = {
 	.driver = {
 		.name = "dummy_codec",
+		.of_match_table = of_match_ptr(dummy_codec_match_ids),
 	},
 	.probe = dummy_codec_probe,
 	.remove = dummy_codec_remove,
-};
-
-static struct platform_device cvitek_dummy_codec_dev = {
-	.name         = "dummy_codec",
-	.id       = -1,
-	.dev = {
-		.release = dummy_codec_release,
-	},
 };
 
 static void initWorkFuc(struct work_struct *work)
@@ -117,7 +117,6 @@ static void initWorkFuc(struct work_struct *work)
 
 	pr_info("dummy_codec %s\n", __func__);
 	if (!initFlag) {
-		platform_device_register(&cvitek_dummy_codec_dev);
 		platform_driver_register(&cvitek_dummy_codec_driver);
 		initFlag = true;
 	}
@@ -137,7 +136,6 @@ static void dummy_codec_exit(void)
 {
 	destroy_workqueue(initWork);
 	if (initFlag) {
-		platform_device_unregister(&cvitek_dummy_codec_dev);
 		platform_driver_unregister(&cvitek_dummy_codec_driver);
 	}
 	initFlag = false;

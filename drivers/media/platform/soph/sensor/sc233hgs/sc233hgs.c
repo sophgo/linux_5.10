@@ -1090,12 +1090,18 @@ static int sc233hgs_remove(struct i2c_client *client)
 	struct sc233hgs *sc233hgs = to_sc233hgs(sd);
 
 	sc233hgs_probe_index = 0;
+	pr_info("== sc233hgs_remove_index = %d ==\n", sc233hgs_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	sc233hgs_free_controls(sc233hgs);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", sc233hgs_probe_index);
+	return 0;
 
 	return 0;
 }
@@ -1135,6 +1141,8 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== sc233hgs mod rmmod ==\n");
+
 	i2c_del_driver(&sc233hgs_i2c_driver);
 }
 

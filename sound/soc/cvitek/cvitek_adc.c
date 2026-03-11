@@ -951,6 +951,7 @@ static int cv181xadc_suspend(struct device *dev)
 	adc->reg_ctx->ctl0 = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_CTRL0);
 	adc->reg_ctx->ctl1 = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_CTRL1);
 	adc->reg_ctx->status = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_STATUS);
+	adc->reg_ctx->clk = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_CLK);
 	adc->reg_ctx->ana0 = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA0);
 	adc->reg_ctx->ana2 = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA2);
 	adc->reg_ctx->ana3 = adc_read_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA3);
@@ -966,6 +967,7 @@ static int cv181xadc_resume(struct device *dev)
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_CTRL0, adc->reg_ctx->ctl0);
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_CTRL1, adc->reg_ctx->ctl1);
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_STATUS, adc->reg_ctx->status);
+	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_CLK, adc->reg_ctx->clk);
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA0, adc->reg_ctx->ana0);
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA2, adc->reg_ctx->ana2);
 	adc_write_reg(adc->adc_base, AUDIO_PHY_RXADC_ANA3, adc->reg_ctx->ana3);

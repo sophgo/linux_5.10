@@ -596,6 +596,7 @@ static int sdhci_cv186x_general_execute_tuning(struct sdhci_host *host, u32 opco
 
 static void sdhci_cv186x_emmc_reset(struct sdhci_host *host, u8 mask)
 {
+	u8 ctrl;
 	u16 ctrl_2;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
@@ -607,6 +608,12 @@ static void sdhci_cv186x_emmc_reset(struct sdhci_host *host, u8 mask)
 	sdhci_writel(host,
 			 sdhci_readl(host, SDHCI_VENDOR_MSHC_CTRL_R) | BIT(0),
 			 SDHCI_VENDOR_MSHC_CTRL_R);
+
+	if (cvi_host->quirks & SDHCI_CVI_QUIRK_FORCE_CDTEST) {
+		ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
+		ctrl |= SDHCI_CTRL_CDTEST_INS | SDHCI_CTRL_CDTEST_EN;
+		sdhci_writeb(host, ctrl, SDHCI_HOST_CONTROL);
+	}
 
 	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
 	ctrl_2 &= SDHCI_CTRL_UHS_MASK;
@@ -640,12 +647,19 @@ static void sdhci_cv186x_emmc_reset(struct sdhci_host *host, u8 mask)
 
 static void sdhci_cv186x_sd_reset(struct sdhci_host *host, u8 mask)
 {
+	u8 ctrl;
 	u16 ctrl_2;
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_cvi_host *cvi_host = sdhci_pltfm_priv(pltfm_host);
 
 	pr_debug("%s mask = 0x%x\n", __func__, mask);
 	sdhci_cvi_reset_helper(host, mask);
+
+	if (cvi_host->quirks & SDHCI_CVI_QUIRK_FORCE_CDTEST) {
+		ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
+		ctrl |= SDHCI_CTRL_CDTEST_INS | SDHCI_CTRL_CDTEST_EN;
+		sdhci_writeb(host, ctrl, SDHCI_HOST_CONTROL);
+	}
 
 	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
 	ctrl_2 &= SDHCI_CTRL_UHS_MASK;
@@ -1167,6 +1181,9 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 				goto io_free;
 		}
 	}
+
+	if (device_property_read_bool(&pdev->dev, "force_cdtest"))
+		cvi_host->quirks |= SDHCI_CVI_QUIRK_FORCE_CDTEST;
 
 	// extra adma table cnt for cross 128M boundary handling.
 	extra = DIV_ROUND_UP_ULL(dma_get_required_mask(&pdev->dev), SZ_128M);

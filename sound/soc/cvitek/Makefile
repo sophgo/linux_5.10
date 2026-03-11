@@ -44,9 +44,7 @@ obj-$(CONFIG_SND_SOC_CV186X_DWU2S_ADAU1372) += cv186x_adau1372.o
 
 #other
 obj-$(CONFIG_SND_SOC_CV183x_DUMMY_CARD) += cv1835_dummy_codec.o
-obj-$(CONFIG_SND_SOC_CV183x_DUMMY_CARD) += dummy_codec.o
-#obj-y += cv1835_dummy_codec.o
-#obj-y += dummy_codec.o
+obj-$(CONFIG_SND_SOC_CV183x_DUMMY_CODEC) += dummy_codec.o
 
 # Cvitek audio subsys support
 obj-$(CONFIG_CV1835_I2S_SUBSYS) += cv1835_i2s_subsys.o

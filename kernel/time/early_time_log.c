@@ -77,9 +77,10 @@ void early_time_log(const char *name)
 
 	pr_info("%s: %s: %lluus\n", __func__, name, (unsigned long long)now_us);
 
+#if defined(CONFIG_CHIP_CPU_CV186X) 
 	// Save Init process run start time
 	mmio_write_16(TIME_RECORDS_INIT_PROCESS_START, DIV_ROUND_UP(now_us, 1000));
-
+#endif
 	if (early_time_logs_idx < MAX_EARLY_TIME_LOGS) {
 		early_time_logs[early_time_logs_idx].us = now_us;
 		early_time_logs[early_time_logs_idx].name = name;
