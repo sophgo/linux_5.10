@@ -136,9 +136,8 @@ static inline void trigger_cryptodma_engine_and_wait_finish(struct cvi_spacc *sp
 			  DMA_READ_MAX_BURST << 16 |
 			  DMA_DESCRIPTOR_MODE << 1 | DMA_ENABLE, spacc->spacc_base + CRYPTODMA_DMA_CTRL);
 
-	do {
-		status = ioread32(spacc->spacc_base + CRYPTODMA_WR_INT);
-	} while (status == 0);
+	wait_event_interruptible(wq, flag == 'y');
+	flag = 'n';
 }
 
 static inline void get_hash_result(struct cvi_spacc *spacc, int count)
@@ -252,7 +251,7 @@ static irqreturn_t cvitek_spacc_irq(int irq, void *data)
 {
 	struct cvi_spacc *spacc = (struct cvi_spacc *)data;
 
-	iowrite32(0x3, spacc->spacc_base + CRYPTODMA_WR_INT);
+	iowrite32(0x7, spacc->spacc_base + CRYPTODMA_WR_INT);
 
 	flag = 'y';
 	wake_up_interruptible(&wq);

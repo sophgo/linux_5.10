@@ -135,6 +135,9 @@ static const struct flash_info cvitek_parts[] = {
 	{ "GD25Q256E", CVI_INFO(0xc84019, 0, 64 * 1024, 512, 3, 1024,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
 			SPI_NOR_4B_OPCODES | SPI_NOR_SUPPORT_OTP)},
+	{ "GD25F128F", CVI_INFO(0xc84318, 0, 64 * 1024, 256, 3, 1024,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr_bit1_qe_fixups },
 	{ "IS25LP064D", CVI_INFO(0x9d6017, 0x0, 64 * 1024, 128, 0, 0,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP)
 		.fixups = &sr1_bit6_qe_fixups },
@@ -208,6 +211,12 @@ static const struct flash_info cvitek_parts[] = {
 	{ "TH25Q64HA", CVI_INFO(0xCD6017, 0x0, 64 * 1024, 128, 3, 256,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr_bit1_qe_fixups },
+	{ "UC25IQ128", CVI_INFO(0xB34018, 0x0, 64 * 1024, 256, 3, 1024,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr2_bit1_qe_fixups },
+	{ "XTD25W64A", CVI_INFO(0x0B7517, 0x0, 64 * 1024, 128, 3, 1024,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr2_bit1_qe_fixups },
 	{}
 
 

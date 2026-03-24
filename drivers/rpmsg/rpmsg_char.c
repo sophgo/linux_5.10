@@ -467,7 +467,6 @@ static int rpmsg_chrdev_probe(struct rpmsg_device *rpdev)
 	struct rpmsg_ctrldev *ctrldev;
 	struct device *dev;
 	int ret;
-
 	ctrldev = kzalloc(sizeof(*ctrldev), GFP_KERNEL);
 	if (!ctrldev)
 		return -ENOMEM;
@@ -535,12 +534,18 @@ static void rpmsg_chrdev_remove(struct rpmsg_device *rpdev)
 	put_device(&ctrldev->dev);
 }
 
+static struct rpmsg_device_id rpmsg_driver_sample_id_table[] = {
+	{ .name	= "rpmsg-client-sample" },
+	{ },
+};
+
 static struct rpmsg_driver rpmsg_chrdev_driver = {
 	.probe = rpmsg_chrdev_probe,
 	.remove = rpmsg_chrdev_remove,
 	.drv = {
 		.name = "rpmsg_chrdev",
 	},
+	.id_table	= rpmsg_driver_sample_id_table,
 };
 
 static int rpmsg_char_init(void)
