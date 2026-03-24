@@ -146,6 +146,8 @@ short ECC_XT26G0xCWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff
 
 short ECC_GSS01GSAX1_remap[4] = {0, 1, -1, 0xff};
 
+short ECC_ZB35Q01CYIG_remap[4] = {0, 4, -1, 8};
+
 struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	{
 		{	.name = "GSS01GSAK1",
@@ -390,6 +392,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		{
 			.start = 0,
 			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "XT26G01F",
+			.id = {0x0b, 0x71},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0xF,
+			.remap = ECC_XT26G0xCWSIGA
+		},
+		.driver = &spi_nand_driver_xtx,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
 			.locked = 0,
 		},
 		.flags = 0
@@ -1964,6 +1997,66 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_GSS01GSAX1_remap
 		},
 		.driver = &spi_nand_driver_general,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "ZB35Q01CY1G",
+			.id = {0x5E, 0xC1},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_ZB35Q01CYIG_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XCSP2AAPK-IT",
+			.id = {0x8C, 0xA1},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_ZB35Q01CYIG_remap
+		},
+		.driver = &spi_nand_driver_gd,
 		{
 			.start = 2 * SZ_2K,
 			.length = 10 * SZ_2K,

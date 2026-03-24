@@ -45,6 +45,7 @@
 *.tar
 *.xz
 *.zst
+__pycache__
 Module.symvers
 modules.builtin
 modules.order
@@ -155,3 +156,6 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+# Compilation output
+build

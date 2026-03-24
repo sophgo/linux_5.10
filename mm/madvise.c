@@ -1073,16 +1073,6 @@ int do_madvise(struct mm_struct *mm, unsigned long start, size_t len_in, int beh
 	size_t len;
 	struct blk_plug plug;
 
-#if defined(CONFIG_ARCH_CVITEK)
-	if ((behavior == MADV_DONTNEED)
-		&& (len_in == 0x20000)
-		&& ((start & 0xF0000000) == 0x80000000)) {
-		pr_debug("untagged start : 0x%lx, len_in : 0x%x\n", start, len_in);
-		arch_sync_dma_for_device(start, len_in, DMA_FROM_DEVICE);
-		return 0;
-	}
-#endif
-
 	start = untagged_addr(start);
 
 	if (!madvise_behavior_valid(behavior))

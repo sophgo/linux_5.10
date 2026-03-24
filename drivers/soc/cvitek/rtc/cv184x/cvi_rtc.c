@@ -71,17 +71,19 @@ static int cvi_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	spin_lock_irqsave(&info->cvi_rtc_lock, sl_irq_flags);
 
 	sec = readl(info->rtc_base + CVI_RTC_SEC_CNTR_VALUE);
-	sec_ro_t = readl(info->rtc_base + RTC_MACRO_RO_T);
-
-	if (sec_ro_t > 0x30000000) {
-		sec = sec_ro_t;
-		// Writeback to SEC CVI_RTC_SEC_CNTR_VALUE
-		writel(sec, info->rtc_base + CVI_RTC_SET_SEC_CNTR_VALUE);
-		writel(1, info->rtc_base + CVI_RTC_SET_SEC_CNTR_TRIG);
-	} else if (sec < 0x30000000) {
-		dev_err(NULL, "RTC invalid time\n");
-	}
-
+/*
+ *	//there will introduce time jump
+ *	sec_ro_t = readl(info->rtc_base + RTC_MACRO_RO_T);
+ *
+ *	if (sec_ro_t > 0x30000000) {
+ *		sec = sec_ro_t;
+ *		// Writeback to SEC CVI_RTC_SEC_CNTR_VALUE
+ *		writel(sec, info->rtc_base + CVI_RTC_SET_SEC_CNTR_VALUE);
+ *		writel(1, info->rtc_base + CVI_RTC_SET_SEC_CNTR_TRIG);
+ *	} else if (sec < 0x30000000) {
+ *		dev_err(dev, "RTC invalid time\n");
+ *	}
+ */
 	spin_unlock_irqrestore(&info->cvi_rtc_lock, sl_irq_flags);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
@@ -266,6 +268,9 @@ static void rtc_enable_sec_counter(struct cvi_rtc_info *info)
 
 	readl(info->rtc_base + CVI_RTC_SEC_CNTR_VALUE);
 	writel(0x0, info->rtc_base + CVI_RTC_ALARM_ENABLE);
+	//2026-01-01 00:00:00
+	writel(1767225600, info->rtc_base + CVI_RTC_SET_SEC_CNTR_VALUE);
+	writel(1, info->rtc_base + CVI_RTC_SET_SEC_CNTR_TRIG);
 }
 
 #if defined(CV_RTC_FINE_CALIB)
