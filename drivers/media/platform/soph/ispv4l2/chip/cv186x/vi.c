@@ -8898,13 +8898,18 @@ void vi_irq_handler(struct sop_vi_dev *vdev)
 /*************************************************************************
  *	ISP V4L2 definition
  *************************************************************************/
-static void subcall_open(struct sop_vi_dev *vdev, bool on)
+static int subcall_open(struct sop_vi_dev *vdev, bool on)
 {
 	struct sop_isp_device *dev =
 		container_of(vdev, struct sop_isp_device, vi_dev);
 	struct v4l2_subdev *isp_sd = &dev->isp_sdev.sd;
-
-	v4l2_subdev_call(isp_sd, core, s_power, on);
+	int ret;
+	ret = v4l2_subdev_call(isp_sd, core, s_power, on);
+	if(ret < 0){
+		vi_pr(VI_ERR, "subdev_s_power failed, on=%d, ret=%d\n", on, ret);
+		return ret;
+	}
+	return 0;
 }
 
 static void subcall_s_stream(struct sop_vi_dev *vdev, bool on)
@@ -11191,8 +11196,17 @@ static int sop_isp_open(struct file *file)
 	vi_pr(VI_INFO, "open video%d, dev_cnt(%d)\n", chn_id, open_cnt);
 
 	if (open_cnt == 1) {
-		subcall_open(videv, true);
-
+		rc = subcall_open(videv, true);
+		if(rc) {
+			vi_pr(VI_ERR, "subcall_open failed, rc=%d\n", rc);
+			atomic_dec(&videv->file_open_cnt[chn_id]);
+			file_open_cnt = atomic_read (&videv->file_open_cnt[chn_id]);
+			atomic_dec(&videv->open_dev_cnt);
+			open_cnt = atomic_read(&videv->open_dev_cnt);
+			vi_pr(VI_INFO, "file_open_cnt = %d, open_cnt (%d)\n", file_open_cnt, open_cnt);
+			mutex_unlock(&videv->dev_lock);
+			return rc;
+		}
 		_vi_sw_init(videv);
 
 #ifndef FPGA_PORTING
