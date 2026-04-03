@@ -8906,7 +8906,7 @@ static int subcall_open(struct sop_vi_dev *vdev, bool on)
 	int ret;
 	ret = v4l2_subdev_call(isp_sd, core, s_power, on);
 	if(ret < 0){
-		vi_pr(VI_ERR, "subdev_s_power failed, on=%d, ret=%d\n", on, ret);
+		vi_pr(VI_DBG, "subdev_s_power failed, on=%d, ret=%d\n", on, ret);
 		return ret;
 	}
 	return 0;
@@ -11198,12 +11198,13 @@ static int sop_isp_open(struct file *file)
 	if (open_cnt == 1) {
 		rc = subcall_open(videv, true);
 		if(rc) {
-			vi_pr(VI_ERR, "subcall_open failed, rc=%d\n", rc);
+			vi_pr(VI_DBG, "subcall_open failed, rc=%d\n", rc);
 			atomic_dec(&videv->file_open_cnt[chn_id]);
 			file_open_cnt = atomic_read (&videv->file_open_cnt[chn_id]);
 			atomic_dec(&videv->open_dev_cnt);
 			open_cnt = atomic_read(&videv->open_dev_cnt);
-			vi_pr(VI_INFO, "file_open_cnt = %d, open_cnt (%d)\n", file_open_cnt, open_cnt);
+			vi_pr(VI_INFO, "No /dev/video%d to open, file_open_cnt = %d, open_cnt (%d), please check!\n",
+				chn_id, file_open_cnt, open_cnt);
 			mutex_unlock(&videv->dev_lock);
 			return rc;
 		}
