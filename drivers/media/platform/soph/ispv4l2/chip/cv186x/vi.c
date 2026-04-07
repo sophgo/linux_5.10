@@ -11203,7 +11203,7 @@ static int sop_isp_open(struct file *file)
 			file_open_cnt = atomic_read (&videv->file_open_cnt[chn_id]);
 			atomic_dec(&videv->open_dev_cnt);
 			open_cnt = atomic_read(&videv->open_dev_cnt);
-			vi_pr(VI_INFO, "No /dev/video%d to open, file_open_cnt = %d, open_cnt (%d), please check!\n",
+			vi_pr(VI_DBG, "No /dev/video%d to open, file_open_cnt = %d, open_cnt (%d), please check!\n",
 				chn_id, file_open_cnt, open_cnt);
 			mutex_unlock(&videv->dev_lock);
 			return rc;
