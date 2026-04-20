@@ -140,12 +140,12 @@ static int cv181xdac_hw_params(struct snd_pcm_substream *substream,
 
 	switch (chan_nr) {
 	case 1:
-		//ana2 |= AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_ON; /* turn R-channel off */
-		ana2 &= AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_OFF; /* turn R-channel on */
+		ana2 &= AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_OFF; /* turn L-channel on */
 		dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_ANA2, ana2);
 		break;
 	default:
-		ana2 &= AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_OFF; /* turn R-channel on */
+		ana2 &= AUDIO_PHY_REG_DA_DEMR_TXDAC_OW_EN_OFF; /* turn L/R channel on */
+		ana2 &= AUDIO_PHY_REG_DA_DEML_TXDAC_OW_EN_OFF;
 		dac_write_reg(dac->dac_base, AUDIO_PHY_TXDAC_ANA2, ana2);
 		break;
 	}
@@ -538,8 +538,8 @@ static unsigned int cv181xdac_reg_read(struct snd_soc_component *codec, unsigned
 	ret = dac_read_reg(dac->dac_base, reg);
 
 	if (reg == AUDIO_PHY_TXDAC_AFE1) {
-		temp_lval = ((ret & 0x000001ff) + 1) / 16;
-		temp_rval = (((ret >> 16) & 0x000001ff) + 1) / 16;
+		temp_lval = ((ret & 0x000001ff) + 1) / CV181X_DAC_VOL_STEP;
+		temp_rval = (((ret >> 16) & 0x000001ff) + 1) / CV181X_DAC_VOL_STEP;
 		dev_info(dac->dev, "Get DAC Vol reg:%d,ret:0x%x temp_lval=%d.\n", reg, ret, temp_lval);
 		ret = (temp_rval << 16) | temp_lval;
 	}

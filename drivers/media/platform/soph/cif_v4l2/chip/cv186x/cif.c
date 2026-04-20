@@ -356,7 +356,7 @@ static int cif_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "cif: can't init procfs.\n");
 	}
 #endif
-
+	dev_info(&pdev->dev, "cif_v4l2 probe success\n");
 	return 0;
 }
 

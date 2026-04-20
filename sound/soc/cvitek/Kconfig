@@ -218,6 +218,13 @@ config SND_SOC_CV186X_CV186XDAC
 	 Then select it for built in or module.
 	 Say N, if not support
 
+config SND_SOC_CV183x_DUMMY_CODEC
+	tristate "Support concurrent TX and RX by one I2S and the other I2S"
+	depends on SND
+	help
+	  Say Y, ex. if you want to create a dummy codec to help create alsa
+	  card
+
 config SND_SOC_CV183x_DUMMY_CARD
 	tristate "Support concurrent TX and RX by one I2S and the other I2S"
 	depends on SND

@@ -642,6 +642,7 @@ struct cv181xadc_context {
 	u32 ana0;
 	u32 ana2;
 	u32 ana3;
+	u32 clk;
 };
 
 struct cv181xdac_context {

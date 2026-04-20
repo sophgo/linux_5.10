@@ -132,7 +132,7 @@ static ktime_t watchdog_next_keepalive(struct watchdog_device *wdd)
 		virt_timeout = wd_data->open_deadline;
 
 	hw_heartbeat_ms = min_not_zero(timeout_ms, wdd->max_hw_heartbeat_ms);
-	keepalive_interval = ms_to_ktime(hw_heartbeat_ms / 2);
+	keepalive_interval = ms_to_ktime(hw_heartbeat_ms / 4);
 
 	/*
 	 * To ensure that the watchdog times out wdd->timeout seconds

@@ -1056,12 +1056,17 @@ static int sc831hai_remove(struct i2c_client *client)
 	struct sc831hai *sc831hai = to_sc831hai(sd);
 
 	sc831hai_probe_index = 0;
+	pr_info("== sc831hai_remove_index = %d ==\n", sc831hai_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	sc831hai_free_controls(sc831hai);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", sc831hai_probe_index);
 
 	return 0;
 }
@@ -1101,6 +1106,8 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== sc831hai_sync mod rmmod ==\n");
+
 	i2c_del_driver(&sc831hai_i2c_driver);
 }
 

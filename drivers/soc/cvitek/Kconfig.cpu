@@ -1,0 +1,21 @@
+
+menu "CVITEK CPU selection"
+        depends on ARCH_CVITEK
+
+config CHIP_CPU_CV84X2
+        bool "CV84X2"
+	default n
+
+config CHIP_CPU_CV186X
+        bool "CV186X"
+	default n
+
+config CHIP_CPU_C906B
+        bool "C906B"
+	default n
+
+config CHIP_CPU_C906L
+        bool "C906L"
+	default n
+
+endmenu

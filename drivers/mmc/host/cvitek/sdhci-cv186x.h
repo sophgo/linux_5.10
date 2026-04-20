@@ -54,6 +54,9 @@
 #define PULL_UP			(0x1 << 2)
 #define DRIVE_VALUE		(0x4 << 8)
 
+/* Controller does not have CD wired and will not function normally without */
+#define SDHCI_CVI_QUIRK_FORCE_CDTEST	BIT(0)
+
 struct sdhci_cvi_host {
 	struct sdhci_host *host;
 	struct platform_device *pdev;
@@ -84,5 +87,6 @@ struct sdhci_cvi_host {
 	spinlock_t cd_debounce_lock;
 	int pre_gpio_cd;
 	bool is_debounce_work_running;
+	unsigned int	quirks;
 };
 #endif

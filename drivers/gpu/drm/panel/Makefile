@@ -57,3 +57,4 @@ obj-$(CONFIG_DRM_PANEL_HIMAX_HX8394) += panel-himax-hx8394.o
 obj-$(CONFIG_DRM_PANEL_HIMAX_HX8399) += panel-himax-hx8399.o
 obj-$(CONFIG_DRM_PANEL_LCM18X56) += panel-lcm18x56.o
 
+ccflags-y += -I$(srctree)/drivers/pinctrl/cvitek/

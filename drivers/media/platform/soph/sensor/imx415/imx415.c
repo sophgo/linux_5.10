@@ -1102,12 +1102,17 @@ static int imx415_remove(struct i2c_client *client)
 	struct imx415 *imx415 = to_imx415(sd);
 
 	imx415_probe_index = 0;
+	pr_info("== imx415_remove_index = %d ==\n", imx415_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	imx415_free_controls(imx415);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", imx415_probe_index);
 
 	return 0;
 }
@@ -1148,6 +1153,7 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== imx415 mod rmmod ==\n");
 	i2c_del_driver(&imx415_i2c_driver);
 }
 

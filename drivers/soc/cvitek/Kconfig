@@ -3,6 +3,8 @@
 #
 menu "CVITEK SoC drivers"
 
+source "drivers/soc/cvitek/Kconfig.cpu"
+
 config CV1835_SYSDMA_REMAP
 	bool "CVITEK SoC sysdma remap driver"
 	depends on ARCH_CVITEK

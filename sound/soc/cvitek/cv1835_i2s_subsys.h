@@ -6,7 +6,7 @@
 
 //dw_i2s
 #define DWI2S_MODE_REG_VAL 0xf0
-#define DWI2S_CLK_CTRL0_VAL 0x140
+#define DWI2S_CLK_CTRL0_VAL 0x1C0
 #define DWI2S_SLAVEMODE_SOURCE 0x0
 
 #define SUBSYS_I2S0     (0x1 << 0)

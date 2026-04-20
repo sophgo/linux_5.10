@@ -676,8 +676,8 @@ int vi_get_pipe_frame(struct sop_vi_dev *videv, int vi_pipe,
 	raw_num = vi_get_raw_num_by_dev(ctx, vi_pipe);
 	dump[0].raw_dump.raw_num = raw_num;
 
-	dev_frm_w = ctx->isp_pipe_cfg[raw_num].crop.w;
-	dev_frm_h = ctx->isp_pipe_cfg[raw_num].crop.h;
+	dev_frm_w = g_vi_ctx->dev_attr[vi_pipe].size.width;
+	dev_frm_h = g_vi_ctx->dev_attr[vi_pipe].size.height;
 
 	memset(&rawdump_crop, 0, sizeof(rawdump_crop));
 	if ((frame_info[0].video_frame.offset_top != 0) ||
@@ -934,6 +934,33 @@ static bool ddr_need_retrain(struct sop_vi_dev *vdev)
 	return false;
 }
 
+static bool _isp_yuv_bypass_check_stop_input(struct sop_vi_dev *vdev, enum sop_isp_raw raw_num,
+		enum sop_isp_fe_chn_num chn_num)
+{
+	struct timespec64 cur_time;
+	u64 cur_timeus;
+	enum sop_isp_fe_chn_num buf_chn_num = vdev->ctx.raw_chnstr_num[raw_num] + chn_num;
+
+	if (!(vdev->ctx.isp_pipe_cfg[raw_num].is_yuv_sensor &&
+		vdev->ctx.isp_pipe_cfg[raw_num].yuv_scene_mode == ISP_YUV_SCENE_BYPASS)) {
+			return false;
+	}
+
+	if (vdev->pre_fe_frm_num[raw_num][chn_num] == 0 || g_vi_ctx->chn_status[buf_chn_num].frame_rate == 0) {
+		return true;
+	}
+
+	cur_time = ktime_to_timespec64(ktime_get());
+	cur_timeus = cur_time.tv_sec * 1000000L + cur_time.tv_nsec / 1000L;
+
+	if ((1000000 / g_vi_ctx->chn_status[buf_chn_num].frame_rate)
+		< (cur_timeus - g_vi_ctx->chn_status[buf_chn_num].prev_time)) {
+		return true;
+	}
+
+	return false;
+}
+
 static void trig_8051_if_pre_idle(struct sop_vi_dev *vdev)
 {
 	enum sop_isp_fe_chn_num fe_chn;
@@ -952,6 +979,9 @@ static void trig_8051_if_pre_idle(struct sop_vi_dev *vdev)
 		if (!vdev->ctx.isp_pipe_enable[raw_num])
 			continue;
 		for (fe_chn = ISP_FE_CH0; fe_chn < ISP_FE_CHN_MAX; fe_chn++) {
+			if (_isp_yuv_bypass_check_stop_input(vdev, raw_num, fe_chn)) {
+				continue;
+			}
 			if (atomic_read(&vdev->pre_fe_state[raw_num][fe_chn]) != ISP_STATE_IDLE) {
 				vi_pr(VI_WARN, "need retrain but raw_%d FE busy\n", raw_num);
 				return;
@@ -6581,6 +6611,7 @@ static void _vi_sw_init(struct sop_vi_dev *vdev)
 		ctx->raw_chnstr_num[i]        = 0;
 		ctx->isp_bind_info[i].is_bind = false;
 		ctx->isp_bind_info[i].bind_dev_num = ISP_PRERAW_MAX;
+		ctx->isp_bind_info[i].bind_fe_num = ISP_PRERAW_MAX;
 		vdev->postraw_frame_number[i] = 0;
 	}
 
@@ -6596,6 +6627,7 @@ static void _vi_sw_init(struct sop_vi_dev *vdev)
 
 		ctx->isp_bind_info[i].is_bind = false;
 		ctx->isp_bind_info[i].bind_dev_num = ISP_PRERAW_MAX;
+		ctx->isp_bind_info[i].bind_fe_num = ISP_PRERAW_MAX;
 
 		memset(&ctx->isp_pipe_cfg[i], 0, sizeof(struct _isp_cfg));
 		ctx->isp_pipe_cfg[i].raw_ai_isp_ap = 0;
@@ -8866,13 +8898,18 @@ void vi_irq_handler(struct sop_vi_dev *vdev)
 /*************************************************************************
  *	ISP V4L2 definition
  *************************************************************************/
-static void subcall_open(struct sop_vi_dev *vdev, bool on)
+static int subcall_open(struct sop_vi_dev *vdev, bool on)
 {
 	struct sop_isp_device *dev =
 		container_of(vdev, struct sop_isp_device, vi_dev);
 	struct v4l2_subdev *isp_sd = &dev->isp_sdev.sd;
-
-	v4l2_subdev_call(isp_sd, core, s_power, on);
+	int ret;
+	ret = v4l2_subdev_call(isp_sd, core, s_power, on);
+	if(ret < 0){
+		vi_pr(VI_DBG, "subdev_s_power failed, on=%d, ret=%d\n", on, ret);
+		return ret;
+	}
+	return 0;
 }
 
 static void subcall_s_stream(struct sop_vi_dev *vdev, bool on)
@@ -8952,7 +8989,7 @@ static int subcall_get_sensor_mode(struct sop_vi_dev *vdev, u8 raw_num)
 	return ret;
 }
 
-static int subcall_get_sensor_info(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num)
+static int subcall_get_sensor_info(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num, u8 hdr_set_flag)
 {
 	struct sop_isp_device *dev =
 		container_of(vdev, struct sop_isp_device, vi_dev);
@@ -9021,11 +9058,14 @@ static int subcall_get_sensor_info(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_n
 	if (is_yuv_sensor) {
 		ctx->isp_bind_info[chn_id].bind_fe_num = *raw_num;
 		ctx->isp_bind_info[chn_id].bind_mipi_dev = mipi_dev;
-		atomic_add(1, &ctx->isp_vitural_num[*raw_num]);
+		if (!hdr_set_flag)
+			atomic_add(1, &ctx->isp_vitural_num[*raw_num]);
 		ctx->isp_pipe_cfg[*raw_num].is_yuv_sensor = true;
 	} else {
 		ctx->isp_bind_info[*raw_num].bind_fe_num = *raw_num;
 		ctx->isp_bind_info[*raw_num].bind_mipi_dev = mipi_dev;
+		if (!hdr_set_flag)
+			atomic_add(1, &ctx->isp_vitural_num[*raw_num]);
 	}
 	vi_pr(VI_INFO, "pipe_%d sensor[%s], link to fe_%d\n", chn_id, sensor_sd->name, *raw_num);
 
@@ -9100,7 +9140,7 @@ static int subcall_get_formt(struct sop_vi_dev *vdev, u8 chn_id,
 	return ret;
 }
 
-static void _subdev_init(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num)
+static void _subdev_init(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num, u8 hdr_set_flag)
 {
 	struct v4l2_subdev_frame_size_enum fse;
 	struct v4l2_subdev_format fmt;
@@ -9110,7 +9150,7 @@ static void _subdev_init(struct sop_vi_dev *vdev, u8 chn_id, u8 *raw_num)
 	u32 crop_w, crop_h;
 
 
-	ret = subcall_get_sensor_info(vdev, chn_id, raw_num);
+	ret = subcall_get_sensor_info(vdev, chn_id, raw_num, hdr_set_flag);
 	if (ret < 0) {
 		vi_pr(VI_INFO, "use chn_id(%d) as raw_num, may effect orignal bind\n", chn_id);
 		*raw_num = chn_id;
@@ -9827,7 +9867,7 @@ static int sop_isp_s_ext_ctrls(
 			ctx->is_hdr_on = p->value;
 			ctx->isp_pipe_cfg[fe_num].is_hdr_on = p->value;
 			subcall_s_sensor_hdr(vdev, chn_id, p->value);
-			_subdev_init(vdev, chn_id, &raw_num);
+			_subdev_init(vdev, chn_id, &raw_num, true);
 			_v4l2_init_config_info(vdev, chn_id, raw_num);
 			rc = 0;
 			break;
@@ -11156,8 +11196,18 @@ static int sop_isp_open(struct file *file)
 	vi_pr(VI_INFO, "open video%d, dev_cnt(%d)\n", chn_id, open_cnt);
 
 	if (open_cnt == 1) {
-		subcall_open(videv, true);
-
+		rc = subcall_open(videv, true);
+		if(rc) {
+			vi_pr(VI_DBG, "subcall_open failed, rc=%d\n", rc);
+			atomic_dec(&videv->file_open_cnt[chn_id]);
+			file_open_cnt = atomic_read (&videv->file_open_cnt[chn_id]);
+			atomic_dec(&videv->open_dev_cnt);
+			open_cnt = atomic_read(&videv->open_dev_cnt);
+			vi_pr(VI_DBG, "No /dev/video%d to open, file_open_cnt = %d, open_cnt (%d), please check!\n",
+				chn_id, file_open_cnt, open_cnt);
+			mutex_unlock(&videv->dev_lock);
+			return rc;
+		}
 		_vi_sw_init(videv);
 
 #ifndef FPGA_PORTING
@@ -11171,7 +11221,7 @@ static int sop_isp_open(struct file *file)
 			g_vi_ctx->is_dev_enable[i] = true;
 			g_vi_ctx->total_dev_num++;
 
-			_subdev_init(videv, i, &raw_num);
+			_subdev_init(videv, i, &raw_num, false);
 
 			_vi_set_dev_bind_info(videv, i, raw_num);
 

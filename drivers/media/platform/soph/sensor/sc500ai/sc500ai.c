@@ -1055,12 +1055,17 @@ static int sc500ai_remove(struct i2c_client *client)
 	struct sc500ai *sc500ai = to_sc500ai(sd);
 
 	sc500ai_probe_index = 0;
+	pr_info("== sc500ai_remove_index = %d ==\n", sc500ai_probe_index);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	sc500ai_free_controls(sc500ai);
 
+	pm_runtime_set_suspended(&client->dev);
 	pm_runtime_disable(&client->dev);
+	pm_runtime_suspend(&client->dev);
+
+	dev_info(&client->dev, "sensor_%d remove success\n", sc500ai_probe_index);
 
 	return 0;
 }
@@ -1100,6 +1105,8 @@ static int __init sensor_mod_init(void)
 
 static void __exit sensor_mod_exit(void)
 {
+	pr_info("== sc500ai mod rmmod ==\n");
+
 	i2c_del_driver(&sc500ai_i2c_driver);
 }
 

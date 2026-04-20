@@ -83,14 +83,13 @@ static int subdev_notifier_bound(struct v4l2_async_notifier *notifier,
 	struct sop_isp_async_subdev *s_asd = container_of(asd,
 					struct sop_isp_async_subdev, asd);
 
-	v4l2_info(&isp_dev->v4l2_dev, "notify bound, num:%d\n", isp_dev->num_sensors);
-
 	if (isp_dev->num_sensors == ARRAY_SIZE(isp_dev->sensors))
 		return -EBUSY;
 
 	isp_dev->sensors[isp_dev->num_sensors].mbus = s_asd->mbus;
 	isp_dev->sensors[isp_dev->num_sensors].sd = subdev;
 	++isp_dev->num_sensors;
+	v4l2_info(&isp_dev->v4l2_dev, "isp_dev notify bound, num:%d\n", isp_dev->num_sensors);
 
 	return 0;
 }
@@ -136,6 +135,8 @@ static void subdev_notifier_unbind(struct v4l2_async_notifier *notifier,
 			isp_dev->sensors[i].sd = NULL;
 		}
 	}
+	--isp_dev->num_sensors;
+	v4l2_info(&isp_dev->v4l2_dev, "isp_dev notify unbind, num:%d\n", isp_dev->num_sensors);
 }
 
 static const struct v4l2_async_notifier_operations subdev_notifier_ops = {

@@ -1551,7 +1551,7 @@ void set_rx_frist_lane_enable(struct cif_ctx *ctx, int frist_lane_used)
 		if (ctx->mac_num == 0)
 			lane_enable(ctx, CIF_PHY_LANE_0);
 		else if (ctx->mac_num == 3)
-			lane_enable(ctx, CIF_PHY_LANE_6);
+			lane_enable(ctx, CIF_PHY_LANE_9);
 		else if (ctx->mac_num == 4)
 			lane_enable(ctx, CIF_PHY_LANE_12);
 	} else if (ctx->phy_mode == 4) {
