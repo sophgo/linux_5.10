@@ -307,12 +307,8 @@ static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 
-	pr_err("ion_mmap  flag:%d ,cached_flag:%d\n", buffer->flags, ION_FLAG_CACHED);
-
-	if (!(buffer->flags & ION_FLAG_CACHED)) {
-		pr_err("ion_mmap  non cache\n", buffer->flags);
+	if (!(buffer->flags & ION_FLAG_CACHED))
 		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
-	}
 
 	mutex_lock(&buffer->lock);
 	/* now map it to userspace */
