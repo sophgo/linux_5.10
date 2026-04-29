@@ -498,8 +498,11 @@ static u64 pci_dma_mask = DMA_BIT_MASK(45); //TBD
 
 void __cv186x_pcie_remove(struct cv186x_pcie * cv186x_pcie) {
 	cv186x_pcie_disable_interrupts(cv186x_pcie);
-	if (cv186x_pcie->reset_gpio >= 0)
+	if (cv186x_pcie->reset_gpio >= 0) {
 		gpio_set_value(cv186x_pcie->reset_gpio, 0);
+		gpio_free(cv186x_pcie->reset_gpio);
+		cv186x_pcie->reset_gpio = -1;
+	}
 	if (cv186x_pcie->clk)
 		clk_disable_unprepare(cv186x_pcie->clk);
 }
@@ -562,66 +565,89 @@ static int cv186x_pcie_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	cv186x_pcie->pci = pci;
-	dma_set_mask(dev, pci_dma_mask);
+	cv186x_pcie->reset_gpio = -1;
+	ret = dma_set_mask(dev, pci_dma_mask);
+	if (ret) {
+		dev_err(dev, "set pcie dma mask failed: %d\n", ret);
+		return ret;
+	}
 	pci->dev = dev;
 	pci->ops = &dw_pcie_ops;
 
 	cv186x_pcie->clk = devm_clk_get(&pdev->dev, "pcie_clk");
 	if (IS_ERR(cv186x_pcie->clk)) {
 		dev_err(dev, "get pcie clk failed\n");
-		return -1;
-	} else {
-		clk_prepare_enable(cv186x_pcie->clk);
+		return PTR_ERR(cv186x_pcie->clk);
+	}
+
+	ret = clk_prepare_enable(cv186x_pcie->clk);
+	if (ret) {
+		dev_err(dev, "enable pcie clk failed: %d\n", ret);
+		return ret;
 	}
 
 	pci->dbi_base = devm_platform_ioremap_resource_byname(pdev, "dbi");
 	if (IS_ERR(pci->dbi_base)) {
 		dev_err(dev, "couldn't remap dbi base\n");
 		ret = PTR_ERR(pci->dbi_base);
-		return ret;
+		goto err_disable_clk;
 	}
 
 	cv186x_pcie->apb_base = devm_platform_ioremap_resource_byname(pdev, "apb");
 	if (IS_ERR(cv186x_pcie->apb_base)) {
 		dev_err(dev, "couldn't remap apb base\n");
 		ret = PTR_ERR(cv186x_pcie->apb_base);
-		return ret;
+		goto err_disable_clk;
 	}
 
 	cv186x_pcie->sii_base = devm_platform_ioremap_resource_byname(pdev, "sii");
 	if (IS_ERR(cv186x_pcie->sii_base)) {
 		dev_err(dev, "couldn't remap sii base\n");
 		ret = PTR_ERR(cv186x_pcie->sii_base);
-		return ret;
+		goto err_disable_clk;
 	}
 
 	cv186x_pcie->reset_gpio = of_get_named_gpio(dev->of_node, "reset-gpio", 0);
 	if (cv186x_pcie->reset_gpio < 0) {
-		dev_err(dev, "could not get pcie reset gpio\n");
-		return -1;
+		ret = cv186x_pcie->reset_gpio;
+		dev_err(dev, "could not get pcie reset gpio: %d\n", ret);
+		goto err_disable_clk;
 	}
 
 	ret = gpio_request_one(cv186x_pcie->reset_gpio, GPIOF_OUT_INIT_LOW, "pcie-reset");
 	if (ret) {
-		dev_err(dev, "could not request gpio %d failed!\n", cv186x_pcie->reset_gpio);
-		return ret;
+		dev_err(dev, "could not request gpio %d failed: %d\n",
+			cv186x_pcie->reset_gpio, ret);
+		goto err_disable_clk;
 	}
 
 	cv186x_pcie->device_id = cv186x_get_chip_id();
 
 	ret = cv186x_pcie_controller_config(cv186x_pcie, dev);
 	if (ret) {
-		return ret;
+		dev_err(dev, "pcie controller config failed: %d\n", ret);
+		goto err_free_gpio;
 	}
 
 	platform_set_drvdata(pdev, cv186x_pcie);
 
 	ret = cv186x_pcie_add_pcie_port(cv186x_pcie, pdev);
 	if (ret < 0)
-		return ret;
+		goto err_free_gpio;
 	dev_info(dev, "CV186X PCIe success\n");
 
 	return 0;
+
+err_free_gpio:
+	if (cv186x_pcie->reset_gpio >= 0) {
+		gpio_set_value(cv186x_pcie->reset_gpio, 0);
+		gpio_free(cv186x_pcie->reset_gpio);
+		cv186x_pcie->reset_gpio = -1;
+	}
+err_disable_clk:
+	if (cv186x_pcie->clk)
+		clk_disable_unprepare(cv186x_pcie->clk);
+	return ret;
 }
 
 static const struct of_device_id cv186x_pcie_of_match[] = {
