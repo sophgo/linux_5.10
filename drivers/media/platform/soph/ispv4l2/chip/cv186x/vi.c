@@ -676,8 +676,8 @@ int vi_get_pipe_frame(struct sop_vi_dev *videv, int vi_pipe,
 	raw_num = vi_get_raw_num_by_dev(ctx, vi_pipe);
 	dump[0].raw_dump.raw_num = raw_num;
 
-	dev_frm_w = g_vi_ctx->dev_attr[vi_pipe].size.width;
-	dev_frm_h = g_vi_ctx->dev_attr[vi_pipe].size.height;
+	dev_frm_w = ctx->isp_pipe_cfg[raw_num].crop.w;
+	dev_frm_h = ctx->isp_pipe_cfg[raw_num].crop.h;
 
 	memset(&rawdump_crop, 0, sizeof(rawdump_crop));
 	if ((frame_info[0].video_frame.offset_top != 0) ||
