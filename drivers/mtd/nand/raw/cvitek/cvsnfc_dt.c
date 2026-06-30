@@ -22,8 +22,42 @@
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 #include <linux/slab.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
+#include <linux/pm.h>
+#include <linux/mtd/rawnand.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
 
 #include "cvsnfc.h"
+
+static int nand_show_id(struct seq_file *m, void *v)
+{
+	struct cvsnfc_host *host = m->private;
+	struct nand_chip *nand_chip = &host->nand;
+	uint64_t id = 0;
+	uint32_t id_len = 0;
+	int i;
+
+	id_len = nand_chip->id.len;
+	for (i = 0; i < id_len; i++)
+		id |= nand_chip->id.data[i] << (id_len - i - 1) * 8;
+	seq_printf(m, "%#x\n", id);
+	return 0;
+}
+
+int opennand(struct inode *inode, struct file *file)
+{
+        return single_open(file, nand_show_id, PDE_DATA(inode));
+}
+
+const struct proc_ops nand_id_proc_ops = {
+	.proc_open = opennand,
+	.proc_read = seq_read,
+	.proc_release = single_release,
+};
 
 struct cvsnfc_dt {
 	struct cvsnfc_host cvsnfc;
@@ -44,6 +78,7 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 	struct cvsnfc_host *host;
 	const struct of_device_id *of_id;
 	struct mtd_info *mtd;
+	struct proc_dir_entry *proc_id = NULL;
 
 	of_id = of_match_device(cvsnfc_dt_ids, &pdev->dev);
 
@@ -83,6 +118,7 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 
 	host->io_base_phy = res->start;
 	host->nand.priv = host;
+	mutex_init(&host->lock);
 
 	cvsnfc_nand_init(&host->nand);
 
@@ -106,6 +142,9 @@ static int cvsnfc_dt_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	proc_id = proc_create_data("nandid", 0444, NULL, &nand_id_proc_ops, (void *)host);
+	if (!proc_id)
+		dev_err(host->dev, "Create cvsnfc nand id proc failed!\n");
 
 	platform_set_drvdata(pdev, dt);
 	return 0;
@@ -119,6 +158,23 @@ static int cvsnfc_dt_remove(struct platform_device *pdev)
 
 	return 0;
 }
+static int __maybe_unused cvsnfc_dt_suspend(struct device *dev)
+{
+	struct cvsnfc_dt *dt = dev_get_drvdata(dev);
+
+	return cvsnfc_suspend(&dt->cvsnfc);
+}
+
+static int __maybe_unused cvsnfc_dt_resume(struct device *dev)
+{
+	struct cvsnfc_dt *dt = dev_get_drvdata(dev);
+
+	return cvsnfc_resume(&dt->cvsnfc);
+}
+
+static const struct dev_pm_ops cvsnfc_dt_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(cvsnfc_dt_suspend, cvsnfc_dt_resume)
+};
 
 static struct platform_driver cvsnfc_dt_driver = {
 	.probe          = cvsnfc_dt_probe,
@@ -126,6 +182,7 @@ static struct platform_driver cvsnfc_dt_driver = {
 	.driver         = {
 		.name   = "cvsnfc",
 		.of_match_table = cvsnfc_dt_ids,
+		.pm = &cvsnfc_dt_pm_ops,
 	},
 };
 

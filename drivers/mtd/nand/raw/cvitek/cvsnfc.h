@@ -7,6 +7,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
 
 #include "cvsnfc_common.h"
 #include "cvsnfc_spi_ids.h"
@@ -51,6 +52,10 @@
 #define STATUS_E_FAIL_MASK			(1 << 2)
 #define STATUS_WEL_MASK				(1 << 1)
 #define STATUS_OIP_MASK				(1 << 0)
+
+#define STATUS_SR1_L_MASK			BIT(5)
+#define STATUS_OTP_E_MASK			BIT(6)
+#define STATUS_OTP_L_MASK			BIT(7)
 
 /*****************************************************************************/
 /* latest register definition */
@@ -358,6 +363,8 @@
 #define BIT_REG_RSP_EXP_MSK                 (0x01 << 0)
 #define BIT_REG_RSP_EXP_VAL                 (0x01 << 8)
 #define BIT_REG_RSP_WAIT_TIME_OFFSET        (16)
+#define SPI_NAND_RSP_POLLING(_mask, _val, _wait) \
+	(((_mask) & 0xff) | (((_val) & 0xff) << 8) | (((_wait) & 0xff) << 16))
 
 #define REG_SPI_NAND_SPARE0             0x70
 #define BIT_REG_SPARE0                      (0x01 << 0)
@@ -510,6 +517,7 @@ struct cvsnfc_chip_info {
 	struct nand_flash_dev nand_info;
 	struct nand_ecc_info ecc_info;
 	struct spi_nand_driver *driver;
+	struct otp_info otp_info;
 	unsigned int flags;
 };
 
@@ -522,6 +530,9 @@ struct cvsnfc_host {
 	void __iomem *regbase;
 	void __iomem *dmabase;
 	void __iomem *topbase;
+	unsigned int pm_trx_ctrl1;
+	unsigned int pm_boot_ctrl;
+	bool pm_regs_valid;
 
 	unsigned int offset;
 
@@ -573,15 +584,12 @@ struct cvsnfc_host {
 
 	int add_partition;
 
-	/* Used for suspend/rssume */
-	uint32_t boot_ctrl_reg;
-	uint32_t trx_ctrl1_reg;
 	/* BOOTROM read two bytes to detect the bad block flag */
 	unsigned char *bbm;  /* nand bad block mark */
 	unsigned short *epm;  /* nand empty page mark */
 
 	unsigned int uc_er;
-
+	struct mutex lock;  /* operation lock */
 	void (*set_system_clock)(struct spi_op_info *op, int clk_en);
 
 	void (*send_cmd_pageprog)(struct cvsnfc_host *host);
@@ -660,6 +668,8 @@ void cvsnfc100_nand_init(struct nand_chip *chip);
 
 int cvsnfc_init(struct cvsnfc_host *host);
 void cvsnfc_remove(struct cvsnfc_host *host);
+int cvsnfc_suspend(struct cvsnfc_host *host);
+int cvsnfc_resume(struct cvsnfc_host *host);
 
 void cvsnfc_nand_init(struct nand_chip *chip);
 int cvsnfc_host_init(struct cvsnfc_host *host);
@@ -668,4 +678,3 @@ void cvsnfc_spi_nand_init(struct cvsnfc_host *host);
 int cvsnfc_nand_setup_op(struct cvsnfc_host *host);
 /******************************************************************************/
 #endif /* CVSNFCH */
-
