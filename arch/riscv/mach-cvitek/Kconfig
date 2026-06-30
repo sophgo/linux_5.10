@@ -90,5 +90,4 @@ config ARCH_CV180X_ASIC
 endchoice
 endif # end ARCH_CV181X
 
-
 endif # end ARCH_CVITEK

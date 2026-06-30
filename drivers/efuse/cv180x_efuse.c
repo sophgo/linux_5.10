@@ -93,6 +93,13 @@ static void cvi_efuse_prog_bit(uint32_t word_addr, uint32_t bit_addr,
 static uint32_t cvi_efuse_read_from_phy(uint32_t phy_word_addr,
 					enum EFUSE_READ_TYPE type)
 {
+	u32 ret = -1;
+
+	ret = clk_prepare_enable(efuse_clk);
+	if (ret) {
+		ERROR("EFUSE: clk_prepare_enable failed %d\n", ret);
+		return ret;
+	}
 	// power on efuse macro
 	cvi_efuse_power_on(1);
 
@@ -111,7 +118,9 @@ static uint32_t cvi_efuse_read_from_phy(uint32_t phy_word_addr,
 
 	cvi_efuse_wait_for_ready();
 
-	return mmio_read_32(EFUSE_RD_DATA);
+	ret = mmio_read_32(EFUSE_RD_DATA);
+	clk_disable_unprepare(efuse_clk);
+	return ret;
 }
 
 static int cvi_efuse_write_word(uint32_t vir_word_addr, uint32_t val)
@@ -244,7 +253,14 @@ int cvi_efuse_read_buf(u32 addr, void *buf, size_t buf_size)
 	memset(buf, 0, buf_size);
 
 	for (i = 0; i < buf_size; i += 4) {
-		ret = cvi_efuse_read_from_shadow(addr + i);
+		if ((addr + i) > 0xc4 && (addr + i) < EFUSE_SIZE) {
+			ret = cvi_efuse_read_from_phy((addr + i) / 4 << 1,
+						      EFUSE_MREAD) |
+			      cvi_efuse_read_from_phy((addr + i) / 4 << 1 | 1,
+						      EFUSE_MREAD);
+		} else {
+			ret = cvi_efuse_read_from_shadow(addr + i);
+		}
 		if (ret < 0)
 			return ret;
 

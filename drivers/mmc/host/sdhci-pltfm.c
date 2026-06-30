@@ -103,6 +103,12 @@ void sdhci_get_property(struct platform_device *pdev)
 	if (device_property_present(dev, "sw-clk-gating"))
 		host->quirks2 |= SDHCI_QUIRK2_SW_CLK_GATING_SUPPORT;
 
+	if (device_property_present(dev, "rx-phase-forward"))
+		host->quirks2 |= SDHCI_QUIRK2_RX_PHASE_FORWARD;
+
+	if (device_property_present(dev, "tx-phase-forward"))
+		host->quirks2 |= SDHCI_QUIRK2_TX_PHASE_FORWARD;
+
 	sdhci_get_compatibility(pdev);
 
 	device_property_read_u32(dev, "clock-frequency", &pltfm_host->clock);

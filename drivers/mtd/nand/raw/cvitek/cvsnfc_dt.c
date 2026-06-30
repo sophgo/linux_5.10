@@ -25,6 +25,7 @@
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <linux/pm.h>
 #include <linux/mtd/rawnand.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
@@ -36,9 +37,13 @@ static int nand_show_id(struct seq_file *m, void *v)
 {
 	struct cvsnfc_host *host = m->private;
 	struct nand_chip *nand_chip = &host->nand;
-	uint32_t id = 0;
+	uint64_t id = 0;
+	uint32_t id_len = 0;
+	int i;
 
-	id = nand_chip->id.data[1] << 8 | nand_chip->id.data[0];
+	id_len = nand_chip->id.len;
+	for (i = 0; i < id_len; i++)
+		id |= nand_chip->id.data[i] << (id_len - i - 1) * 8;
 	seq_printf(m, "%#x\n", id);
 	return 0;
 }
@@ -153,6 +158,23 @@ static int cvsnfc_dt_remove(struct platform_device *pdev)
 
 	return 0;
 }
+static int __maybe_unused cvsnfc_dt_suspend(struct device *dev)
+{
+	struct cvsnfc_dt *dt = dev_get_drvdata(dev);
+
+	return cvsnfc_suspend(&dt->cvsnfc);
+}
+
+static int __maybe_unused cvsnfc_dt_resume(struct device *dev)
+{
+	struct cvsnfc_dt *dt = dev_get_drvdata(dev);
+
+	return cvsnfc_resume(&dt->cvsnfc);
+}
+
+static const struct dev_pm_ops cvsnfc_dt_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(cvsnfc_dt_suspend, cvsnfc_dt_resume)
+};
 
 static struct platform_driver cvsnfc_dt_driver = {
 	.probe          = cvsnfc_dt_probe,
@@ -160,6 +182,7 @@ static struct platform_driver cvsnfc_dt_driver = {
 	.driver         = {
 		.name   = "cvsnfc",
 		.of_match_table = cvsnfc_dt_ids,
+		.pm = &cvsnfc_dt_pm_ops,
 	},
 };
 

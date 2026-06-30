@@ -32,6 +32,12 @@ static struct spi_nand_driver  spi_nand_driver_gd = {
 	.qe_enable = spi_nand_gd_qe_enable,
 };
 
+static struct spi_nand_driver  spi_nand_driver_xtx = {
+	.wait_ready   = spi_general_wait_ready,
+	.write_enable = spi_general_write_enable,
+	.qe_enable = spi_nand_gd_qe_enable,
+};
+
 static struct spi_nand_driver  spi_nand_driver_winbond_multi = {
 	.wait_ready   = spi_general_wait_ready,
 	.write_enable = spi_general_write_enable,
@@ -113,6 +119,18 @@ short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, 
 
 /*
  *      ECCS3   ECCS2   ECCS1   ECCS0   Description
+ *      X       X       0       0       No bit errors were detected during the previous read algorithm
+ *      0       0       0       1       Bit errors (<=4) were detected and corrected
+ *      0       1       0       1       Bit errors (5) were detected and corrected
+ *      1       0       0       1       Bit errors (6) were detected and corrected
+ *      1       1       0       1       Bit errors (7) were detected and corrected
+ *      X       X       1       0       Bit errors greater than ECC capability (8 bits) and not corrected
+ *      X       X       1       1       Bit errors reach ECC capability (8 bits) and corrected
+ */
+short ECC_XT26G0xDWSIGA[16] = {0, 4, -1, 8, 0, 5, -1, 8, 0, 6, -1, 8, 0, 7, -1, 8};
+
+/*
+ *      ECCS3   ECCS2   ECCS1   ECCS0   Description
  *      0       0       0       0       No bit errors were detected during the previous read algorithm
  *      0       0       0       1       Bit errors (1) were detected and corrected
  *      0       0       1       0       Bit errors (2) were detected and corrected
@@ -124,9 +142,11 @@ short ECC_XTX_4bit_remap[16] = {0, 4, -1, -1, 0, 5, -1, -1, 0, 6, -1, -1, 0, 7, 
  *      1       0       0       0       Bit errors (8) were detected and corrected
  *      1       1       1       1       Bit errors greater than ECC capability (8 bits) and not corrected
  */
-short ECC_XT26G02CWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, -1};
+short ECC_XT26G0xCWSIGA[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, -1};
 
 short ECC_GSS01GSAX1_remap[4] = {0, 1, -1, 0xff};
+
+short ECC_ZB35Q01CYIG_remap[4] = {0, 4, -1, 8};
 
 struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	{
@@ -316,6 +336,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
+		{	.name = "F50L1G41LC-2P",
+			.id = {0x8C, 0x2C},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 1,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_2bits_remap
+		},
+		.driver = &spi_nand_driver_general,
+		{
+			.start = 2 * SZ_2K,
+			.length = 28 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
 		{	.name = "F50L2G41XA",
 			.id = {0x2c, 0x24},
 			.pagesize = SZ_2K,
@@ -378,6 +429,130 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 	},
 
 	{
+		{	.name = "XT26G01F",
+			.id = {0x0b, 0x71},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0xF,
+			.remap = ECC_XT26G0xCWSIGA
+		},
+		.driver = &spi_nand_driver_xtx,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "XT26G01DWSIGA",
+			.id = {0x0b, 0x31},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XT26G0xDWSIGA
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "XT26G04D",
+			.id = {0x0b, 0x33},
+			.pagesize = SZ_4K,
+			.chipsize = SZ_512,
+			.erasesize = SZ_256K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_256,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XTX_4bit_remap
+		},
+		.driver = &spi_nand_driver_xtx,
+		{
+			.start = 2 * SZ_4K,
+			.length = 4 * SZ_4K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "XT26G01CWSIGA",
+			.id = {0x0b, 0x11},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0xF,
+			.remap = ECC_XT26G0xCWSIGA
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
 		{	.name = "XT26G02CWSIGA",
 			.id = {0x0b, 0x12},
 			.pagesize = SZ_2K,
@@ -397,7 +572,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.ecc_bits = 4,
 			.ecc_bit_shift = 4,
 			.uncorr_val = 0xF,
-			.remap = ECC_XT26G02CWSIGA
+			.remap = ECC_XT26G0xCWSIGA
 		},
 		.driver = &spi_nand_driver_gd,
 		{
@@ -1399,7 +1574,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.length = 10 * SZ_2K,
 			.locked = 0,
 		},
-		.flags = 0
+		.flags = FLAGS_SUPPORT_4BIT_READ
 	},
 
 	{
@@ -1860,6 +2035,127 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		.flags = 0
 	},
 
+	{
+		{       .name = "ZB35Q01CY1G",
+			.id = {0x5E, 0xC1},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_ZB35Q01CYIG_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "ZB35Q02CY1G",
+			.id = {0x5E, 0xC2},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_ZB35Q01CYIG_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{       .name = "ZB35Q04CY1G",
+			.id = {0x5E, 0xC3},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_512,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_ZB35Q01CYIG_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	{
+		{	.name = "XT26G04CWSIGA",
+			.id = {0x0b, 0x13},
+			.pagesize = SZ_4K,
+			.chipsize = SZ_512,
+			.erasesize = SZ_256K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_256,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0xF,
+			.remap = ECC_XT26G0xCWSIGA
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 4 * SZ_4K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
 	{ NULL }
 };
 
@@ -2053,7 +2349,14 @@ void cvsnfc_spi_nand_init(struct cvsnfc_host *host)
 		if (driver->set_ecc_detect_bits(host, ecc_bits))
 			pr_info("set ecc detect bit failed, ecc bits: %d\n", ecc_bits);
 	}
-
+	// pr_info("chip_name ptr=%p, content=[%s]\n", chip_name, chip_name ? chip_name : "(null)");
+	if (driver && driver->qe_enable) {
+		pr_info("Enabling QE bit for %s\n", info->name);
+		driver->qe_enable(host);
+	} else {
+		pr_info("Skipping QE enable: driver=%p, qe_enable=%p\n",
+			driver, driver ? driver->qe_enable : NULL);
+		}
 }
 
 extern uint8_t cvsnfc_read_byte(struct nand_chip *chip);

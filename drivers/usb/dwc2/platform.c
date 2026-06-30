@@ -395,16 +395,23 @@ static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 #define CVIUSB_ROLE_PROC_NAME "cviusb/otg_role"
 #define CVIUSB_CHGDET_PROC_NAME "cviusb/chg_det"
 #define CVIUSB_CHGDET_PROC_FAST_NAME "cviusb/chg_det_fast"
+#define CVIUSB_VBUS_PROC_NAME "cviusb/vbus"
 
 static struct proc_dir_entry *cviusb_proc_dir;
 static struct proc_dir_entry *cviusb_role_proc_entry;
 static struct proc_dir_entry *cviusb_chgdet_proc_entry;
 static struct proc_dir_entry *cviusb_chgdet_proc_fast_entry;
+static struct proc_dir_entry *cviusb_vbus_proc_entry;
 
 static u8 *sel_role[] = {
 	"host",
 	"device",
 };
+
+enum chg_plug_type g_chg_plug_type = CHG_PLUG_NONE;
+enum chg_plug_type cvi_get_chg_plug(void);
+void cvi_chg_plug_detect(struct dwc2_hsotg *hsotg);
+static int vbus_is_present(struct cviusb_dev *cviusb);
 
 static int proc_role_show(struct seq_file *m, void *v)
 {
@@ -444,6 +451,19 @@ static int sel_role_hdler(struct dwc2_hsotg *hsotg, char const *input)
 
 	hsotg->cviusb.id_override = t;
 	dwc2_set_hw_id(hsotg, t);
+	if (!t) {
+		hsotg->cviusb.chgdet = CHGDET_NONE;
+		g_chg_plug_type = CHG_PLUG_NONE;
+		return 0;
+	}
+
+	hsotg->cviusb.pre_vbus_status = vbus_is_present(&hsotg->cviusb);
+	if (hsotg->cviusb.pre_vbus_status)
+		cvi_chg_plug_detect(hsotg);
+	else {
+		hsotg->cviusb.chgdet = CHGDET_NONE;
+		g_chg_plug_type = CHG_PLUG_NONE;
+	}
 
 	return 0;
 }
@@ -508,9 +528,6 @@ static u8 *chg_plug_t[] = {
 	"adapter",
 };
 
-enum chg_plug_type g_chg_plug_type = CHG_PLUG_NONE;
-enum chg_plug_type cvi_get_chg_plug(void);
-void cvi_chg_plug_detect(struct dwc2_hsotg *hsotg);
 
 static void utmi_chgdet_prepare(struct dwc2_hsotg *hsotg)
 {
@@ -610,6 +627,19 @@ static int cdp_det(struct dwc2_hsotg *hsotg)
 	return !det;
 }
 
+static enum chg_plug_type cvi_chgdet_to_plug(u8 chgdet)
+{
+	switch (chgdet) {
+	case CHGDET_DCP:
+		return CHG_PLUG_ADAPTER;
+	case CHGDET_SDP:
+	case CHGDET_CDP:
+		return CHG_PLUG_HUB;
+	default:
+		return CHG_PLUG_NONE;
+	}
+}
+
 static int proc_chgdet_show(struct seq_file *m, void *v)
 {
 	struct dwc2_hsotg *hsotg = (struct dwc2_hsotg *)m->private;
@@ -619,6 +649,14 @@ static int proc_chgdet_show(struct seq_file *m, void *v)
 
 	if (!hsotg->cviusb.id_override)
 		return -EPERM;
+
+	if (!vbus_is_present(cviusb)) {
+		cviusb->pre_vbus_status = 0;
+		cviusb->chgdet = CHGDET_NONE;
+		g_chg_plug_type = CHG_PLUG_NONE;
+		seq_printf(m, "%s\n", chg_port[cviusb->chgdet]);
+		return 0;
+	}
 
 	/* Disconnect the data line. */
 	reg = dwc2_readl(hsotg, DCTL) | DCTL_SFTDISCON;
@@ -638,6 +676,11 @@ static int proc_chgdet_show(struct seq_file *m, void *v)
 			cviusb->chgdet = CHGDET_DCP;
 	} else
 		cviusb->chgdet = CHGDET_SDP;
+
+	g_chg_plug_type = cvi_chgdet_to_plug(cviusb->chgdet);
+
+	reg = dwc2_readl(hsotg, DCTL) & ~DCTL_SFTDISCON;
+	dwc2_writel(hsotg, reg, DCTL);
 
 	/* Run dcpdet */
 	seq_printf(m, "%s\n", chg_port[hsotg->cviusb.chgdet]);
@@ -726,7 +769,16 @@ static const struct proc_ops chgdet_proc_ops = {
 
 static int proc_chgde_fast_show(struct seq_file *m, void *v)
 {
+	struct dwc2_hsotg *hsotg = (struct dwc2_hsotg *)m->private;
 	enum chg_plug_type chg_plug = cvi_get_chg_plug();
+
+	if (!hsotg->cviusb.id_override || !vbus_is_present(&hsotg->cviusb)) {
+		hsotg->cviusb.pre_vbus_status = 0;
+		hsotg->cviusb.chgdet = CHGDET_NONE;
+		g_chg_plug_type = CHG_PLUG_NONE;
+		chg_plug = CHG_PLUG_NONE;
+	}
+
 	seq_printf(m, "%s\n", chg_plug_t[chg_plug]);
 	return 0;
 }
@@ -739,19 +791,50 @@ static int proc_chgdet_fast_open(struct inode *inode, struct file *file)
 }
 
 static const struct proc_ops chgdet_proc_fast_ops = {
-	.proc_open		= proc_chgdet_fast_open,
-	.proc_read		= seq_read,
-	.proc_write		= NULL,
-	.proc_lseek		= seq_lseek,
-	.proc_release	= single_release,
+	.proc_open = proc_chgdet_fast_open,
+	.proc_read = seq_read,
+	.proc_write = NULL,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
+};
+
+static int proc_vbus_show(struct seq_file *m, void *v)
+{
+	struct dwc2_hsotg *hsotg = (struct dwc2_hsotg *)m->private;
+
+	seq_printf(m, "%s\n", vbus_is_present(&hsotg->cviusb) ? "high" : "low");
+
+	return 0;
+}
+
+static int proc_vbus_open(struct inode *inode, struct file *file)
+{
+	struct dwc2_hsotg *hsotg = PDE_DATA(inode);
+
+	return single_open(file, proc_vbus_show, hsotg);
+}
+
+static const struct proc_ops vbus_proc_ops = {
+	.proc_open = proc_vbus_open,
+	.proc_read = seq_read,
+	.proc_write = NULL,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
 };
 
 void cvi_chg_plug_detect(struct dwc2_hsotg *hsotg)
 {
+	struct cviusb_dev *cviusb = &hsotg->cviusb;
 	u32 reg;
 
-	if (!hsotg->cviusb.id_override)
-	{
+	if (!hsotg->cviusb.id_override) {
+		cviusb->chgdet = CHGDET_NONE;
+		g_chg_plug_type = CHG_PLUG_NONE;
+		return;
+	}
+
+	if (!vbus_is_present(cviusb)) {
+		cviusb->chgdet = CHGDET_NONE;
 		g_chg_plug_type = CHG_PLUG_NONE;
 		return;
 	}
@@ -760,29 +843,28 @@ void cvi_chg_plug_detect(struct dwc2_hsotg *hsotg)
 	reg = dwc2_readl(hsotg, DCTL) | DCTL_SFTDISCON;
 	dwc2_writel(hsotg, reg, DCTL);
 
-	if (!dcd_det(hsotg))
-	{
-		g_chg_plug_type = CHG_PLUG_NONE;
-		return;
+	if (!dcd_det(hsotg)) {
+		cviusb->chgdet = CHGDET_NONE;
+		goto out;
 	}
 
 	/* Run chgdet */
-	if (chg_det(hsotg))
-	{
+	if (chg_det(hsotg)) {
 		usleep_range(1000, 1010);
 		if (cdp_det(hsotg))
-			g_chg_plug_type = CHG_PLUG_HUB;
+			cviusb->chgdet = CHGDET_CDP;
 		else
-			g_chg_plug_type = CHG_PLUG_ADAPTER;
-	}
-	else
-		g_chg_plug_type = CHG_PLUG_HUB;
+			cviusb->chgdet = CHGDET_DCP;
+	} else
+		cviusb->chgdet = CHGDET_SDP;
+
+out:
+	g_chg_plug_type = cvi_chgdet_to_plug(cviusb->chgdet);
 
 	reg = dwc2_readl(hsotg, DCTL) & ~DCTL_SFTDISCON;
 	dwc2_writel(hsotg, reg, DCTL);
 
 	return;
-
 }
 
 enum chg_plug_type cvi_get_chg_plug(void)
@@ -834,10 +916,16 @@ static irqreturn_t vbus_irq_thread(int irq, void *devid)
 		dev_dbg(hsotg->dev, "vbus thread = %d\n", vbus);
 		usb_udc_vbus_handler(gadget, (vbus != 0));
 		cviusb->pre_vbus_status = vbus;
-		cvi_chg_plug_detect(hsotg);
+		if (vbus)
+			cvi_chg_plug_detect(hsotg);
+		else {
+			cviusb->chgdet = CHGDET_NONE;
+			g_chg_plug_type = CHG_PLUG_NONE;
+		}
 		msleep(1);
 		if (vbus)
-			usb_gadget_set_state(&hsotg->gadget, USB_STATE_CONFIGURED);
+			usb_gadget_set_state(&hsotg->gadget,
+					     USB_STATE_CONFIGURED);
 		else
 			usb_gadget_set_state(&hsotg->gadget, USB_STATE_NOTATTACHED);
 
@@ -951,19 +1039,21 @@ static int dwc2_driver_remove(struct platform_device *dev)
 		cviusb->clk_12m.is_on = 0;
 	}
 
-#if IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) || \
+#if IS_ENABLED(CONFIG_USB_DWC2_PERIPHERAL) ||                                  \
 	IS_ENABLED(CONFIG_USB_DWC2_DUAL_ROLE)
 
 #ifdef CONFIG_PROC_FS
+	proc_remove(cviusb_vbus_proc_entry);
 	proc_remove(cviusb_chgdet_proc_fast_entry);
 	proc_remove(cviusb_chgdet_proc_entry);
 	proc_remove(cviusb_role_proc_entry);
 	proc_remove(cviusb_proc_dir);
 	cviusb_proc_dir = NULL;
 	cviusb_role_proc_entry = NULL;
-#endif	/* CONFIG_PROC_FS */
+	cviusb_vbus_proc_entry = NULL;
+#endif /* CONFIG_PROC_FS */
 
-#endif	/* CONFIG_USB_DWC2_PERIPHERAL || CONFIG_USB_DWC2_DUAL_ROLE */
+#endif /* CONFIG_USB_DWC2_PERIPHERAL || CONFIG_USB_DWC2_DUAL_ROLE */
 
 #endif
 
@@ -1292,10 +1382,13 @@ static int dwc2_driver_probe(struct platform_device *dev)
 				"vbus-gpio", 0, &flags);
 	hsotg->cviusb.vbus_pin_inverted = (flags & OF_GPIO_ACTIVE_LOW) ? 1 : 0;
 	dev_dbg(hsotg->dev, "vbus_pin = %d, flags = %d\n",
-			hsotg->cviusb.vbus_pin, hsotg->cviusb.vbus_pin_inverted);
+		hsotg->cviusb.vbus_pin, hsotg->cviusb.vbus_pin_inverted);
+	if (!gpio_is_valid(hsotg->cviusb.vbus_pin))
+		dev_warn(hsotg->dev,
+			"vbus-gpio is not defined/valid in DT, fallback to always-present VBUS\n");
 	if (gpio_is_valid(hsotg->cviusb.vbus_pin)) {
-		if (!devm_gpio_request(&dev->dev,
-			hsotg->cviusb.vbus_pin, "cviusb-otg")) {
+		if (!devm_gpio_request(&dev->dev, hsotg->cviusb.vbus_pin,
+				       "cviusb-otg")) {
 			irq_set_status_flags(gpio_to_irq(hsotg->cviusb.vbus_pin),
 					IRQ_NOAUTOEN);
 			retval = devm_request_threaded_irq(&dev->dev,
@@ -1333,14 +1426,19 @@ static int dwc2_driver_probe(struct platform_device *dev)
 					  &chgdet_proc_ops, hsotg);
 	if (!cviusb_chgdet_proc_entry)
 		dev_err(&dev->dev, "cviusb: can't chgdet procfs.\n");
-	cviusb_chgdet_proc_fast_entry = proc_create_data(CVIUSB_CHGDET_PROC_FAST_NAME, 0644, NULL,
-					  &chgdet_proc_fast_ops, hsotg);
+	cviusb_chgdet_proc_fast_entry =
+		proc_create_data(CVIUSB_CHGDET_PROC_FAST_NAME, 0644, NULL,
+				 &chgdet_proc_fast_ops, hsotg);
 	if (!cviusb_chgdet_proc_fast_entry)
 		dev_err(&dev->dev, "cviusb: can't chgdet fast procfs.\n");
+	cviusb_vbus_proc_entry = proc_create_data(CVIUSB_VBUS_PROC_NAME, 0444,
+						  NULL, &vbus_proc_ops, hsotg);
+	if (!cviusb_vbus_proc_entry)
+		dev_err(&dev->dev, "cviusb: can't vbus procfs.\n");
 	cvi_chg_plug_detect(hsotg);
-#endif	/* CONFIG_PROC_FS */
+#endif /* CONFIG_PROC_FS */
 
-#endif	/* CONFIG_USB_DWC2_PERIPHERAL || CONFIG_USB_DWC2_DUAL_ROLE */
+#endif /* CONFIG_USB_DWC2_PERIPHERAL || CONFIG_USB_DWC2_DUAL_ROLE */
 
 #endif	/* CONFIG_ARCH_CVITEK */
 	return 0;
