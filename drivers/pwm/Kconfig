@@ -570,14 +570,4 @@ config PWM_ZX
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-zx.
 
-config PWM_CVITEK
-	tristate "Cvitek PWM support"
-	depends on ARCH_CVITEK
-	help
-	  Generic PWM framework driver for Cvitek SoCs.
-	  We use it to control fan.
-
-	  To compile this driver as a module, choose M here: the module
-	  will be called cvi-pwm.
-
 endif

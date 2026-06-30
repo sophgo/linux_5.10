@@ -320,7 +320,8 @@ static void sdhci_cv184x_sd_setup_pad(struct sdhci_host *host, bool bunplug)
 	else
 		writeb(0x0, cvi_host->pinmuxbase + 0x34);
 
-	writeb(0x0, cvi_host->pinmuxbase + 0x38);
+	if (!cvi_host->no_pwr_en_pin)
+		writeb(0x0, cvi_host->pinmuxbase + 0x38);
 	writeb(val, cvi_host->pinmuxbase + 0x1C);
 	writeb(val, cvi_host->pinmuxbase + 0x20);
 	writeb(val, cvi_host->pinmuxbase + 0x24);
@@ -1296,6 +1297,8 @@ static int sdhci_cvi_probe(struct platform_device *pdev)
 	ret = mmc_of_parse(host->mmc);
 	if (ret)
 		goto pltfm_free;
+
+	cvi_host->no_pwr_en_pin = of_property_read_bool(pdev->dev.of_node, "cvi,no-pwr-en-pin");
 
 	if (!strcmp(match->compatible, "cvitek,cv184x-emmc"))
 		clkname = "clk_emmc";

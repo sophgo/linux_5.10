@@ -59,7 +59,8 @@ static int bm_eth_reset_phy(struct platform_device *pdev)
 	if (ephy_base_addr && ephy_top_addr) {
 		ephy_base_reg = ioremap(ephy_base_addr, 0x80);
 		ephy_top_reg = ioremap(ephy_top_addr, 0x10);
-#ifdef CONFIG_PM_SLEEP
+
+		pr_info("%s: 20260416 ephy reset\n", __func__);
 		// set rg_ephy_apb_rw_sel 0x0804@[0]=1/APB by using APB interface
 		writel(0x0001, ephy_top_reg + 0x4);
 
@@ -88,7 +89,7 @@ static int bm_eth_reset_phy(struct platform_device *pdev)
 		writel(0x5649, ephy_base_reg + 0xc);
 		// switch to MDIO control by ETH_MAC
 		writel(0x0, ephy_top_reg + 0x4);
-#endif
+
 		iounmap(ephy_base_reg);
 		iounmap(ephy_top_reg);
 	}
@@ -153,6 +154,9 @@ static int bm_dwmac_probe(struct platform_device *pdev)
 
 	bm_eth_reset_phy(pdev);
 
+	//add msleep for phy reset
+	msleep(100);
+
 	ret = stmmac_get_platform_resources(pdev, &stmmac_res);
 	if (ret)
 		return ret;
@@ -189,41 +193,8 @@ static int cvi_eth_pm_suspend(struct device *dev)
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
-	if (!priv->reg_ctx) {
-		priv->reg_ctx = devm_kzalloc(priv->device, sizeof(struct stmmac_reg_context), GFP_KERNEL);
-		if (!priv->reg_ctx)
-			return -ENOMEM;
-	}
-	priv->reg_ctx->ctrl = readl(priv->ioaddr + GMAC_CONTROL);
-	priv->reg_ctx->frame_filter = readl(priv->ioaddr + GMAC_FRAME_FILTER);
-	priv->reg_ctx->hash_high = readl(priv->ioaddr + GMAC_HASH_HIGH);
-	priv->reg_ctx->hash_low = readl(priv->ioaddr + GMAC_HASH_LOW);
-	priv->reg_ctx->mii_addr = readl(priv->ioaddr + GMAC_MII_ADDR);
-	priv->reg_ctx->mii_data = readl(priv->ioaddr + GMAC_MII_DATA);
-	priv->reg_ctx->flow_ctrl = readl(priv->ioaddr + GMAC_FLOW_CTRL);
-	priv->reg_ctx->vlan_tag = readl(priv->ioaddr + GMAC_VLAN_TAG);
-	priv->reg_ctx->debug = readl(priv->ioaddr + GMAC_DEBUG);
-	priv->reg_ctx->wakeup_fileter = readl(priv->ioaddr + GMAC_WAKEUP_FILTER);
-	priv->reg_ctx->lpi_ctrl_status = readl(priv->ioaddr + LPI_CTRL_STATUS);
-	priv->reg_ctx->lpi_timer_ctrl = readl(priv->ioaddr + LPI_TIMER_CTRL);
-	priv->reg_ctx->int_mask = readl(priv->ioaddr + GMAC_INT_MASK);
-	priv->reg_ctx->mac_addr0_high = readl(priv->ioaddr + GMAC_MAC_ADDR0_HIGH);
-	priv->reg_ctx->mac_addr0_low = readl(priv->ioaddr + GMAC_MAC_ADDR0_LOW);
-	priv->reg_ctx->pcs_base = readl(priv->ioaddr + GMAC_PCS_BASE);
-	priv->reg_ctx->mmc_ctrl = readl(priv->ioaddr + GMAC_MMC_CTRL);
-	priv->reg_ctx->mmc_rx_intr_mask = readl(priv->ioaddr + GMAC_MMC_RX_INTR_MASK);
-	priv->reg_ctx->mmc_tx_intr_mask = readl(priv->ioaddr + GMAC_MMC_TX_INTR_MASK);
-	priv->reg_ctx->mmc_ipc_rx_intr_mask = readl(priv->ioaddr + GMAC_MMC_IPC_RX_INTR_MASK);
-	priv->reg_ctx->mmc_rx_csum_offload = readl(priv->ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD);
-	priv->reg_ctx->dma_bus_mode = readl(priv->ioaddr + DMA_BUS_MODE);
-	priv->reg_ctx->dma_rx_base_addr = readl(priv->ioaddr + DMA_RCV_BASE_ADDR);
-	priv->reg_ctx->dma_tx_base_addr = readl(priv->ioaddr + DMA_TX_BASE_ADDR);
-	priv->reg_ctx->dma_ctrl = readl(priv->ioaddr + DMA_CONTROL);
-	priv->reg_ctx->dma_intr_ena = readl(priv->ioaddr + DMA_INTR_ENA);
-	priv->reg_ctx->dma_rx_watchdog = readl(priv->ioaddr + DMA_RX_WATCHDOG);
-	priv->reg_ctx->dma_axi_bus_mode = readl(priv->ioaddr + DMA_AXI_BUS_MODE);
-
-	return 0;
+	// ret = stmmac_suspend(dev);
+	return ret;
 }
 
 extern void stmmac_reset_subtask2(struct stmmac_priv *priv);
@@ -234,33 +205,9 @@ static int cvi_eth_pm_resume(struct device *dev)
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct platform_device *pdev = to_platform_device(dev);
 
-	bm_eth_reset_phy(pdev);
-	writel(priv->reg_ctx->ctrl, priv->ioaddr + GMAC_CONTROL);
-	writel(priv->reg_ctx->frame_filter, priv->ioaddr + GMAC_FRAME_FILTER);
-	writel(priv->reg_ctx->hash_high, priv->ioaddr + GMAC_HASH_HIGH);
-	writel(priv->reg_ctx->hash_low, priv->ioaddr + GMAC_HASH_LOW);
-	writel(priv->reg_ctx->mii_addr, priv->ioaddr + GMAC_MII_ADDR);
-	writel(priv->reg_ctx->mii_data, priv->ioaddr + GMAC_MII_DATA);
-	writel(priv->reg_ctx->flow_ctrl, priv->ioaddr + GMAC_FLOW_CTRL);
-	writel(priv->reg_ctx->vlan_tag, priv->ioaddr + GMAC_VLAN_TAG);
-	writel(priv->reg_ctx->debug, priv->ioaddr + GMAC_DEBUG);
-	writel(priv->reg_ctx->wakeup_fileter, priv->ioaddr + GMAC_WAKEUP_FILTER);
-	writel(priv->reg_ctx->lpi_ctrl_status, priv->ioaddr + LPI_CTRL_STATUS);
-	writel(priv->reg_ctx->lpi_timer_ctrl, priv->ioaddr + LPI_TIMER_CTRL);
-	writel(priv->reg_ctx->int_mask, priv->ioaddr + GMAC_INT_MASK);
-	writel(priv->reg_ctx->mac_addr0_high, priv->ioaddr + GMAC_MAC_ADDR0_HIGH);
-	writel(priv->reg_ctx->mac_addr0_low, priv->ioaddr + GMAC_MAC_ADDR0_LOW);
-	writel(priv->reg_ctx->pcs_base, priv->ioaddr + GMAC_PCS_BASE);
-	writel(priv->reg_ctx->mmc_ctrl, priv->ioaddr + GMAC_MMC_CTRL);
-	writel(priv->reg_ctx->mmc_rx_intr_mask, priv->ioaddr + GMAC_MMC_RX_INTR_MASK);
-	writel(priv->reg_ctx->mmc_tx_intr_mask, priv->ioaddr + GMAC_MMC_TX_INTR_MASK);
-	writel(priv->reg_ctx->mmc_ipc_rx_intr_mask, priv->ioaddr + GMAC_MMC_IPC_RX_INTR_MASK);
-	writel(priv->reg_ctx->mmc_rx_csum_offload, priv->ioaddr + GMAC_MMC_RX_CSUM_OFFLOAD);
-	writel(priv->reg_ctx->dma_bus_mode | 0x1, priv->ioaddr + DMA_BUS_MODE);
-
-	stmmac_reset_subtask2(priv);
-
-	return 0;
+	// bm_eth_reset_phy(pdev);
+	// ret = stmmac_resume(dev);
+	return ret;
 }
 #else
 #define cvi_eth_pm_suspend	NULL

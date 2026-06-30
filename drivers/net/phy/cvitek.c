@@ -82,6 +82,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		goto err_ephy_mem_2;
 	}
 
+	pr_info("20260616 phy_config_init");
 	// set rg_ephy_apb_rw_sel 0x0804@[0]=1/APB by using APB interface
 	writel(0x0001, reg_ephy_top_wrap + 4);
 
@@ -109,14 +110,16 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	// // Release 0x0800[1] = 1/ana_rst_n
 	// writel(0x0906, reg_ephy_top_wrap);
 
-	// // ANA INIT
-	// // @Switch to MII-page5
+	// ANA INIT
+	// @Switch to MII-page5
 	writel(0x0500, reg_ephy_base + 0x7c);
 
-// Efuse register
+
+	// Efuse register
 	// Set Double Bias Current
 	//Set rg_eth_txitune1  reg_ephy_base + 0x64 [15:8]
 	//Set rg_eth_txitune0  reg_ephy_base + 0x64 [7:0]
+
 	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXITUNE_FLAG) ==
 		EPHY_EFUSE_TXITUNE_FLAG) {
 		val = ((cvi_efuse_read_from_shadow(0x24) >> 24) & 0xFF) |
@@ -124,8 +127,6 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x64) & ~0xFFFF) | val, reg_ephy_base + 0x64);
 	} else
 		writel(0x5a5a, reg_ephy_base + 0x64);
-
-	writel(0x5a5a, reg_ephy_base + 0x64);
 
 	// Set Echo_I
 	// Set rg_eth_txechoiadj reg_ephy_base + 0x54  [15:8]
@@ -140,6 +141,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	// Set rg_eth_txrterm_p1  reg_ephy_base + 0x58 [11:8]
 	// Set rg_eth_txrterm     reg_ephy_base + 0x58  [7:4]
 	// Set rg_eth_txechorcadj reg_ephy_base + 0x58  [3:0]
+
 	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXRXTERM_FLAG) ==
 		EPHY_EFUSE_TXRXTERM_FLAG) {
 		val = (((cvi_efuse_read_from_shadow(0x20) >> 28) & 0xF) << 4) |
@@ -147,8 +149,6 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x58) & ~0xFF0) | val, reg_ephy_base + 0x58);
 	} else
 		writel(0x0bb0, reg_ephy_base + 0x58);
-
-	writel(0x0bb0, reg_ephy_base + 0x58);
 
 // ETH_100BaseT
 	// Set Rise update
@@ -369,7 +369,7 @@ static int cvi_genphy_resume(struct phy_device *phydev)
 {
 	int ret;
 
-	ret = cv182xa_phy_config_init(phydev);
+	// ret = cv182xa_phy_config_init(phydev);
 	if (ret < 0)
 		return ret;
 	ret = genphy_config_aneg(phydev);

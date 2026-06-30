@@ -97,6 +97,7 @@ struct sdhci_cvi_host {
 	spinlock_t cd_debounce_lock;
 	int pre_gpio_cd;
 	bool is_debounce_work_running;
+	bool no_pwr_en_pin;
 #ifdef CONFIG_PM_SLEEP
 	struct cvi_rtc_sdhci_reg_context *rtc_reg_ctx;
 #endif

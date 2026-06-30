@@ -4,7 +4,7 @@
 #include <asm/arch_timer.h>
 #endif
 
-unsigned int read_count_tick(void)
+uint64_t read_count_tick(void)
 {
 #if defined(CONFIG_ARM) || defined(__arm__) || defined(__aarch64__)
 	u64 c = __arch_counter_get_cntpct();
@@ -19,15 +19,19 @@ unsigned int read_count_tick(void)
 #endif
 }
 
-unsigned int read_time_us(void)
+uint64_t read_time_us(void)
 {
 	return read_count_tick();
 }
 EXPORT_SYMBOL(read_time_us);
 
-unsigned int read_time_ms(void)
+uint64_t read_time_ms(void)
 {
-	return DIV_ROUND_UP(read_count_tick(), 1000);
+	u64 us = read_count_tick();
+	u64 ms = us;
+
+	do_div(ms, 1000);
+	return ms;
 }
 EXPORT_SYMBOL(read_time_ms);
 /**

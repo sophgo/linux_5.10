@@ -16,6 +16,7 @@
 #include "cvsnfc_common.h"
 #include "cvsnfc_spi_ids.h"
 #include <linux/mutex.h>
+#include <linux/ktime.h>
 
 #include "cvsnfc.h"
 extern struct nand_flash_dev nand_flash_cvitek_supported_ids[];
@@ -25,7 +26,7 @@ extern struct nand_flash_dev nand_flash_cvitek_supported_ids[];
 
 static int cvsnfc_dev_ready(struct nand_chip *chip);
 static void cvsnfc_ctrl_ecc(struct mtd_info *mtd, bool enable);
-static void  cvsnfc_setup_intr(struct cvsnfc_host *host);
+static void cvsnfc_setup_intr(struct cvsnfc_host *host);
 static void cvsnfc_set_qe(struct cvsnfc_host *host, uint32_t enable);
 extern void cvsnfc_get_flash_info(struct nand_chip *chip, unsigned char *byte);
 
@@ -47,27 +48,23 @@ static void wait_for_irq(struct cvsnfc_host *host, struct cvsnfc_irq_status_t *i
 	unsigned long comp_res = 0;
 	unsigned long timeout = msecs_to_jiffies(10000);
 
-	do {
-		udelay(10);
-		comp_res =
-			wait_for_completion_timeout(&host->complete, timeout);
-		spin_lock_irq(&host->irq_lock);
-		*irq_status = host->irq_status;
+	/* Pure interrupt-based waiting, no polling delay */
+	udelay(1);
+	comp_res = wait_for_completion_timeout(&host->complete, timeout);
+	spin_lock_irq(&host->irq_lock);
+	*irq_status = host->irq_status;
 
-		if (irq_status->status & irq_mask->status) {
-			pr_debug("host->irq_status.status %x irq_mask->status %x\n",
-					host->irq_status.status, irq_mask->status);
+	if (irq_status->status & irq_mask->status) {
+		pr_debug("host->irq_status.status %x irq_mask->status %x\n",
+				host->irq_status.status, irq_mask->status);
 
-			host->irq_status.status &= ~irq_mask->status;
-			spin_unlock_irq(&host->irq_lock);
-			break;
-		}
-
-		/*
-		 * these are not the interrupts you are looking for; need to wait again
-		 */
+		host->irq_status.status &= ~irq_mask->status;
 		spin_unlock_irq(&host->irq_lock);
-	} while (comp_res != 0);
+		return;
+	}
+
+	/* Not the expected interrupt */
+	spin_unlock_irq(&host->irq_lock);
 
 	if (comp_res == 0) {
 		/* timeout */
@@ -179,9 +176,9 @@ static void cvsnfc_send_cmd_status(struct cvsnfc_host *host)
 			 ? "erase" : "write"), addr, regval);
 }
 
-static void  cvsnfc_setup_intr(struct cvsnfc_host *host)
+static void cvsnfc_setup_intr(struct cvsnfc_host *host)
 {
-	cvsfc_write(host, REG_SPI_NAND_INT_EN, 0x1f1);
+	cvsfc_write(host, REG_SPI_NAND_INT_EN, BIT_REG_TRX_DONE_INT_EN);
 	cvsfc_write(host, REG_SPI_NAND_INT_CLR, BITS_SPI_NAND_INT_CLR_ALL);
 	cvsfc_write(host, REG_SPI_NAND_INT_MASK, 0);
 }
@@ -444,8 +441,8 @@ static void cvsnfc_cmd_ctrl(struct nand_chip *chip, int dat, unsigned int ctrl)
 
 	if ((dat == NAND_CMD_NONE) && host->addr_cycle) {
 		if (host->cmd_option.command == NAND_CMD_SEQIN
-		    || host->cmd_option.command == NAND_CMD_READ0
-		    || host->cmd_option.command == NAND_CMD_READID) {
+			|| host->cmd_option.command == NAND_CMD_READ0
+			|| host->cmd_option.command == NAND_CMD_READID) {
 			host->offset = 0x0;
 			host->column = (host->addr_value[0] & 0xffff);
 		}
@@ -475,7 +472,7 @@ static int cvsnfc_waitfunc(struct nand_chip *chip)
 		if (!(regval & STATUS_OIP_MASK))
 			return NAND_STATUS_READY;
 
-		udelay(1);
+		usleep_range(1, 2);
 		/* maybe need to sure */
 	} while (deadline++ < (40 << 5));
 
@@ -484,26 +481,67 @@ static int cvsnfc_waitfunc(struct nand_chip *chip)
 	return NAND_STATUS_FAIL;
 }
 
+static int cvsnfc_wait_status_polling(struct cvsnfc_host *host, unsigned int mask,
+				      unsigned int val, unsigned int wait_time,
+				      unsigned long timeout_ms, unsigned int *status)
+{
+	unsigned long timeout = msecs_to_jiffies(timeout_ms);
+	unsigned long comp_res;
+	u32 irq_status;
+	u32 polling = SPI_NAND_RSP_POLLING(mask, val, wait_time);
+	u64 ns1, ns2;
+
+	cvsnfc_setup_intr(host);
+	// usleep_range(5, 10);
+	spin_lock_irq(&host->irq_lock);
+	host->irq_status.status &= ~BIT_REG_TRX_DONE_INT;
+	spin_unlock_irq(&host->irq_lock);
+	reinit_completion(&host->complete);
+
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2,
+		    1 << TRX_DATA_SIZE_SHIFT | 1 << TRX_CMD_CONT_SIZE_SHIFT);
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL3, BIT_REG_RSP_CHK_EN);
+	cvsfc_write(host, REG_SPI_NAND_TRX_CMD0,
+		    STATUS_ADDR << TRX_CMD_CONT0_SHIFT | SPI_NAND_CMD_GET_FEATURE);
+	cvsfc_write(host, REG_SPI_NAND_RSP_POLLING, polling);
+	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL0,
+		    cvsfc_read(host, REG_SPI_NAND_TRX_CTRL0) | BIT_REG_TRX_START);
+	
+	ns1 = ktime_get_ns();
+	comp_res = wait_for_completion_timeout(&host->complete, timeout);
+	ns2 = ktime_get_ns();
+	// pr_err("wait status polling ns=%llu\n", ns2 - ns1);
+
+	spin_lock_irq(&host->irq_lock);
+	irq_status = host->irq_status.status;
+	host->irq_status.status &= ~BIT_REG_TRX_DONE_INT;
+	spin_unlock_irq(&host->irq_lock);
+
+	if (!comp_res || !(irq_status & BIT_REG_TRX_DONE_INT)) {
+		pr_err("wait status polling timeout\n");
+		return 0;
+	}
+
+	*status = cvsfc_read(host, REG_SPI_NAND_RX_DATA) & 0xff;
+	if ((*status & (~mask)) == val) {
+		return 1;
+	}
+	pr_err("wait status polling failed, mask=0x%x, val=0x%x, status=0x%x\n", mask, val, *status);
+	return 0;
+}
+
 /*****************************************************************************/
 static int cvsnfc_dev_ready(struct nand_chip *chip)
 {
-	unsigned int regval;
+	unsigned int mask = 0xf2;
+	unsigned int exp_val = 0;
+	unsigned int wait_time = 50;
+	unsigned long timeout_ms = 100;
+	int ret = 0;
+	unsigned int status = 0;
 	struct cvsnfc_host *host = chip->priv;
-	unsigned long start_time = jiffies;
-	/* 100ms */
-	unsigned long max_erase_time = 100;
-
-	do {
-		spi_feature_op(host, GET_OP, STATUS_ADDR, &regval);
-		if (!(regval & STATUS_OIP_MASK)) {
-			return 1;
-		}
-	} while (jiffies_to_msecs(jiffies - start_time) < max_erase_time);
-
-	pr_err("{%s: %d] warning: wait OIP timeout. regval=0x%x\n", __func__, __LINE__, regval);
-	dump_stack();
-
-	return 0;
+	ret = cvsnfc_wait_status_polling(host, mask, exp_val, wait_time, timeout_ms, &status);
+	return ret;
 }
 
 static int cvsnfc_get_otp_num(struct nand_chip *chip, struct otp_info *otp_info)
@@ -551,6 +589,8 @@ static int cvsnfc_ecc_probe(struct cvsnfc_host *host)
 
 static int spi_nand_send_read_page_cmd(struct cvsnfc_host *host, int page)
 {
+	unsigned int status;
+	int ret = 0;
 	int row_addr = page;
 	int r_row_addr = ((row_addr & 0xff0000) >> 16) | (row_addr & 0xff00) | ((row_addr & 0xff) << 16);
 
@@ -562,8 +602,11 @@ static int spi_nand_send_read_page_cmd(struct cvsnfc_host *host, int page)
 
 	cvsnfc_send_nondata_cmd_and_wait(host);
 
+	// ret = cvsnfc_wait_status_polling(host, 0xfe, 0, 1, 100, &status);
 	cvsnfc_dev_ready(&(host->nand));
-
+	if (ret)
+		return ret;
+	
 	return 0;
 }
 
@@ -605,15 +648,23 @@ static void cvsnfc_ctrl_ecc(struct mtd_info *mtd, bool enable)
 	}
 }
 
-static void spi_nand_reset_ip(struct cvsnfc_host *host)
+static void cvsnfc_dump_feature_regs(struct cvsnfc_host *host, const char *tag)
 {
-	uint32_t reg_0x4;
-	uint32_t reg_0x24;
+	unsigned int prot = 0;
+	unsigned int feature = 0;
+	unsigned int status = 0;
 
-	// save 0x4 and 0x24 value
-	reg_0x4 = cvsfc_read(host, REG_SPI_NAND_TRX_CTRL1);
-	reg_0x24 = cvsfc_read(host, REG_SPI_NAND_BOOT_CTRL);
+	spi_feature_op(host, GET_OP, PROTECTION_ADDR, &prot);
+	spi_feature_op(host, GET_OP, FEATURE_ADDR, &feature);
+	spi_feature_op(host, GET_OP, STATUS_ADDR, &status);
 
+	pr_err("cvsnfc: %s feature regs: A0=%#x B0=%#x C0=%#x\n", tag, prot,
+	       feature, status);
+}
+
+static void spi_nand_reset_ip_restore(struct cvsnfc_host *host,
+				      uint32_t reg_0x4, uint32_t reg_0x24)
+{
 	pr_info("org : 0x4 = 0x%x, 0x24 = 0x%x\n", reg_0x4, reg_0x24);
 
 	// reset and wait at least 1u
@@ -630,120 +681,89 @@ static void spi_nand_reset_ip(struct cvsnfc_host *host)
 	pr_info("after reset : 0x4 = 0x%x, 0x24 = 0x%x\n", reg_0x4, reg_0x24);
 }
 
+static void spi_nand_reset_ip(struct cvsnfc_host *host)
+{
+	spi_nand_reset_ip_restore(host,
+				  cvsfc_read(host, REG_SPI_NAND_TRX_CTRL1),
+				  cvsfc_read(host, REG_SPI_NAND_BOOT_CTRL));
+}
+
 #define SYSDMA_TIMEOUT_MS (5 * 1000) // 5 seconds
 
-static int spi_nand_rw_dma_setup(struct cvsnfc_host *host, void *buf, int len, int rw)
+static inline int spi_nand_dma_transfer(struct cvsnfc_host *host, void *buf, int len, int rw)
 {
 	struct dma_async_tx_descriptor *desc;
 	unsigned long flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT;
-	struct dma_slave_config conf;
 	struct dma_chan *chan = rw ? host->dma_chan_tx : host->dma_chan_rx;
-	unsigned long res = 0;
-	int ret = 0;
+	enum dma_status status;
+	struct dma_tx_state state;
+	unsigned long timeout = msecs_to_jiffies(SYSDMA_TIMEOUT_MS);
+	enum dma_data_direction dir = rw ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
+	unsigned long wait;
 
-	pr_debug("=>%s\n", __func__);
+	pr_debug("=>%s len=%d, rw=%d\n", __func__, len, rw);
 
-	memset(&conf, 0, sizeof(conf));
-	if (rw) {
-		// write to device
+	/* For writes, copy data to DMA buffer first */
+	if (rw)
+		memcpy(host->buforg, buf, len);
 
-		/*
-		 * Set direction to a sensible value even if the dmaengine driver
-		 * should ignore it. With the default (DMA_MEM_TO_MEM), the amba-pl08x
-		 * driver criticizes it as "alien transfer direction".
-		 */
-		conf.direction = DMA_MEM_TO_DEV;
-		conf.src_addr = (host->dma_buffer);
-		conf.dst_addr = (host->io_base_phy + 0x800);
-	} else {
-		// read data from device
-		conf.direction = DMA_DEV_TO_MEM;
-		conf.src_addr = (host->io_base_phy + 0xC00);
-		conf.dst_addr = (host->dma_buffer);
-	}
+	/* Initialize sg list */
+	sg_init_one(&host->sgl, host->buforg, len);
 
-	/* DMA controller does flow control: */
-	conf.device_fc = false;
-	conf.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
-	conf.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
-	conf.src_maxburst = 4;
-	conf.dst_maxburst = 4;
-
-	if (dmaengine_slave_config(chan, &conf)) {
-		dev_err(host->dev, "Failed to setup DMA slave\n");
-		return -EPERM;
-	}
-
-	sg_init_one(&host->sgl, buf, len);
-
-	res = dma_map_sg(host->dev, &host->sgl, 1, DMA_BIDIRECTIONAL);
-
-	if (res == 0) {
-		dev_err(host->dev, "Failed to map sg list. res=%lu\n", res);
+	/* Map buffer for DMA */
+	if (dma_map_sg(chan->device->dev, &host->sgl, 1, dir) == 0) {
+		dev_err(host->dev, "Failed to map DMA buffer\n");
 		return -ENXIO;
 	}
 
-	desc = dmaengine_prep_slave_sg(chan, &host->sgl, res, conf.direction, // dwc_prep_dma_slave_sg
-			flags);
-	init_completion(&host->comp);
-
-	desc->callback = cvsnfc_dma_complete;
-	desc->callback_param = (void *) host;
-
-	host->cookie = dmaengine_submit(desc); // dwc_tx_submit
-
-	dma_async_issue_pending(chan); // dwc_issue_pending
-
-	res = wait_for_completion_timeout(&host->comp, msecs_to_jiffies(SYSDMA_TIMEOUT_MS * 2));
-
-	if (res == 0) {
-		void __iomem *clk_reg;
-		void __iomem *sysdma_reg;
-		uint32_t i = 0;
-
-		cv_spi_nand_dump_reg(host);
-
-		spi_nand_reset_ip(host);
-
-		clk_reg = ioremap(0x3002000, 0x10);
-		sysdma_reg = ioremap(0x4330000, 0x800);
-
-		pr_err("%s timeout, 0x3002000=0x%x, 0x3002004=0x%x, ch0 sar=0x%x ch1 dar=0x%x\n",
-				__func__, readl(clk_reg), readl(clk_reg + 4), readl(sysdma_reg + 0x100),
-				readl(sysdma_reg + 0x208));
-
-		pr_err("CFG=0x%x, CHEN=0x%x, ch0 status=0x%x, ch1 status=0x%x, callback=%p\n",
-				readl(sysdma_reg+0x10), readl(sysdma_reg + 0x18), readl(sysdma_reg + 0x130),
-				readl(sysdma_reg + 0x230), desc->callback);
-
-		pr_err("ch_id=%d\n", chan->chan_id);
-
-		for (i = 0; i <= 0x40; i += 4) {
-			pr_info("0x%x: 0x%x\n", (0x0 + i), readl(sysdma_reg + i));
-		}
-		for (i = 0; i <= 0x40; i += 4) {
-			pr_info("0x%x: 0x%x\n", (0x100 + i), readl(sysdma_reg + 0x100 + i));
-		}
-		for (i = 0; i <= 0x40; i += 4) {
-			pr_info("0x%x: 0x%x\n", (0x200 + i), readl(sysdma_reg + 0x200 + i));
-		}
-
-		iounmap(clk_reg);
-		iounmap(sysdma_reg);
-
-		ret = -ETIMEDOUT;
+	/* Prepare and submit DMA transfer */
+	desc = dmaengine_prep_slave_sg(chan, &host->sgl, 1,
+			rw ? DMA_MEM_TO_DEV : DMA_DEV_TO_MEM, flags);
+	if (!desc) {
+		dev_err(host->dev, "Failed to prepare DMA transfer\n");
+		dma_unmap_sg(chan->device->dev, &host->sgl, 1, dir);
+		return -EINVAL;
 	}
 
-	dma_unmap_sg(chan->device->dev, &host->sgl, 1, DMA_BIDIRECTIONAL);
+	reinit_completion(&host->comp);
+	desc->callback = cvsnfc_dma_complete;
+	desc->callback_param = host;
 
-	pr_debug("<=%s\n", __func__);
+	host->cookie = desc->tx_submit(desc);
+	if (dma_submit_error(host->cookie)) {
+		dev_err(host->dev, "Failed to submit DMA\n");
+		dma_unmap_sg(chan->device->dev, &host->sgl, 1, dir);
+		return -EIO;
+	}
 
-	return ret;
+	/* Issue pending DMA transfers */
+	dma_async_issue_pending(chan);
+
+	wait = wait_for_completion_timeout(&host->comp, timeout);
+	status = dmaengine_tx_status(chan, host->cookie, &state);
+	if (!wait || status != DMA_COMPLETE) {
+		dev_err(host->dev, "DMA %s, status %d\n",
+				wait ? "failed" : "timeout", status);
+		dmaengine_terminate_sync(chan);
+		dma_unmap_sg(chan->device->dev, &host->sgl, 1, dir);
+		return wait ? -EIO : -ETIMEDOUT;
+	}
+
+	dma_unmap_sg(chan->device->dev, &host->sgl, 1, dir);
+
+	/* For reads, copy from DMA buffer to user buffer */
+	if (!rw)
+		memcpy(buf, host->buforg, len);
+
+	pr_debug("<=%s complete\n", __func__);
+	return 0;
 }
+
 
 static void spi_nand_set_read_from_cache_mode(struct cvsnfc_host *host, uint32_t mode, uint32_t r_col_addr)
 {
 	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
+	const char *chip_name = host->spi_nand.nand_info.name;
 	switch (mode) {
 	case SPI_NAND_READ_FROM_CACHE_MODE_X1:
 		cvsfc_write(host, REG_SPI_NAND_TRX_CTRL3, BIT_REG_TRX_DMA_EN |
@@ -762,9 +782,9 @@ static void spi_nand_set_read_from_cache_mode(struct cvsnfc_host *host, uint32_t
 				SPI_NAND_CTRL3_IO_TYPE_X4_MODE | BIT_REG_TRX_DUMMY_HIZ);
 		cvsfc_write(host, REG_SPI_NAND_TRX_CMD0, r_col_addr << TRX_CMD_CONT0_SHIFT |
 				SPI_NAND_CMD_READ_FROM_CACHEX4);
-
-		if (spi_driver->qe_enable)
-			spi_driver->qe_enable(host);
+			/* QE bit should be enabled once during initialization, not here */
+			// if (spi_driver->qe_enable)
+			// 	spi_driver->qe_enable(host);
 		break;
 	default:
 		pr_err("unsupport mode!\n");
@@ -794,8 +814,9 @@ static int parse_status_info(struct cvsnfc_host *host)
 
 	//We do not check ecc status when we prog otp area
 	spi_feature_op(host, GET_OP, FEATURE_ADDR, &otp);
-	if (otp && STATUS_OTP_E_MASK)
+	if (otp & STATUS_OTP_E_MASK)
 		return 0;
+
 
 	if (!ecc_info->ecc_sr_addr && !ecc_info->read_ecc_opcode) {
 		pr_err("can not get ecc status\n");
@@ -849,9 +870,9 @@ static int spi_nand_read_from_cache(struct cvsnfc_host *host, struct mtd_info *m
 {
 	int r_col_addr = ((col_addr & 0xff00) >> 8) | ((col_addr & 0xff) << 8);
 	int ret = 0;
-	unsigned int max_bitflips = 0;
 	int retry = 3;
-	u32 mode = SPI_NAND_READ_FROM_CACHE_MODE_X2;
+	uint32_t read_mode;
+	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
 
 RETRY_READ_CMD:
 
@@ -859,40 +880,39 @@ RETRY_READ_CMD:
 
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL2, len << TRX_DATA_SIZE_SHIFT | 3 << TRX_CMD_CONT_SIZE_SHIFT);
 
-	spi_nand_set_read_from_cache_mode(host, mode, r_col_addr);
+	/* Auto select read mode: X4 > X2 > X1, similar to U-Boot */
+	if (host->flags & FLAGS_SUPPORT_4BIT_READ)
+		read_mode = SPI_NAND_READ_FROM_CACHE_MODE_X4;
+	else
+		read_mode = SPI_NAND_READ_FROM_CACHE_MODE_X2;
 
+	spi_nand_set_read_from_cache_mode(host, read_mode, r_col_addr);
+
+	/* Setup DMA and sg list */
+	sg_init_one(&host->sgl, host->buforg, len);
+
+	/* Setup interrupts and start transfer */
 	cvsnfc_setup_intr(host);
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL0,
 			cvsfc_read(host, REG_SPI_NAND_TRX_CTRL0) | BIT_REG_TRX_START);
 
-	ret = spi_nand_rw_dma_setup(host, buf, len, 0);
-
-	if (ret == 0) {
-		struct cvsnfc_irq_status_t irq_mask, irq_status;
-
-		irq_mask.status =
-			BIT_REG_DMA_DONE_INT_CLR | BIT_REG_TRX_DONE_INT_CLR;
-		irq_status.status = 0;
-
-		wait_for_irq(host, &irq_mask, &irq_status);
-
-		if (irq_status.status == 0) {
-			u32 int_status = cvsfc_read(host, REG_SPI_NAND_INT);
-			dev_err(host->dev, "%s command timeout 0x%x\n", __func__, int_status);
-			ret = -ETIMEDOUT;
-		}
-	} else if (ret == -ETIMEDOUT) {
-		if (--retry) {
+	ret = spi_nand_dma_transfer(host, buf, len, 0);
+	if (ret) {
+		if (ret == -ETIMEDOUT && --retry) {
 			pr_err("retry read cmd\n");
 			//goto RETRY_READ_CMD;
 		} else {
-			pr_err("retry read failed\n");
+			pr_err("read failed %d\n", ret);
 		}
-	} else {
-		pr_err("rw dma setup error %d\n", ret);
 	}
 
 	ret = parse_status_info(host);
+
+	if (ret == -EBADMSG) {
+		mtd->ecc_stats.failed++;
+		return 0;
+	}
+
 	return ret;
 }
 
@@ -944,9 +964,8 @@ static int cvsnfc_read_page(struct nand_chip *chip,
 		col_addr |= SPI_NAND_PLANE_BIT_OFFSET;
 	}
 
-	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize, host->buforg);
-
-	memcpy(buf, (void *)host->buforg, mtd->writesize);
+	/* Read directly to user buffer, spi_nand_dma_transfer will handle the copy */
+	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize, buf);
 
 	if (ret) {
 		pr_debug("%s row_addr 0x%x ret %d\n", __func__, row_addr, ret);
@@ -976,7 +995,7 @@ static int cvsnfc_read_page_raw(struct nand_chip *chip,
 		spi_driver->select_die(host, die_id);
 	}
 
-	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
+	cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
 
 	spi_nand_send_read_page_cmd(host, page);
 
@@ -987,6 +1006,8 @@ static int cvsnfc_read_page_raw(struct nand_chip *chip,
 
 	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize + mtd->oobsize, buf);
 
+	// cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
+	
 	mutex_unlock(&host->lock);
 
 	return ret;
@@ -1007,12 +1028,12 @@ static int read_oob_data(struct mtd_info *mtd, uint8_t *buf, int page)
 
 static int cvsnfc_read_oob(struct nand_chip *chip, int page)
 {
-    struct mtd_info *mtd = nand_to_mtd(chip);
+	struct mtd_info *mtd = nand_to_mtd(chip);
 	return read_oob_data(mtd, chip->oob_poi, page);
 }
 
 static int cvsnfc_read_subpage(struct nand_chip *chip,
-			      u32 data_offs, u32 readlen, u8 *buf, int row_addr)
+				  u32 data_offs, u32 readlen, u8 *buf, int row_addr)
 {
 	struct cvsnfc_host *host = chip->priv;
 	uint32_t col_addr = 0;
@@ -1024,6 +1045,7 @@ static int cvsnfc_read_subpage(struct nand_chip *chip,
 	pr_debug("=>%s, row_addr 0x%x, data_offs %d, readlen %d, buf %p\n",
 			__func__, row_addr, data_offs, readlen, buf);
 
+	mutex_lock(&host->lock);
 	host->last_row_addr = row_addr;
 
 	if (spi_driver->select_die) {
@@ -1044,8 +1066,9 @@ static int cvsnfc_read_subpage(struct nand_chip *chip,
 	ret = spi_nand_read_from_cache(host, mtd, col_addr, mtd->writesize,
 			host->buforg);
 
+	/* Copy the requested subpage range */
 	memcpy(buf, (void *)PTR_INC(host->buforg, data_offs), readlen);
-
+	mutex_unlock(&host->lock);
 	if (ret) {
 		pr_debug("%s row_addr 0x%x ret %d\n", __func__, row_addr, ret);
 	}
@@ -1059,7 +1082,6 @@ static int spi_nand_prog_load(struct cvsnfc_host *host, const uint8_t *buf,
 	uint8_t cmd = qe ? SPI_NAND_CMD_PROGRAM_LOADX4 : SPI_NAND_CMD_PROGRAM_LOAD;
 	uint32_t r_col_addr = ((col_addr & 0xff00) >> 8) | ((col_addr & 0xff) << 8);
 	uint32_t ctrl3 = 0;
-	void *data_buf = (void *) buf;
 	int ret = 0;
 	int retry = 3;
 	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
@@ -1085,30 +1107,14 @@ RETRY_WRITE_CMD:
 	cvsnfc_setup_intr(host);
 	cvsfc_write(host, REG_SPI_NAND_TRX_CTRL0, cvsfc_read(host, REG_SPI_NAND_TRX_CTRL0) | BIT_REG_TRX_START);
 
-	ret = spi_nand_rw_dma_setup(host, data_buf, size, 1);
-	if (ret == 0) {
-		struct cvsnfc_irq_status_t irq_mask, irq_status;
-
-		irq_mask.status =
-			BIT_REG_DMA_DONE_INT_CLR | BIT_REG_TRX_DONE_INT_CLR;
-		irq_status.status = 0;
-
-		wait_for_irq(host, &irq_mask, &irq_status);
-
-		if (irq_status.status == 0) {
-			u32 int_status = cvsfc_read(host, REG_SPI_NAND_INT);
-			dev_err(host->dev, "%s command timeout 0x%x\n", __func__, int_status);
-			ret = -ETIMEDOUT;
-		}
-	} else if (ret == -ETIMEDOUT) {
-		if (--retry) {
+	ret = spi_nand_dma_transfer(host, (void *)buf, size, 1);
+	if (ret) {
+		if (ret == -ETIMEDOUT && --retry) {
 			pr_err("retry prog load cmd\n");
 			goto RETRY_WRITE_CMD;
 		} else {
-			pr_err("retry write failed\n");
+			pr_err("write failed %d\n", ret);
 		}
-	} else {
-		pr_err("rw dma setup error %d\n", ret);
 	}
 
 	pr_debug("<=%s\n", __func__);
@@ -1119,6 +1125,7 @@ RETRY_WRITE_CMD:
 static int spi_nand_prog_exec(struct cvsnfc_host *host, uint32_t row_addr)
 {
 	uint32_t r_row_addr = ((row_addr & 0xff0000) >> 16) | (row_addr & 0xff00) | ((row_addr & 0xff) << 16);
+	unsigned int status;
 
 	pr_debug("=>%s\n", __func__);
 	pr_debug("row_addr 0x%x\n", row_addr);
@@ -1131,7 +1138,17 @@ static int spi_nand_prog_exec(struct cvsnfc_host *host, uint32_t row_addr)
 
 	cvsnfc_send_nondata_cmd_and_wait(host);
 
-	cvsnfc_dev_ready(&host->nand);
+	if (!cvsnfc_dev_ready(&host->nand))
+		pr_err("cvsnfc: program ready polling failed, row_addr 0x%x\n",
+		       row_addr);
+
+	spi_feature_op(host, GET_OP, STATUS_ADDR, &status);
+	if (status & STATUS_P_FAIL_MASK) {
+		cvsnfc_dump_feature_regs(host, "program fail");
+		pr_err("cvsnfc: page program failed! row_addr 0x%x status[%#x]\n",
+		       row_addr, status);
+		return -EIO;
+	}
 
 	pr_debug("<=%s\n", __func__);
 
@@ -1182,9 +1199,8 @@ static int write_page_helper(struct mtd_info *mtd, struct nand_chip *chip,
 		col_addr |= SPI_NAND_PLANE_BIT_OFFSET;
 	}
 
-	memcpy((void *)host->buforg, buf, mtd->writesize);
-	ret = spi_nand_prog_load(host, host->buforg, host->pagesize, col_addr,
-			0);
+	/* Pass buffer directly, spi_nand_prog_load will handle the copy */
+	ret = spi_nand_prog_load(host, buf, host->pagesize, col_addr, 0);
 	if (ret) {
 		return ret;
 	}
@@ -1196,8 +1212,10 @@ static int write_page_helper(struct mtd_info *mtd, struct nand_chip *chip,
 	}
 
 	val = spi_driver->wait_ready(host);
-	if (val & STATUS_E_FAIL_MASK)
+	if (val & STATUS_P_FAIL_MASK) {
 		pr_err("cvsnfc: write failed! status[%#x]\n", val);
+		return -EIO;
+	}
 
 	pr_debug("<=\n");
 
@@ -1205,7 +1223,7 @@ static int write_page_helper(struct mtd_info *mtd, struct nand_chip *chip,
 }
 
 static int cvsnfc_write_page(struct nand_chip *chip,
-			    const uint8_t *buf, int oob_required, int row_addr)
+				const uint8_t *buf, int oob_required, int row_addr)
 {
 	int status = 0;
 	struct mtd_info *mtd = nand_to_mtd(chip);
@@ -1217,6 +1235,7 @@ static int cvsnfc_write_page(struct nand_chip *chip,
 	 */
 	mutex_lock(&host->lock);
 	status = write_page_helper(mtd, chip, buf, row_addr);
+	mutex_unlock(&host->lock);
 
 	if (status) {
 		pr_err("write error\n");
@@ -1353,7 +1372,7 @@ static int cvsnfc_write_oob(struct nand_chip *chip, int page)
 		goto out;
 	}
 
-	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
+	cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
 
 	if (host->flags & FLAGS_SET_PLANE_BIT && (blk_idx & BIT(0))) {
 		pr_debug("%s set plane bit for blkidx %d\n", __func__, blk_idx);
@@ -1397,24 +1416,6 @@ static const struct nand_controller_ops cvsnfc_controller_ops = {
 	.attach_chip = cvsnfc_attach_chip,
 };
 
-static int cvsnfc_suspend(struct nand_chip *chip)
-{
-	struct cvsnfc_host *host = nand_get_controller_data(chip);
-
-	host->trx_ctrl1_reg = readl(host->regbase + REG_SPI_NAND_TRX_CTRL1);
-	host->boot_ctrl_reg = readl(host->regbase + REG_SPI_NAND_BOOT_CTRL);
-
-	return 0;
-}
-
-static void cvsnfc_resume(struct nand_chip *chip)
-{
-	struct cvsnfc_host *host = nand_get_controller_data(chip);
-
-	writel(host->boot_ctrl_reg, host->regbase + REG_SPI_NAND_BOOT_CTRL);
-	writel(host->trx_ctrl1_reg, host->regbase + REG_SPI_NAND_TRX_CTRL1);
-	cvsnfc_spi_nand_init(host);
-}
 /*****************************************************************************/
 void cvsnfc_nand_init(struct nand_chip *chip)
 {
@@ -1453,8 +1454,6 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 
 	chip->legacy.dummy_controller.ops = &cvsnfc_controller_ops;
 
-	chip->ops.suspend = cvsnfc_suspend;
-	chip->ops.resume = cvsnfc_resume;
 }
 
 static void cvsnfc_clear_interrupt(struct cvsnfc_host *host, struct cvsnfc_irq_status_t *irq_status)
@@ -1495,7 +1494,8 @@ static irqreturn_t cvsnfc_isr(int irq, void *dev_id)
 		/* store the status in the device context for someone to read */
 		host->irq_status.status |= irq_status.status;
 		/* notify anyone who cares that it happened */
-		complete(&host->complete);
+		if (irq_status.status & BIT(0))
+			complete(&host->complete);
 		/* tell the OS that we've handled this */
 		result = IRQ_HANDLED;
 	}
@@ -1508,6 +1508,8 @@ static int cvsnfc_dma_setup(struct cvsnfc_host *host)
 {
 	struct mtd_info *mtd = nand_to_mtd(&(host->nand));
 	dma_cap_mask_t mask;
+	struct dma_slave_config conf;
+	int ret;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
@@ -1521,6 +1523,39 @@ static int cvsnfc_dma_setup(struct cvsnfc_host *host)
 	if (!host->dma_chan_tx) {
 		dev_err(mtd->dev.parent, "Failed to request DMA tx channel\n");
 		return -EBUSY;
+	}
+
+	/* Configure DMA channels once during initialization */
+	memset(&conf, 0, sizeof(conf));
+
+	/* RX channel: device to memory */
+	conf.direction = DMA_DEV_TO_MEM;
+	conf.src_addr = host->io_base_phy + 0xC00;
+	conf.dst_addr = host->dma_buffer;
+	conf.device_fc = false;
+	conf.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+	conf.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+	/* Increase burst size for better throughput */
+	conf.src_maxburst = 256;  /* Increased from 128 */
+	conf.dst_maxburst = 256;  /* Increased from 128 */
+
+	ret = dmaengine_slave_config(host->dma_chan_rx, &conf);
+	if (ret) {
+		dev_err(host->dev, "Failed to setup DMA rx channel\n");
+		return ret;
+	}
+
+	/* TX channel: memory to device */
+	conf.direction = DMA_MEM_TO_DEV;
+	conf.src_addr = host->dma_buffer;
+	conf.dst_addr = host->io_base_phy + 0x800;
+	conf.src_maxburst = 32;  /* Increased from 128 */
+	conf.dst_maxburst = 32;  /* Increased from 128 */
+
+	ret = dmaengine_slave_config(host->dma_chan_tx, &conf);
+	if (ret) {
+		dev_err(host->dev, "Failed to setup DMA tx channel\n");
+		return ret;
 	}
 
 	return 0;
@@ -1594,7 +1629,10 @@ int cvsnfc_host_init(struct cvsnfc_host *host)
 	mtd->priv = &host->nand;
 
 	spin_lock_init(&host->irq_lock);
+	/* for trx done */
 	init_completion(&host->complete);
+	/* for dma done */
+	init_completion(&host->comp);
 	return 0;
 err:
 	return ret;
@@ -1602,6 +1640,51 @@ err:
 
 /*****************************************************************************/
 EXPORT_SYMBOL(cvsnfc_host_init);
+
+static void cvsnfc_save_pm_regs(struct cvsnfc_host *host)
+{
+	host->pm_trx_ctrl1 = cvsfc_read(host, REG_SPI_NAND_TRX_CTRL1);
+	host->pm_boot_ctrl = cvsfc_read(host, REG_SPI_NAND_BOOT_CTRL);
+	host->pm_regs_valid = true;
+}
+
+int cvsnfc_suspend(struct cvsnfc_host *host)
+{
+	cvsnfc_save_pm_regs(host);
+
+	return 0;
+}
+EXPORT_SYMBOL(cvsnfc_suspend);
+
+int cvsnfc_resume(struct cvsnfc_host *host)
+{
+	int ret;
+
+	if (host->set_system_clock)
+		host->set_system_clock(NULL, ENABLE);
+
+	reinit_completion(&host->complete);
+	reinit_completion(&host->comp);
+	host->irq_status.status = 0;
+	host->irq_mask.status = 0;
+
+	if (host->pm_regs_valid)
+		spi_nand_reset_ip_restore(host, host->pm_trx_ctrl1,
+					  host->pm_boot_ctrl);
+	else
+		spi_nand_reset_ip(host);
+
+	ret = nand_reset(&host->nand, 0);
+	if (ret)
+		dev_err(host->dev, "failed to reset nand after resume: %d\n", ret);
+	else {
+		cvsnfc_spi_nand_init(host);
+		cvsnfc_dump_feature_regs(host, "after resume init");
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(cvsnfc_resume);
 
 static void cvsnfc_irq_cleanup(int irqnum, struct cvsnfc_host *host)
 {

@@ -1544,7 +1544,7 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.length = 10 * SZ_2K,
 			.locked = 0,
 		},
-		.flags = 0
+		.flags = FLAGS_SUPPORT_4BIT_READ
 	},
 
 	{
@@ -2065,6 +2065,78 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		.flags = 0
 	},
 
+	{
+		{       .name = "UM19C0HISW",
+			.id = {0xB0, 0x1C},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{       .strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{       .ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 3,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_3bits_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 2 * SZ_2K,
+			.length = 10 * SZ_2K,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
+	/* XinCun XCSP1AXPK-IT 1Gbit 3.3V
+	 *
+	 * All fields per datasheet "XCSP1xXPK-IT / XCSP2xXPK-IT" Rev 1.5
+	 * (2025-12):
+	 *   - Table 19 MID & DID: MID=0x6C (XinCun), DID1=0x01 (1Gb)
+	 *   - Section 2 Features: Block 128K+8k, ECC_EN=1 default => page
+	 *     layout 2048+64 (ECC-9bit, 9-bit ECC per 512-byte sector)
+	 *   - Table 6 Configuration Registers: SR-2 (0xB0) default 0x11
+	 *     with ECC_EN on bit 4 and QE on bit 0; SR-3 (0xC0) has
+	 *     ECC_S[1:0] on bits [5:4]
+	 *   - Table 10 ECC Status: uncorrectable value = 0b10 = 0x2
+	 */
+	{
+		{	.name = "XCSP1AXPK-IT",
+			.id = {0x6c, 0x01},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XT26G11C
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
 	{ NULL }
 };
 
@@ -2258,7 +2330,14 @@ void cvsnfc_spi_nand_init(struct cvsnfc_host *host)
 		if (driver->set_ecc_detect_bits(host, ecc_bits))
 			pr_info("set ecc detect bit failed, ecc bits: %d\n", ecc_bits);
 	}
-
+	// pr_info("chip_name ptr=%p, content=[%s]\n", chip_name, chip_name ? chip_name : "(null)");
+	if (driver && driver->qe_enable) {
+		pr_info("Enabling QE bit for %s\n", info->name);
+		driver->qe_enable(host);
+	} else {
+		pr_info("Skipping QE enable: driver=%p, qe_enable=%p\n",
+			driver, driver ? driver->qe_enable : NULL);
+		}
 }
 
 extern uint8_t cvsnfc_read_byte(struct nand_chip *chip);

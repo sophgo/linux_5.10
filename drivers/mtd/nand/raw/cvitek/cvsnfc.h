@@ -364,6 +364,8 @@
 #define BIT_REG_RSP_EXP_MSK                 (0x01 << 0)
 #define BIT_REG_RSP_EXP_VAL                 (0x01 << 8)
 #define BIT_REG_RSP_WAIT_TIME_OFFSET        (16)
+#define SPI_NAND_RSP_POLLING(_mask, _val, _wait) \
+	(((_mask) & 0xff) | (((_val) & 0xff) << 8) | (((_wait) & 0xff) << 16))
 
 #define REG_SPI_NAND_SPARE0             0x70
 #define BIT_REG_SPARE0                      (0x01 << 0)
@@ -529,6 +531,9 @@ struct cvsnfc_host {
 	void __iomem *regbase;
 	void __iomem *dmabase;
 	void __iomem *topbase;
+	unsigned int pm_trx_ctrl1;
+	unsigned int pm_boot_ctrl;
+	bool pm_regs_valid;
 
 	unsigned int offset;
 
@@ -670,6 +675,8 @@ void cvsnfc100_nand_init(struct nand_chip *chip);
 
 int cvsnfc_init(struct cvsnfc_host *host);
 void cvsnfc_remove(struct cvsnfc_host *host);
+int cvsnfc_suspend(struct cvsnfc_host *host);
+int cvsnfc_resume(struct cvsnfc_host *host);
 
 void cvsnfc_nand_init(struct nand_chip *chip);
 int cvsnfc_host_init(struct cvsnfc_host *host);
@@ -678,4 +685,3 @@ void cvsnfc_spi_nand_init(struct cvsnfc_host *host);
 int cvsnfc_nand_setup_op(struct cvsnfc_host *host);
 /******************************************************************************/
 #endif /* CVSNFCH */
-

@@ -461,13 +461,28 @@ static void cvi_saradc_trim(struct cvi_saradc_device *ndev)
 {
 	u32 top_trim, rtc_trim;
 	u64 efuse_value;
+	u32 adc_test;
 
-	efuse_value = cvi_efuse_read_from_shadow(EFUSE_ADC_TRIM_REG);
+	// efuse_value = cvi_efuse_read_from_shadow(EFUSE_ADC_TRIM_REG);
 
-	top_trim = (efuse_value & TOP_ADC_TRIM_MASK) >> TOP_ADC_TRIM_OFFSET;
-	rtc_trim = (efuse_value & RTC_ADC_TRIM_MASK) >> RTC_ADC_TRIM_OFFSET;
+	// top_trim = (efuse_value & TOP_ADC_TRIM_MASK) >> TOP_ADC_TRIM_OFFSET;
+	// rtc_trim = (efuse_value & RTC_ADC_TRIM_MASK) >> RTC_ADC_TRIM_OFFSET;
 
 	platform_saradc_clk_init(ndev);
+	/*
+	 * Change vref to VDD1.8A, using 0xc as the default trim value.
+	 * See: https://jira.sophgo.com/browse/CV184XSDK-1141
+	 */
+	// bit[2]: vrefsel, change vref to VDD1.8A
+	adc_test = readl(ndev->top_saradc0_base_addr + SARADC_TEST) | 4;
+	writel(adc_test, ndev->top_saradc0_base_addr + SARADC_TEST);
+	writel(adc_test, ndev->top_saradc1_base_addr + SARADC_TEST);
+	writel(adc_test, ndev->top_saradc2_base_addr + SARADC_TEST);
+	writel(adc_test, ndev->rtcsys_saradc0_base_addr + SARADC_TEST);
+	writel(adc_test, ndev->rtcsys_saradc1_base_addr + SARADC_TEST);
+	top_trim = 0xc;
+	rtc_trim = 0xc;
+
 	pr_debug("Setting top_trim: 0x%x, rtc_trim: 0x%x\n", top_trim,
 		 rtc_trim);
 	writel(top_trim, ndev->top_saradc0_base_addr + SARADC_TRIM);

@@ -231,8 +231,16 @@ static int pwm_cv_config(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 	u64 cycles;
 	unsigned long value;
 	u32 toggle_mask = 0x3 << pwm_dev->hwpwm * 0x2;
-	/*make sure polarity is original*/
-	writel(our_chip->polarity_mask, our_chip->base + REG_POLARITY);
+	u8 bit_mask = 1 << pwm_dev->hwpwm;
+
+	/* restore 100% polarity trick for current channel only */
+	if (our_chip->special_polarity_flag & bit_mask) {
+		u32 val = readl(our_chip->base + REG_POLARITY);
+
+		val ^= bit_mask;
+		writel(val, our_chip->base + REG_POLARITY);
+		our_chip->special_polarity_flag &= ~bit_mask;
+	}
 
 	cycles = clk_get_rate(our_chip->base_clk);
 	pr_debug("clk_get_rate=%llu\n", cycles);
@@ -250,11 +258,12 @@ static int pwm_cv_config(struct pwm_chip *chip, struct pwm_device *pwm_dev,
 		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) | toggle_mask, our_chip->base + REG_PWM_END_TOGGLE);
 	}
 	if (cycles == channel->period) {
-		/* if want duty_cycle = 100% ,set duty_cycle = 0% and polarity inversed*/
-		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) | toggle_mask, our_chip->base + REG_PWM_END_TOGGLE);
-		/*set polarity to inversed*/
-		writel(readl(our_chip->base + REG_POLARITY) ^ (1 << pwm_dev->hwpwm), our_chip->base + REG_POLARITY);
-
+		/* if want duty_cycle = 100%, set duty_cycle = 0% and polarity inversed */
+		writel(readl(our_chip->base + REG_PWM_END_TOGGLE) | toggle_mask,
+		       our_chip->base + REG_PWM_END_TOGGLE);
+		writel(readl(our_chip->base + REG_POLARITY) ^ bit_mask,
+		       our_chip->base + REG_POLARITY);
+		our_chip->special_polarity_flag |= bit_mask;
 	}
 	pr_debug("%s: period_ns=%d, duty_ns=%d\n", __func__, period_ns, duty_ns);
 

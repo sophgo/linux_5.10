@@ -30,11 +30,11 @@ static struct _time_records *time_records __attribute__((unused)) =
 		__tmp;                                                         \
 	})
 
-unsigned int read_count_tick(void);
+uint64_t read_count_tick(void);
 
-unsigned int read_time_ms(void);
+uint64_t read_time_ms(void);
 
-unsigned int read_time_us(void);
+uint64_t read_time_us(void);
 
 void print_cost_time(unsigned int rettime, const char *func);
 

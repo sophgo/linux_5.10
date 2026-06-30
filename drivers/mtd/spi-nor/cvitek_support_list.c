@@ -222,6 +222,9 @@ static const struct flash_info cvitek_parts[] = {
 	{ "TH25Q64HA", CVI_INFO(0xCD6017, 0x0, 64 * 1024, 128, 3, 256,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr_bit1_qe_fixups },
+	{ "UC25IQ128", CVI_INFO(0xB34018, 0x0, 64 * 1024, 256, 3, 1024,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr2_bit1_qe_fixups },
 	{}
 
 
