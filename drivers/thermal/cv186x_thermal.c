@@ -289,13 +289,73 @@ struct cv186x_thermal_zone {
 };
 
 struct cv186x_thermal {
-    struct device *dev;
-    void __iomem *base;
-    struct clk *clk_tempsen;
+	struct device *dev;
+	void __iomem *base;
+	struct clk *clk_tempsen;
+	int calib_f[3];	/* signed F correction value */
+	int calib_s[3];	/* signed S correction value */
+	bool calib_valid;	/* true if calib reg data is usable */
 };
 
 static void __iomem *rtc_en_thm; 
 static void __iomem *hw_thm;
+
+/* shadow reg for 0x27100080 */
+#define TS_CALIB_BASE_ADDR	0x27100080
+
+/* calibration: k = 60.5 / k_base,  b_base in millidegrees */
+/*   TS1: k_base=161 b_base=-278.72   TS2: k_base=168 b_base=-263.56
+ *   TS3: k_base=164 b_base=-273.9
+ *   For each TS: compute 5 temperatures (x, xF, xS), sort 15, take median(#7)
+ */
+static const int calib_k_base[3] = { 161, 168, 164 };
+static const int calib_b_base[3] = { -278720, -263560, -273900 };
+
+/* sign_ext() - extract 7-bit signed value from byte, bit7 is sign */
+static int sign_ext(u8 val)
+{
+	return (val & BIT(7)) ? -(val & 0x7f) : (val & 0x7f);
+}
+
+static int cv186x_calc_calib(struct cv186x_thermal *ct)
+{
+	void __iomem *calib_base;
+	u32 f_reg, s_reg;
+	int f_val[3], s_val[3];
+	int i;
+
+	calib_base = ioremap(TS_CALIB_BASE_ADDR, 0x8);
+	if (!calib_base) {
+		dev_warn(ct->dev, "cannot map calib regs, calibration disabled\n");
+		for (i = 0; i < 3; i++)
+			ct->calib_f[i] = ct->calib_s[i] = 0;
+		return 0;
+	}
+
+	f_reg = readl(calib_base);
+	s_reg = readl(calib_base + 4);
+	iounmap(calib_base);
+
+	for (i = 0; i < 3; i++) {
+		f_val[i] = sign_ext((f_reg >> (8 * i)) & 0xff);
+		s_val[i] = sign_ext((s_reg >> (8 * i)) & 0xff);
+	}
+
+	ct->calib_valid = false;
+	for (i = 0; i < 3; i++) {
+		ct->calib_f[i] = f_val[i];
+		ct->calib_s[i] = s_val[i];
+		if (f_val[i] != 0 || s_val[i] != 0)
+			ct->calib_valid = true;
+		dev_dbg(ct->dev,
+			"ts%d: F=%d S=%d k=%d.%03d(degC/cnt) b_base=%d(mdegC)\n",
+			i + 1, f_val[i], s_val[i],
+			60500 / calib_k_base[i] / 1000, 60500 / calib_k_base[i] % 1000,
+			calib_b_base[i]);
+	}
+
+	return 0;
+}
 
 static void cv186x_thermal_init(struct cv186x_thermal *ct)
 {
@@ -361,42 +421,10 @@ static void cv186x_thermal_uninit(struct cv186x_thermal *ct)
     TEMPSEN_SET(base, sta_tempsen_intr_clr, regval);
 }
 
-int find_mid(int a, int b, int c)
-{
-
-	if ((a >= b && a <= c) || (a >= c && a <= b))
-		return a;
-	else if ((b >= a && b <= c) || (b >= c && b <= a))
-		return b;
-	else
-		return c;
-
-}
-
-static int calc_temp(int ts1, int ts2, int ts3)
-{
-	int temp1, temp2, temp3;
-
-	// TS1: y=0.3757x-278.79
-	temp1 = (ts1 * 3757 - 2787900) / 10;
-
-	// TS2: y=0.3563x-259.37
-	temp2 = (ts2 *3563 - 2593700) / 10;
-
-	// TS3: y=0.3729x-278.11
-	temp3 = (ts3 * 3729 - 2781100) / 10;
-
-	pr_debug("avg temp: (ts1, ts2, ts3) = (%d, %d, %d)\n", temp1, temp2, temp3);
-	return find_mid(temp1, temp2, temp3);
-}
-
 static void array_sort(int *arr, size_t num)
 {
 	size_t i, j;
 	int temp;
-
-	if (!arr || num <= 1)
-		return;
 
 	for (i = 0; i < num - 1; i++) {
 		for (j = 0; j < num - i - 1; j++) {
@@ -407,6 +435,63 @@ static void array_sort(int *arr, size_t num)
 			}
 		}
 	}
+}
+
+static int calc_temp(struct cv186x_thermal *ct, int ts1, int ts2, int ts3)
+{
+	static const int fallback_k[3] = { 3758, 3601, 3689 };
+	static const int fallback_b[3] = { 2787200, 2635600, 2739000 };
+	int raw[3] = { ts1, ts2, ts3 };
+	int temps[15];
+	int idx = 0;
+	int i;
+
+	pr_debug("calc temp: raw=(%d,%d,%d) calib_f=(%d,%d,%d) calib_s=(%d,%d,%d)\n",
+		 ts1, ts2, ts3,
+		 ct->calib_f[0], ct->calib_f[1], ct->calib_f[2],
+		 ct->calib_s[0], ct->calib_s[1], ct->calib_s[2]);
+
+	/* no calibration: use fallback constants, simple median of 3 */
+	if (!ct->calib_valid) {
+		for (i = 0; i < 3; i++) {
+			temps[idx++] = (raw[i] * fallback_k[i] - fallback_b[i]) / 10;
+			pr_debug("  ts%d: raw=%d k=%d.%03d b=%d -> t=%d\n",
+				 i + 1, raw[i],
+				 fallback_k[i] / 10, fallback_k[i] % 10,
+				 fallback_b[i] / 10, temps[i]);
+		}
+		array_sort(temps, 3);
+		pr_debug("calc temp: fallback median=#1:%d\n", temps[1]);
+		return temps[1];
+	}
+
+	for (i = 0; i < 3; i++) {
+		int base = calib_k_base[i];
+		int boff = calib_b_base[i];
+		int fi = ct->calib_f[i];
+		int si = ct->calib_s[i];
+		int k_raw = 60500;
+
+		/* 5 variants: raw, raw+F, raw-F, raw+S, raw-S */
+		temps[idx++] = (k_raw * raw[i]) / base + boff;
+		temps[idx++] = (k_raw * (raw[i] + fi)) / base + boff;
+		temps[idx++] = (k_raw * (raw[i] - fi)) / base + boff;
+		temps[idx++] = (k_raw * (raw[i] + si)) / base + boff;
+		temps[idx++] = (k_raw * (raw[i] - si)) / base + boff;
+
+		pr_debug("  ts%d: raw=%d k=%d.%03d b=%d F=%d S=%d -> t={%d,%d,%d,%d,%d}\n",
+			 i + 1, raw[i],
+			 60500 / base / 1000, 60500 / base % 1000, boff, fi, si,
+			 temps[idx - 5], temps[idx - 4], temps[idx - 3],
+			 temps[idx - 2], temps[idx - 1]);
+	}
+
+	array_sort(temps, 15);
+	pr_debug("calc temp: sorted={%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d} median=#7:%d\n",
+		 temps[0], temps[1], temps[2], temps[3], temps[4], temps[5], temps[6],
+		 temps[7], temps[8], temps[9], temps[10], temps[11], temps[12], temps[13],
+		 temps[14], temps[7]);
+	return temps[7];
 }
 
 static int calc_average(int array[])
@@ -424,6 +509,7 @@ static int calc_average(int array[])
 static int cv186x_read_temp(void *data, int *temperature)
 {
 	struct cv186x_thermal_zone *ctz = data;
+	struct cv186x_thermal *ct = ctz->ct;
 	void __iomem *base = ctz->base;
 	unsigned int ch = ctz->ch;
 	static int index, read_cnt, r1[20], r2[20], r3[20];
@@ -471,7 +557,7 @@ static int cv186x_read_temp(void *data, int *temperature)
 	//	r3[0], r3[1], r3[2], r3[3], r3[4], r3[5], r3[6], r3[7], r3[8], r3[9],
 	//	r3[10], r3[11], r3[12], r3[13], r3[14], r3[15], r3[16], r3[17], r3[18], r3[19]);
 	// pr_debug("avg: (ts1, ts2, ts3) = (%d, %d, %d)\n", average_r1, average_r2, average_r3);
-	*temperature = calc_temp(average_r1, average_r2, average_r3);
+	*temperature = calc_temp(ct, average_r1, average_r2, average_r3);
 	pr_debug("ch%d temp = %d mC\n", ch, *temperature);
 
 	return 0;
@@ -532,6 +618,8 @@ static int cv186x_thermal_probe(struct platform_device *pdev)
     ct->dev = &pdev->dev;
 
     cv186x_thermal_init(ct);
+
+	cv186x_calc_calib(ct);
 
     platform_set_drvdata(pdev, ct);
 
