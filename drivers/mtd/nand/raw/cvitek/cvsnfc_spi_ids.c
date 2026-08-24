@@ -85,6 +85,21 @@ short ECC_3bits_remap[8] = {0, 1, -1, 4, 0xff, 7, 0xff, 0xff };
 short ECC_XT26G11C[4] = {0, 1, -1, 8};
 
 /*
+ * XinCun XCSP1AXPK-IT (datasheet Rev1.5 Table 10):
+ *	ECCS1	ECCS0	Description
+ *	0	0	0 bit error
+ *	0	1	Bit errors corrected, count equal or more than the bit
+ *			flip threshold (multi-bit warning state, not 1 bit)
+ *	1	0	Bit errors and can't be corrected
+ *	1	1	Bit errors corrected, count > BFD setting
+ * 01 is a "reached threshold" warning, same severity class as XT26G11C's
+ * 11 above; report full strength (8) so mtd returns -EUCLEAN and UBI
+ * scrubs the PEB before read disturb accumulates.  Shared ECC_XT26G11C
+ * reports 1 for 01 which defeats the warning, hence a dedicated table.
+ */
+short ECC_XCSP1AXPK_remap[4] = {0, 8, -1, 8};
+
+/*
  *	ECCS1	ECCS0	Description
  *	0	0	0 bit error
  *	0	1	1 ~ 4 bits error and been corrected.
@@ -339,6 +354,37 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.locked = 0,
 		},
 		.flags = 0
+	},
+
+	{
+		{	.name = "EM73D044VCU",
+			.id = {0xd5, 0x4a},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_256,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_128,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = NULL
+		},
+		.driver = &spi_nand_driver_gd, /* Etron supports QE */
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = FLAGS_BBT_LARGE_MAXBLOCKS
 	},
 
 	{
@@ -1614,6 +1660,38 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 		.flags = 0
 	},
 
+	/* Winbond W25N04LV 4Gbit */
+	{
+		{	.name = "W25N04LV",
+			.id = {0xef, 0x8b, 0x23},
+			.pagesize = SZ_4K,
+			.chipsize = SZ_512,
+			.erasesize = SZ_256K,
+			.options = 0,
+			.id_len = 3,
+			.oobsize = SZ_256,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.ecc_mbf_addr = 0x30,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 4,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = NULL
+		},
+		.driver = &spi_nand_driver_toshiba,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
+		.flags = 0
+	},
+
 	{
 		{	.name = "DS35Q1GA-IB",
 			.id = {0xe5, 0x71},
@@ -2154,6 +2232,48 @@ struct cvsnfc_chip_info nand_flash_cvitek_supported_ids[] = {
 			.remap = ECC_3bits_remap
 		},
 		.driver = &spi_nand_driver_unim,
+		.flags = 0
+	},
+
+	/* XinCun XCSP1AXPK-IT 1Gbit 3.3V
+	 *
+	 * All fields per datasheet "XCSP1xXPK-IT / XCSP2xXPK-IT" Rev 1.5
+	 * (2025-12):
+	 *   - Table 19 MID & DID: MID=0x6C (XinCun), DID1=0x01 (1Gb)
+	 *   - Section 2 Features: Block 128K+8k, ECC_EN=1 default => page
+	 *     layout 2048+64 (ECC-9bit, 9-bit ECC per 512-byte sector)
+	 *   - Table 6 Configuration Registers: SR-2 (0xB0) default 0x11
+	 *     with ECC_EN on bit 4 and QE on bit 0; SR-3 (0xC0) has
+	 *     ECC_S[1:0] on bits [5:4]
+	 *   - Table 10 ECC Status: uncorrectable value = 0b10 = 0x2
+	 */
+	{
+		{	.name = "XCSP1AXPK-IT",
+			.id = {0x6c, 0x01},
+			.pagesize = SZ_2K,
+			.chipsize = SZ_128,
+			.erasesize = SZ_128K,
+			.options = 0,
+			.id_len = 2,
+			.oobsize = SZ_64,
+			{	.strength_ds = 8,
+				.step_ds = SZ_512
+			},
+		},
+
+		{	.ecc_sr_addr = 0xc0,
+			.read_ecc_opcode = 0,
+			.ecc_bits = 2,
+			.ecc_bit_shift = 4,
+			.uncorr_val = 0x2,
+			.remap = ECC_XCSP1AXPK_remap
+		},
+		.driver = &spi_nand_driver_gd,
+		{
+			.start = 0,
+			.length = 0,
+			.locked = 0,
+		},
 		.flags = 0
 	},
 

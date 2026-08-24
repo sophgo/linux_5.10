@@ -17,6 +17,9 @@
 #define EFUSE_MARSE_FLAG 0x00000100 // bit 8
 #define EPHY_EFUSE_TXITUNE_FLAG 0x00000200 // bit 9
 #define EPHY_EFUSE_TXRXTERM_FLAG 0x00000800 // bit 11
+/* CV184XSDK-1347: BLOCK4/5 judgement macros */
+#define EPHY_EFUSE_BLK45_SHADOW_OFF   0x08
+#define EPHY_EFUSE_NEW_TESTMETHOD_BIT BIT(10)    /* bit10: new test method flag */
 
 #define CVI_INT_EVENTS \
 	(CVI_LNK_STS_CHG_INT_MSK | CVI_MGC_PKT_DET_INT_MSK)
@@ -149,6 +152,8 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 {
 	int ret = 0;
 	u32 val = 0;
+	u32 blk45 = 0;
+	s64 efuse_val;
 	void __iomem *reg_ephy_top_wrap = NULL;
 	void __iomem *reg_ephy_base = NULL;
 
@@ -198,14 +203,20 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 	// Set Double Bias Current
 	//Set rg_eth_txitune1  reg_ephy_base + 0x64 [15:8]
 	//Set rg_eth_txitune0  reg_ephy_base + 0x64 [7:0]
-	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXITUNE_FLAG) ==
-		EPHY_EFUSE_TXITUNE_FLAG) {
-		val = ((cvi_efuse_read_from_shadow(0x24) >> 24) & 0xFF) |
-				(((cvi_efuse_read_from_shadow(0x24) >> 16) & 0xFF) << 8);
+
+	blk45 = cvi_efuse_read_from_shadow(EPHY_EFUSE_BLK45_SHADOW_OFF);
+
+	if ((blk45 & EPHY_EFUSE_NEW_TESTMETHOD_BIT) &&
+	    (cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXITUNE_FLAG)) {
+		/* new test method: efuse value is accurate, use it */
+		efuse_val = cvi_efuse_read_from_shadow(0x24);
+		val = ((efuse_val >> 24) & 0xFF) |
+				(((efuse_val >> 16) & 0xFF) << 8);
 		writel((readl(reg_ephy_base + 0x64) & ~0xFFFF) | val, reg_ephy_base + 0x64);
-	} else
+	} else {
 		writel(0x5a5a, reg_ephy_base + 0x64);
-	writel(0x5a5a, reg_ephy_base + 0x64); //Eye Diagram is better with short line
+	}
+	// writel(0x5a5a, reg_ephy_base + 0x64); //Eye Diagram is better with short line
 	// Set Echo_I
 	// Set rg_eth_txechoiadj reg_ephy_base + 0x54  [15:8]
 	if ((cvi_efuse_read_from_shadow(0x20) & EPHY_EFUSE_TXECHORC_FLAG) ==
@@ -226,7 +237,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 		writel((readl(reg_ephy_base + 0x58) & ~0xFF0) | val, reg_ephy_base + 0x58);
 	} else
 		writel(0x0bb0, reg_ephy_base + 0x58);
-	writel(0x0bb0, reg_ephy_base + 0x58); //Eye Diagram is better with short line
+	// writel(0x0bb0, reg_ephy_base + 0x58); //Eye Diagram is better with short line
 // ETH_100BaseT
 	// Set Rise update
 	writel(0x0c10, reg_ephy_base + 0x5c);
@@ -236,6 +247,7 @@ static int cv182xa_phy_config_init(struct phy_device *phydev)
 
 	// Set Double TX Bias Current
 	writel(0x0000, reg_ephy_base + 0x54);
+
 #if CONFIG_ARCH_CV181X
 	if ((cvi_efuse_read_from_shadow(0x08) & EFUSE_MARSE_FLAG) ==
 	EFUSE_MARSE_FLAG) {
