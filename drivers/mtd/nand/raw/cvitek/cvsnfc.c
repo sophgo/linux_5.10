@@ -469,8 +469,17 @@ static int cvsnfc_waitfunc(struct nand_chip *chip)
 	do {
 		spi_feature_op(host, GET_OP, STATUS_ADDR, &regval);
 
-		if (!(regval & STATUS_OIP_MASK))
+		if (!(regval & STATUS_OIP_MASK)) {
+			/*
+			 * OIP cleared: operation finished.
+			 * Check for erase/program failure so that the MTD
+			 * framework (and UBI) can see the error and mark
+			 * the block as bad.
+			 */
+			if (regval & (STATUS_E_FAIL_MASK | STATUS_P_FAIL_MASK))
+				return NAND_STATUS_FAIL;
 			return NAND_STATUS_READY;
+		}
 
 		usleep_range(1, 2);
 		/* maybe need to sure */
@@ -814,7 +823,7 @@ static int parse_status_info(struct cvsnfc_host *host)
 
 	//We do not check ecc status when we prog otp area
 	spi_feature_op(host, GET_OP, FEATURE_ADDR, &otp);
-	if (otp && STATUS_OTP_E_MASK)
+	if (otp & STATUS_OTP_E_MASK)
 		return 0;
 
 	if (!ecc_info->ecc_sr_addr && !ecc_info->read_ecc_opcode) {
@@ -1414,6 +1423,153 @@ static int cvsnfc_attach_chip(struct nand_chip *chip)
 static const struct nand_controller_ops cvsnfc_controller_ops = {
 	.attach_chip = cvsnfc_attach_chip,
 };
+
+/*****************************************************************************/
+/*
+ * SPI NAND bad block marker is stored in the first 2 bytes of the data area
+ * of the first page in each block (byte 0 and byte 1).
+ *
+ * Factory-marked bad blocks have 0x00 (or any non-0xFF value) at these
+ * positions. Good blocks have 0xFF (erased state).
+ *
+ * These callbacks override the default raw NAND bad block handling which
+ * looks at OOB area — SPI NAND has no traditional OOB.
+ *
+ * Reference: drivers/mtd/nand/spi/core.c — spinand_isbad() / spinand_markbad()
+ */
+
+/**
+ * cvsnfc_block_bad — check if a block is bad by reading the marker in RAW mode.
+ * @chip: NAND chip object
+ * @ofs: byte offset from device start (will be rounded down to block boundary)
+ *
+ * Reads the first page of the target block with ECC disabled and checks
+ * whether the first two bytes deviate from 0xFF.
+ *
+ * Return: >0 if the block is bad, 0 if good, <0 on error.
+ */
+static int cvsnfc_block_bad(struct nand_chip *chip, loff_t ofs)
+{
+	struct cvsnfc_host *host = chip->priv;
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	int page = (int)(ofs >> chip->page_shift);
+	int ret;
+
+	mutex_lock(&host->lock);
+
+	/* Disable ECC so the raw marker bytes are not "corrected" */
+	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
+
+	/* Read the first page of the block into internal buffer */
+	spi_nand_send_read_page_cmd(host, page);
+	ret = spi_nand_read_from_cache(host, mtd, 0, mtd->writesize,
+				       host->data_buf);
+
+	cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
+	mutex_unlock(&host->lock);
+
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * SPI NAND bad block marker: first two bytes of the data area.
+	 * Good block: both bytes are 0xFF (erased state).
+	 * Bad block:  at least one byte is not 0xFF (factory programmed 0x00).
+	 */
+	if (host->data_buf[0] != 0xFF || host->data_buf[1] != 0xFF)
+		return 1;	/* Block is bad */
+
+	return 0;	/* Block is good */
+}
+
+/**
+ * cvsnfc_block_markbad — mark a block as bad by writing the marker in RAW mode.
+ * @chip: NAND chip object
+ * @ofs: byte offset from device start
+ *
+ * Writes 0x00 to the first two bytes of the first page of the target block
+ * without ECC, following the SPI NAND bad block marker convention.
+ *
+ * The caller (nand_block_markbad_lowlevel) has already erased the block
+ * before calling this function, so the rest of the page is 0xFF.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+static int cvsnfc_block_markbad(struct nand_chip *chip, loff_t ofs)
+{
+	struct cvsnfc_host *host = chip->priv;
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct spi_nand_driver *spi_driver = host->spi_nand.driver;
+	int page = (int)(ofs >> chip->page_shift);
+	unsigned int val;
+	int ret;
+
+	mutex_lock(&host->lock);
+
+	/*
+	 * Prepare a full page buffer: first 2 bytes = 0x00 (bad block mark),
+	 * the rest = 0xFF (erased state).  We must write a full page because
+	 * SPI NAND PROGRAM LOAD + PROGRAM EXECUTE programs the entire page
+	 * from the internal cache, and partial loads can leave stale data in
+	 * the unwritten portion of the cache.
+	 */
+	memset(host->data_buf, 0xFF, host->pagesize);
+	host->data_buf[0] = 0x00;
+	host->data_buf[1] = 0x00;
+
+	/* Ensure chip is ready */
+	val = spi_driver->wait_ready(host);
+	if (val) {
+		pr_err("cvsnfc: markbad wait ready fail, status[%#x]\n", val);
+		ret = -EIO;
+		goto out;
+	}
+
+	/* Write enable is required before PROGRAM LOAD + EXECUTE */
+	if (spi_driver->write_enable(host)) {
+		pr_err("cvsnfc: markbad write enable failed\n");
+		ret = -EIO;
+		goto out;
+	}
+
+	/* Program the marker with ECC disabled (RAW) */
+	cvsnfc_ctrl_ecc(mtd, DISABLE_ECC);
+
+	ret = spi_nand_prog_load(host, host->data_buf, host->pagesize, 0, 0);
+	if (ret) {
+		pr_err("cvsnfc: markbad prog_load failed, ret=%d\n", ret);
+		cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
+		goto out;
+	}
+
+	/*
+	 * Set last_cmd so that wait_ready() checks STATUS_P_FAIL_MASK
+	 * to detect program failure.
+	 */
+	host->cmd_option.last_cmd = NAND_CMD_PAGEPROG;
+	ret = spi_nand_prog_exec(host, page);
+
+	cvsnfc_ctrl_ecc(mtd, ENABLE_ECC);
+
+	if (ret) {
+		pr_err("cvsnfc: markbad prog_exec failed, ret=%d\n", ret);
+		goto out;
+	}
+
+	/* Wait for the program operation to finish and check status */
+	val = spi_driver->wait_ready(host);
+	if (val & STATUS_P_FAIL_MASK) {
+		pr_err("cvsnfc: markbad program failed, status[%#x]\n", val);
+		ret = -EIO;
+		goto out;
+	}
+
+	ret = 0;
+out:
+	mutex_unlock(&host->lock);
+	return ret;
+}
+
 /*****************************************************************************/
 void cvsnfc_nand_init(struct nand_chip *chip)
 {
@@ -1439,6 +1595,19 @@ void cvsnfc_nand_init(struct nand_chip *chip)
 	chip->options     = NAND_BROKEN_XD;
 
 	chip->bbt_options = NAND_BBT_USE_FLASH | NAND_BBT_NO_OOB;
+
+	/*
+	 * SPI NAND bad block marker is at byte 0 of the data area (not OOB).
+	 * badblockpos and badblockbits are used by the default nand_block_bad(),
+	 * but we override it with cvsnfc_block_bad() which handles SPI NAND
+	 * semantics correctly.  Set them here for documentation / safety.
+	 */
+	chip->badblockpos  = 0;
+	chip->badblockbits = 8;
+
+	/* Custom bad block callbacks for SPI NAND */
+	chip->legacy.block_bad     = cvsnfc_block_bad;
+	chip->legacy.block_markbad = cvsnfc_block_markbad;
 
 	/* override the default read operations */
 	chip->ecc.read_page = cvsnfc_read_page;
