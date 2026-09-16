@@ -626,7 +626,7 @@ static int cv186x_pcie_probe(struct platform_device *pdev)
 	ret = cv186x_pcie_controller_config(cv186x_pcie, dev);
 	if (ret) {
 		dev_err(dev, "pcie controller config failed: %d\n", ret);
-		goto err_free_gpio;
+		return -1;
 	}
 
 	platform_set_drvdata(pdev, cv186x_pcie);
