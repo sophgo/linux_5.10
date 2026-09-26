@@ -258,7 +258,7 @@ static int rtl8211f_config_init(struct phy_device *phydev)
 	phydev->speed = SPEED_100;
 	phydev->duplex = DUPLEX_FULL;
 #endif
-#if IS_ENABLED(CONFIG_ARCH_CV186X)
+#if IS_ENABLED(CONFIG_ARCH_CV186X) || IS_ENABLED(CONFIG_ARCH_CV84X6)
 	//printk("phy_led_flag = %x\n", phydev->phy_led_flag);
 	if (phydev->phy_led_flag == 0x1)
 		ret = phy_modify_paged_changed(phydev, 0xd04, 0x10, 0xffff, 0xC00B);
@@ -599,7 +599,7 @@ static int rtlgen_resume(struct phy_device *phydev)
 
 static int rtl8211f_probe(struct phy_device *phydev)
 {
-#if IS_ENABLED(CONFIG_ARCH_CV186X)
+#if IS_ENABLED(CONFIG_ARCH_CV186X) || IS_ENABLED(CONFIG_ARCH_CV84X6)
 	u32 sram_oem;
 	void __iomem *oem_addess;
 

@@ -194,11 +194,18 @@ static int __init dma_atomic_pool_init(void)
 	/*
 	 * If coherent_pool was not used on the command line, default the pool
 	 * sizes to 128KB per 1GB of memory, min 128KB, max MAX_ORDER-1.
+	 *
+	 * The cvitek sysDMA splits cyclic audio buffers into many small
+	 * (64-byte) LLI descriptors, each allocated from this atomic coherent
+	 * pool. High sample rates (96k/192k) need thousands of descriptors and
+	 * exhaust the tiny default pool ("Failed to get suitable pool"). Raise
+	 * the minimum to 4MB so audio playback works without a coherent_pool=
+	 * kernel command line argument.
 	 */
 	if (!atomic_pool_size) {
 		unsigned long pages = totalram_pages() / (SZ_1G / SZ_128K);
 		pages = min_t(unsigned long, pages, MAX_ORDER_NR_PAGES);
-		atomic_pool_size = max_t(size_t, pages << PAGE_SHIFT, SZ_128K);
+		atomic_pool_size = max_t(size_t, pages << PAGE_SHIFT, SZ_4M);
 	}
 	INIT_WORK(&atomic_pool_work, atomic_pool_work_fn);
 

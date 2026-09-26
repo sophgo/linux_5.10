@@ -1,3 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * cvitek_disp.c - merged driver for A2 (cv186x) and BM1684X2 (cv84x6).
+ *
+ * Main trunk = A2 baseline. All BM1684X2/cv84x6 specific code is guarded by
+ * #ifdef CONFIG_ARCH_CV84X6. When CONFIG_ARCH_CV84X6 is not defined, the driver
+ * behaves exactly as the A2 baseline.
+ */
+
 #include <linux/of_platform.h>
 #include <linux/component.h>
 #include <linux/module.h>
@@ -5,6 +14,21 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/debugfs.h>
+
+#ifdef CONFIG_ARCH_CV84X6
+#include <linux/dma-mapping.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
+#include <linux/sched.h>
+#include <linux/sched/prio.h>
+#include <uapi/linux/sched/types.h>
+#include <linux/nmi.h>
+#include <linux/rcupdate.h>
+#include <linux/hrtimer.h>
+#include <linux/math64.h>
+#endif /* CONFIG_ARCH_CV84X6 */
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
@@ -23,6 +47,48 @@
 #include "cvitek_drm.h"
 #include "cvitek_disp.h"
 
+#ifdef CONFIG_ARCH_CV84X6
+#include "vpss/scaler.h"
+#endif
+
+#ifdef CONFIG_ARCH_CV84X6
+/* ------------------- BM1684X2/cv84x6 module parameters ------------------- */
+static int disp_patgen_mode;
+module_param(disp_patgen_mode, int, 0644);
+MODULE_PARM_DESC(disp_patgen_mode, "1=patgen only, stop RDMA re-trigger; 0=normal RDMA (default)");
+
+static int refill_poll;
+module_param(refill_poll, int, 0644);
+MODULE_PARM_DESC(refill_poll, "1=poll-mode RDMA refill on CPU7 (default 0=irq refill)");
+
+static int refill_wake_ms = 8;
+module_param(refill_wake_ms, int, 0644);
+MODULE_PARM_DESC(refill_wake_ms, "poll-mode refill wake-ahead ms (default 8)");
+
+static int odma_dbg;
+module_param(odma_dbg, int, 0644);
+MODULE_PARM_DESC(odma_dbg, "1=enable ODMA writeback and dump first frames to /tmp (default 0)");
+
+static int bw_recover_prefill_us = 300;
+module_param(bw_recover_prefill_us, int, 0644);
+MODULE_PARM_DESC(bw_recover_prefill_us, "bw recover prefill delay in us before re-enabling bw_fail irq (default 300)");
+
+/*
+ * DISP data source selection (disp_sel):
+ *   -1 = auto (default): select automatically by fmt, XRGB8888 -> 32bit DMA, others -> DMA
+ *    0 = force DMA
+ *    1 = force VPSS online
+ *    2 = force 32bit DMA
+ * Select via insmod cvitek_disp.ko disp_sel_mode=1 when installing the driver.
+ */
+static int disp_sel_mode = -1;
+module_param(disp_sel_mode, int, 0644);
+MODULE_PARM_DESC(disp_sel_mode, "DISP source select: -1=auto by fmt (default), 0=DMA, 1=VPSS online, 2=32bit DMA");
+
+#define ODMA_DUMP_MAX  5
+#endif /* CONFIG_ARCH_CV84X6 */
+
+
 #define DEFINE_CSC_COEF0(a, b, c) \
 		.coef[0][0] = a, .coef[0][1] = b, .coef[0][2] = c,
 #define DEFINE_CSC_COEF1(a, b, c) \
@@ -32,13 +98,58 @@
 
 #define RETRAIN_REG        		0x281000F4
 #define GP_REG             		0x281000F8
+
+#ifdef CONFIG_ARCH_CV84X6
+#define DISP_MAX_INST           1
+#define ODMA_WB_BPP             3	/* ODMA writeback bytes/pixel (RGB888) */
+
+/*
+ * MPLL4 SSC fractional synthesizer constants (see disp_set_clk below).
+ * VCO 800~3200MHz; FBDIV fixed at 24 (driver operating point).
+ */
+#define MPLL4_FREF_KHZ	1000000u
+#define MPLL4_FBDIV	24u
+
+/* Resolution -> DISP pixel-clock config entry, looked up by disp_set_clk() */
+struct disp_clk_cfg_s {
+	u16 width;
+	u16 height;
+	u32 pixel_khz;
+	u8  div_n;
+	const char *name;
+};
+
+static const struct disp_clk_cfg_s disp_clk_tbl[] = {
+	/* width height  pixel_khz div_n  name           */
+	{ 4096, 2160, 594000,  2, "4096x2160p60" },
+	{ 3840, 2160, 594000,  2, "3840x2160p60" },
+	{ 3840, 2400, 594612,  2, "3840x2400"    },
+	{ 3440, 1440, 333000,  2, "3440x1440p60" },
+	{ 2560, 1440, 239578,  2, "2560x1440p60" },
+	{ 1920, 1080, 148500,  4, "1920x1080p60" },
+	{  720, 1280,  79200,  6, "720x1280"     },
+	{  720,  480,  27027, 44, "720x480p60"   },
+	{  640,  480,  25200, 16, "640x480p60"   },
+};
+
+static const struct disp_clk_cfg_s *disp_clk_applied;
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
 #define DISP_FPS_CNT       		10
 #define DISP_FPS_TABLE_CNT 		6
 #define DISP_MAX_INST      		2
+#endif /* CONFIG_ARCH_CV84X6 */
 
 static void *gp_reg;
 static void *retrain_reg;
 
+/*
+ * NOTE(segment 1): CSC matrices below intentionally differ between the two
+ * chips (coefficients/sub/add values). A2 keeps its own csc_mtrx; cv84x6 keeps
+ * its csc_mtrx plus the extra csc_10bit_mtrx. They are placed in exclusive
+ * #ifdef branches so only one set is compiled in.
+ */
+
+#ifdef CONFIG_ARCH_CV84X6
 static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
 	// none
 	{
@@ -48,67 +159,39 @@ static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
 		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
 		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
 	},
-	// yuv2rgb
-	// 601 Limited
-	//  R = Y + 1.402* Pr                           //
-	//  G = Y - 0.344 * Pb  - 0.792* Pr             //
-	//  B = Y + 1.772 * Pb                          //
-	{
-		DEFINE_CSC_COEF0(BIT(10),	0,		1436)
-		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 352,	BIT(13) | 731)
-		DEFINE_CSC_COEF2(BIT(10),	1815,		0)
-		.sub[0] = 0,   .sub[1] = 128, .sub[2] = 128,
-		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
-	},
-	// 601 Full
-	//  R = 1.164 *(Y - 16) + 1.596 *(Cr - 128)                     //
-	//  G = 1.164 *(Y - 16) - 0.392 *(Cb - 128) - 0.812 *(Cr - 128) //
-	//  B = 1.164 *(Y - 16) + 2.016 *(Cb - 128)                     //
+	// 601 Limited yuv2rgb
 	{
 		DEFINE_CSC_COEF0(1192,	0,		1634)
-		DEFINE_CSC_COEF1(1192,	BIT(13) | 401,	BIT(13) | 833)
-		DEFINE_CSC_COEF2(1192,	2065,		0)
+		DEFINE_CSC_COEF1(1192,	BIT(13) | 401,	BIT(13) | 831)
+		DEFINE_CSC_COEF2(1192,	2064,		0)
 		.sub[0] = 16,  .sub[1] = 128, .sub[2] = 128,
 		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
 	},
-	// 709 Limited
-	// R = Y + 1.540(Cr – 128)
-	// G = Y - 0.183(Cb – 128) – 0.459(Cr – 128)
-	// B = Y + 1.816(Cb – 128)
+	// 601 Full yuv2rgb
 	{
-		DEFINE_CSC_COEF0(BIT(10),	0,		1577)
-		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 187,	BIT(13) | 470)
-		DEFINE_CSC_COEF2(BIT(10),	1860,		0)
+		DEFINE_CSC_COEF0(BIT(10),	0,		1441)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 354,	BIT(13) | 734)
+		DEFINE_CSC_COEF2(BIT(10),	1822,		0)
 		.sub[0] = 0,   .sub[1] = 128, .sub[2] = 128,
 		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
 	},
-	// 709 Full
-	//  R = 1.164 *(Y - 16) + 1.792 *(Cr - 128)                     //
-	//  G = 1.164 *(Y - 16) - 0.213 *(Cb - 128) - 0.534 *(Cr - 128) //
-	//  B = 1.164 *(Y - 16) + 2.114 *(Cb - 128)                     //
+	// 709 Limited yuv2rgb
 	{
-		DEFINE_CSC_COEF0(1192,	0,		1836)
+		DEFINE_CSC_COEF0(1192,	0,		1835)
 		DEFINE_CSC_COEF1(1192,	BIT(13) | 218,	BIT(13) | 547)
-		DEFINE_CSC_COEF2(1192,	2166,		0)
+		DEFINE_CSC_COEF2(1192,	2165,		0)
 		.sub[0] = 16,  .sub[1] = 128, .sub[2] = 128,
 		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
 	},
-	// rgb2yuv
-	// 601 Limited
-	//  Y = 0.299 * R + 0.587 * G + 0.114 * B       //
-	// Pb =-0.169 * R - 0.331 * G + 0.500 * B       //
-	// Pr = 0.500 * R - 0.419 * G - 0.081 * B       //
+	// 709 Full yuv2rgb
 	{
-		DEFINE_CSC_COEF0(306,		601,		117)
-		DEFINE_CSC_COEF1(BIT(13)|173,	BIT(13)|339,	512)
-		DEFINE_CSC_COEF2(512,		BIT(13)|429,	BIT(13)|83)
-		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
-		.add[0] = 0,   .add[1] = 128, .add[2] = 128
+		DEFINE_CSC_COEF0(BIT(10),	0,		1613)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 191,	BIT(13) | 479)
+		DEFINE_CSC_COEF2(BIT(10),	1901,		0)
+		.sub[0] = 0,   .sub[1] = 128, .sub[2] = 128,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
 	},
-	// 601 Full
-	//  Y = 16  + 0.257 * R + 0.504 * g + 0.098 * b //
-	// Cb = 128 - 0.148 * R - 0.291 * g + 0.439 * b //
-	// Cr = 128 + 0.439 * R - 0.368 * g - 0.071 * b //
+	// 601 Limited rgb2yuv
 	{
 		DEFINE_CSC_COEF0(263,		516,		100)
 		DEFINE_CSC_COEF1(BIT(13)|152,	BIT(13)|298,	450)
@@ -116,10 +199,165 @@ static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
 		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
 		.add[0] = 16,  .add[1] = 128, .add[2] = 128
 	},
-	// 709 Limited
-	//   Y =       0.2126   0.7152   0.0722
-	//  Cb = 128 - 0.1146  -0.3854   0.5000
-	//  Cr = 128 + 0.5000  -0.4542  -0.0468
+	// 601 Full rgb2yuv
+	{
+		DEFINE_CSC_COEF0(306,		601,		117)
+		DEFINE_CSC_COEF1(BIT(13)|173,	BIT(13)|339,	512)
+		DEFINE_CSC_COEF2(512,		BIT(13)|429,	BIT(13)|83)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 128, .add[2] = 128
+	},
+	// 709 Limited rgb2yuv
+	{
+		DEFINE_CSC_COEF0(187,		629,		63)
+		DEFINE_CSC_COEF1(BIT(13)|103,	BIT(13)|347,	450)
+		DEFINE_CSC_COEF2(450,		BIT(13)|408,	BIT(13)|41)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 16,  .add[1] = 128, .add[2] = 128
+	},
+	// 709 Full rgb2yuv
+	{
+		DEFINE_CSC_COEF0(218,		733,		74)
+		DEFINE_CSC_COEF1(BIT(13)|117,	BIT(13)|395,	512)
+		DEFINE_CSC_COEF2(512,		BIT(13)|465,	BIT(13)|47)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 128, .add[2] = 128
+	},
+};
+
+static struct disp_csc_matrix csc_10bit_mtrx[DISP_CSC_MAX] = {
+	// none
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		0)
+		DEFINE_CSC_COEF1(0,		BIT(10),	0)
+		DEFINE_CSC_COEF2(0,		0,		BIT(10))
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Limited yuv2rgb
+	{
+		DEFINE_CSC_COEF0(1192,	0,		1634)
+		DEFINE_CSC_COEF1(1192,	BIT(13) | 401,	BIT(13) | 831)
+		DEFINE_CSC_COEF2(1192,	2064,		0)
+		.sub[0] = 64,  .sub[1] = 512, .sub[2] = 512,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Full yuv2rgb
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		1441)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 354,	BIT(13) | 734)
+		DEFINE_CSC_COEF2(BIT(10),	1822,		0)
+		.sub[0] = 0,   .sub[1] = 512, .sub[2] = 512,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 709 Limited yuv2rgb
+	{
+		DEFINE_CSC_COEF0(1192,	0,		1835)
+		DEFINE_CSC_COEF1(1192,	BIT(13) | 218,	BIT(13) | 547)
+		DEFINE_CSC_COEF2(1192,	2165,		0)
+		.sub[0] = 64,  .sub[1] = 512, .sub[2] = 512,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 709 Full yuv2rgb
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		1613)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 191,	BIT(13) | 479)
+		DEFINE_CSC_COEF2(BIT(10),	1901,		0)
+		.sub[0] = 0,   .sub[1] = 512, .sub[2] = 512,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Limited rgb2yuv
+	{
+		DEFINE_CSC_COEF0(263,		516,		100)
+		DEFINE_CSC_COEF1(BIT(13)|152,	BIT(13)|298,	450)
+		DEFINE_CSC_COEF2(450,		BIT(13)|377,	BIT(13)|73)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 64,  .add[1] = 512, .add[2] = 512
+	},
+	// 601 Full rgb2yuv
+	{
+		DEFINE_CSC_COEF0(306,		601,		117)
+		DEFINE_CSC_COEF1(BIT(13)|173,	BIT(13)|339,	512)
+		DEFINE_CSC_COEF2(512,		BIT(13)|429,	BIT(13)|83)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 512, .add[2] = 512
+	},
+	// 709 Limited rgb2yuv
+	{
+		DEFINE_CSC_COEF0(187,		629,		63)
+		DEFINE_CSC_COEF1(BIT(13)|103,	BIT(13)|347,	450)
+		DEFINE_CSC_COEF2(450,		BIT(13)|408,	BIT(13)|41)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 64,  .add[1] = 512, .add[2] = 512
+	},
+	// 709 Full rgb2yuv
+	{
+		DEFINE_CSC_COEF0(218,		733,		74)
+		DEFINE_CSC_COEF1(BIT(13)|117,	BIT(13)|395,	512)
+		DEFINE_CSC_COEF2(512,		BIT(13)|465,	BIT(13)|47)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 512, .add[2] = 512
+	},
+};
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
+static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
+	// none
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		0)
+		DEFINE_CSC_COEF1(0,		BIT(10),	0)
+		DEFINE_CSC_COEF2(0,		0,		BIT(10))
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Limited yuv2rgb
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		1436)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 352,	BIT(13) | 731)
+		DEFINE_CSC_COEF2(BIT(10),	1815,		0)
+		.sub[0] = 0,   .sub[1] = 128, .sub[2] = 128,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Full yuv2rgb
+	{
+		DEFINE_CSC_COEF0(1192,	0,		1634)
+		DEFINE_CSC_COEF1(1192,	BIT(13) | 401,	BIT(13) | 833)
+		DEFINE_CSC_COEF2(1192,	2065,		0)
+		.sub[0] = 16,  .sub[1] = 128, .sub[2] = 128,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 709 Limited yuv2rgb
+	{
+		DEFINE_CSC_COEF0(BIT(10),	0,		1577)
+		DEFINE_CSC_COEF1(BIT(10),	BIT(13) | 187,	BIT(13) | 470)
+		DEFINE_CSC_COEF2(BIT(10),	1860,		0)
+		.sub[0] = 0,   .sub[1] = 128, .sub[2] = 128,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 709 Full yuv2rgb
+	{
+		DEFINE_CSC_COEF0(1192,	0,		1836)
+		DEFINE_CSC_COEF1(1192,	BIT(13) | 218,	BIT(13) | 547)
+		DEFINE_CSC_COEF2(1192,	2166,		0)
+		.sub[0] = 16,  .sub[1] = 128, .sub[2] = 128,
+		.add[0] = 0,   .add[1] = 0,   .add[2] = 0
+	},
+	// 601 Limited rgb2yuv
+	{
+		DEFINE_CSC_COEF0(306,		601,		117)
+		DEFINE_CSC_COEF1(BIT(13)|173,	BIT(13)|339,	512)
+		DEFINE_CSC_COEF2(512,		BIT(13)|429,	BIT(13)|83)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 0,   .add[1] = 128, .add[2] = 128
+	},
+	// 601 Full rgb2yuv
+	{
+		DEFINE_CSC_COEF0(263,		516,		100)
+		DEFINE_CSC_COEF1(BIT(13)|152,	BIT(13)|298,	450)
+		DEFINE_CSC_COEF2(450,		BIT(13)|377,	BIT(13)|73)
+		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
+		.add[0] = 16,  .add[1] = 128, .add[2] = 128
+	},
+	// 709 Limited rgb2yuv
 	{
 		DEFINE_CSC_COEF0(218,		732,		74)
 		DEFINE_CSC_COEF1(BIT(13)|117,	BIT(13)|395,	512)
@@ -127,10 +365,7 @@ static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
 		.sub[0] = 0,   .sub[1] = 0,   .sub[2] = 0,
 		.add[0] = 0,   .add[1] = 128, .add[2] = 128
 	},
-	// 709 Full
-	//  Y = 16  + 0.183 * R + 0.614 * g + 0.062 * b //
-	// Cb = 128 - 0.101 * R - 0.339 * g + 0.439 * b //
-	// Cr = 128 + 0.439 * R - 0.399 * g - 0.040 * b //
+	// 709 Full rgb2yuv
 	{
 		DEFINE_CSC_COEF0(187,		629,		63)
 		DEFINE_CSC_COEF1(BIT(13)|103,	BIT(13)|347,	450)
@@ -139,6 +374,7 @@ static struct disp_csc_matrix csc_mtrx[DISP_CSC_MAX] = {
 		.add[0] = 16,  .add[1] = 128, .add[2] = 128
 	},
 };
+#endif /* CONFIG_ARCH_CV84X6 */
 
 static const struct disp_pattern patterns[DISP_PAT_MAX] = {
 	{.type = DISP_PAT_TYPE_OFF,	.color = DISP_PAT_COLOR_MAX},
@@ -153,6 +389,7 @@ static const struct disp_pattern patterns[DISP_PAT_MAX] = {
 	{.type = DISP_PAT_TYPE_FULL, .color = DISP_PAT_COLOR_USR,
 	.rgb = {0, 0, 0} },
 };
+
 
 static void disp_reg_shadow_sel(u8 disp_id, bool read_shadow)
 {
@@ -174,16 +411,22 @@ static void disp_reg_set_shadow_mask(struct disp_hw_ctx *ctx, bool shadow_mask)
 
 void disp_set_fde_bgcolor(u8 disp_id, u16 r, u16 g, u16 b)
 {
+#ifdef CONFIG_ARCH_CV84X6
+	_reg_write_mask(REG_DISP_PAT_COLOR1(disp_id), 0x0fff0000, r << 16);
+	_reg_write(REG_DISP_PAT_COLOR2(disp_id), b << 16 | g);
+#else
 	_reg_write_mask(REG_DISP_PAT_COLOR1(disp_id), 0x3ff0000, r << 16);
 	_reg_write_mask(REG_DISP_PAT_COLOR2(disp_id), 0x3ff03ff, b << 16 | g);
+#endif
 }
 
 void disp_set_window_bgcolor(u8 disp_id, u16 r, u16 g, u16 b)
 {
+#ifndef CONFIG_ARCH_CV84X6
 	// fde
 	_reg_write_mask(REG_DISP_PAT_COLOR1(disp_id), 0x03ff0000, r << 16);
 	_reg_write(REG_DISP_PAT_COLOR2(disp_id), b << 16 | g);
-
+#endif
 	// mde
 	_reg_write(REG_DISP_PAT_COLOR3(disp_id), g << 16 | r);
 	_reg_write_mask(REG_DISP_PAT_COLOR4(disp_id), 0x0fff, b);
@@ -194,17 +437,121 @@ void disp_enable_window_bgcolor(u8 disp_id, bool enable)
 	_reg_write_mask(REG_DISP_PAT_CFG(disp_id), 0x20, enable ? 0x20 : 0);
 }
 
-static bool disp_tgen_enable(u8 disp_id, bool enable)
+/*
+ * disp_tgen_enable: unified signature for both chips.
+ * cv84x6 uses an rdma_trig/tgen-full state machine; A2 just toggles the enable
+ * bit. Body is split by CONFIG_ARCH_CV84X6; call sites are chip-agnostic.
+ */
+static bool disp_tgen_enable(struct disp_hw_ctx *ctx, bool enable)
 {
-	bool is_enable = (_reg_read(REG_DISP_CFG(disp_id)) & 0x80);
+	u8 disp_id = ctx->disp_id;
+	bool is_enable;
 
+#ifdef CONFIG_ARCH_CV84X6
+	int loop_count = 0;
+	bool need_rdma_trig;
+	bool tgen_full;
+	unsigned int rdma_frame = 0, tgen_frame = 0;
+#endif
+
+	is_enable = (_reg_read(REG_DISP_CFG(disp_id)) & 0x80);
+
+#ifdef CONFIG_ARCH_CV84X6
+	if (is_enable != enable) {
+		if (enable) {
+			// rdma trg --> tgen full --> tgen on
+			need_rdma_trig = (!ctx->rdma_trig_done || ctx->fmt_changed);
+
+			ctx->disp_rdma_on = 1;
+
+			if (need_rdma_trig) {
+				_reg_write(REG_TRIG_LINE_NUM(disp_id), BIT(16));
+				_reg_write(REG_DISP_RDMA_TRIG(disp_id), 0x1);
+				ctx->rdma_trig_done = true;
+				ctx->fmt_changed = false;
+
+				tgen_full = _reg_read(REG_DISP_DEBUG_STATUS(disp_id)) & BIT(6);
+				loop_count = 0;
+
+				// Wait for tgen to be full
+				while (tgen_full == 0) {
+					tgen_full = _reg_read(REG_DISP_DEBUG_STATUS(ctx->disp_id)) & (1 << 6);
+					if (tgen_full) {
+						DRM_DEBUG("%s%d:----- Tgen Full, loop_count = %d -----\n", __func__, __LINE__, loop_count);
+						break;
+					}
+
+					if (++loop_count > 200) {
+						DRM_ERROR("Error: tgen_full wait loop exceeded 200 iterations\n");
+						return false;
+					}
+					udelay(100);
+				 }
+			}
+
+			// tgen enable
+			_reg_write_mask(REG_DISP_CFG(disp_id), 0x80, 0x80);
+
+			/* A new display round begins; reset the bw recovery state */
+			ctx->bw_restoration = 0;
+
+			if (refill_poll) {
+				ctx->refill_cnt = 0;
+				ctx->refill_anchor_valid = false;
+				ctx->refill_fail_dumped = false;
+				ctx->poll_snap_seq = 0;
+				ctx->refill_trig_cnt = 0;
+				ctx->refill_trig_min_us = 0;
+				ctx->refill_trig_max_us = 0;
+				ctx->refill_trig_sum_us = 0;
+				_reg_write(REG_DISP_INTER_SEL(disp_id), 0x0);
+				ctx->refill_active = true;
+			}
+		} else {
+			// rdma trg off --> rdma frame num = tgen frame num --> tgen off
+			ctx->disp_rdma_on = 0;
+
+			if (refill_poll)
+				ctx->refill_active = false;
+
+			// Wait for rdma frame number to equal tgen frame number.
+			loop_count = 0;
+			while (1) {
+				rdma_frame = _reg_read(REG_FRAME_RDMA_CNT(disp_id));
+				tgen_frame = _reg_read(REG_FRAME_TGEN_CNT(disp_id));
+
+				if (tgen_frame >= rdma_frame) {
+					_reg_write_mask(REG_DISP_CFG(disp_id), 0x0080, 0x00);
+					break;
+				}
+
+				if (++loop_count > 20) {
+					DRM_ERROR("Error: rdma/tgen frame number wait loop exceeded 10 iterations\n");
+					return false;
+				}
+				udelay(200);
+			}
+			_reg_write(REG_FRAME_CNT_CLR(disp_id), 0x1);
+		}
+	}
+
+	if (is_enable && enable &&
+	    (ctx->fmt_changed || !ctx->disp_rdma_on || !ctx->rdma_trig_done)) {
+		ctx->disp_rdma_on = 1;
+		_reg_write(REG_DISP_RDMA_TRIG(disp_id), 0x1);
+		ctx->rdma_trig_done = true;
+		ctx->fmt_changed = false;
+
+		udelay(100);
+	}
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
 	if (is_enable != enable) {
 		_reg_write_mask(REG_DISP_CFG(disp_id), 0x0080,
 				enable ? 0x80 : 0x00);
 	}
+#endif /* CONFIG_ARCH_CV84X6 */
 
 	is_enable = (_reg_read(REG_DISP_CFG(disp_id)) & 0x80);
-
 	return is_enable;
 }
 
@@ -224,6 +571,15 @@ static void disp_set_addr(struct disp_hw_ctx *ctx, u64 addr0, u64 addr1, u64 add
 
 static void disp_set_csc(u8 disp_id, struct disp_csc_matrix *cfg)
 {
+#ifdef CONFIG_ARCH_CV84X6
+	_reg_write(REG_DISP_IN_CSC0(disp_id), (cfg->coef[0][1] << 16) | (cfg->coef[0][0]));
+	_reg_write(REG_DISP_IN_CSC1(disp_id), (cfg->coef[1][0] << 16) | (cfg->coef[0][2]));
+	_reg_write(REG_DISP_IN_CSC2(disp_id), (cfg->coef[1][2] << 16) | (cfg->coef[1][1]));
+	_reg_write(REG_DISP_IN_CSC3(disp_id), (cfg->coef[2][1] << 16) | (cfg->coef[2][0]));
+	_reg_write(REG_DISP_IN_CSC4(disp_id), (cfg->coef[2][2]));
+	_reg_write(REG_DISP_IN_CSC5(disp_id), (cfg->sub[2] << 16) | (cfg->sub[1] << 8) | cfg->sub[0]);
+	_reg_write(REG_DISP_IN_CSC6(disp_id), BIT(31) | (cfg->add[2] << 16) | (cfg->add[1] << 8) | cfg->add[0]);
+#else
 	_reg_write(REG_DISP_IN_CSC0(disp_id), BIT(31) |
 		   (cfg->coef[0][1] << 16) | (cfg->coef[0][0]));
 	_reg_write(REG_DISP_IN_CSC1(disp_id),
@@ -239,18 +595,59 @@ static void disp_set_csc(u8 disp_id, struct disp_csc_matrix *cfg)
 	_reg_write(REG_DISP_IN_CSC_ADD(disp_id),
 		   (cfg->add[2] << 16) | (cfg->add[1] << 8) |
 		   cfg->add[0]);
+#endif
 }
 
 static void disp_set_in_csc(struct disp_hw_ctx *ctx, enum disp_csc csc)
 {
+#ifdef CONFIG_ARCH_CV84X6
+	if (csc == DISP_CSC_NONE)
+		_reg_write(REG_DISP_IN_CSC6(ctx->disp_id), 0);
+	else if (csc < DISP_CSC_MAX)
+		disp_set_csc(ctx->disp_id, &csc_mtrx[csc]);
+#else
 	if (csc == DISP_CSC_NONE)
 		_reg_write(REG_DISP_IN_CSC0(ctx->disp_id), 0);
 	else if (csc < DISP_CSC_MAX)
 		disp_set_csc(ctx->disp_id, &csc_mtrx[csc]);
+#endif
 
 	ctx->disp_cfg.in_csc = csc;
 }
 
+#ifdef CONFIG_ARCH_CV84X6
+static void disp_set_10bit_csc(u8 disp_id, struct disp_csc_matrix *cfg)
+{
+	_reg_write(REG_DISP_IN_10BIT_CSC0(disp_id),
+		   (cfg->coef[0][1] << 16) | (cfg->coef[0][0]));
+	_reg_write(REG_DISP_IN_10BIT_CSC1(disp_id),
+		   (cfg->coef[1][0] << 16) | (cfg->coef[0][2]));
+	_reg_write(REG_DISP_IN_10BIT_CSC2(disp_id),
+		   (cfg->coef[1][2] << 16) | (cfg->coef[1][1]));
+	_reg_write(REG_DISP_IN_10BIT_CSC3(disp_id),
+		   (cfg->coef[2][1] << 16) | (cfg->coef[2][0]));
+	_reg_write(REG_DISP_IN_10BIT_CSC4(disp_id), (cfg->coef[2][2]));
+	_reg_write(REG_DISP_IN_10BIT_CSC5(disp_id),
+		   (cfg->sub[2] << 20) | (cfg->sub[1] << 10) |
+		   cfg->sub[0]);
+	_reg_write(REG_DISP_IN_10BIT_CSC6(disp_id), BIT(31) |
+		   (cfg->add[2] << 20) | (cfg->add[1] << 10) |
+		   cfg->add[0]);
+}
+
+static void disp_set_in_10bit_csc(struct disp_hw_ctx *ctx, enum disp_csc csc)
+{
+	if (csc == DISP_CSC_NONE) {
+		_reg_write(REG_DISP_IN_10BIT_CSC6(ctx->disp_id), 0);
+	} else if (csc < DISP_CSC_MAX) {
+		disp_set_10bit_csc(ctx->disp_id, &csc_10bit_mtrx[csc]);
+	}
+
+	ctx->disp_cfg.in_csc = csc;
+}
+#endif /* CONFIG_ARCH_CV84X6 */
+
+/* Common (both chips) but currently disabled helpers. */
 #if 0
 static void disp_set_out_csc(struct disp_hw_ctx *ctx, enum disp_csc csc)
 {
@@ -323,7 +720,7 @@ static void disp_set_pattern(u8 disp_id, enum disp_pat_type type,
 
 static void drm_timing_to_cvi_timing(u8 disp_id, struct disp_timing *timing, struct drm_display_mode *mode)
 {
-	u32 hfp, hbp, hsw, vfp, vbp, vsw;
+	unsigned int hfp, hbp, hsw, vfp, vbp, vsw;
 
 	timing->width = mode->hdisplay;
 	timing->height = mode->vdisplay;
@@ -346,18 +743,16 @@ static void drm_timing_to_cvi_timing(u8 disp_id, struct disp_timing *timing, str
 	timing->hsync_end = timing->hsync_start + hsw - 1;
 	timing->hfde_start = timing->hmde_start = timing->hsync_start + hsw + hbp;
 	timing->hfde_end = timing->hmde_end = timing->hfde_start + timing->width - 1;
-
 }
 
-static void disp_set_mode_timing(struct disp_hw_ctx *ctx,
-			     struct drm_display_mode *adj_mode)
+static void disp_set_mode_timing(struct disp_hw_ctx *ctx, struct drm_display_mode *adj_mode)
 {
 	u8 disp_id = ctx->disp_id;
 	u32 tmp = 0;
 
 	drm_timing_to_cvi_timing(ctx->disp_id, &ctx->disp_timing, adj_mode);
 
-	disp_tgen_enable(disp_id, false);
+	disp_tgen_enable(ctx, false);
 
 	if (adj_mode->flags & DRM_MODE_FLAG_NVSYNC)
 		tmp |= 0x20;
@@ -382,9 +777,11 @@ static void disp_set_mode_timing(struct disp_hw_ctx *ctx,
 
 	// force update
 	_reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x10000, 1 << 16);
+#ifndef CONFIG_ARCH_CV84X6
 	_reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x10000, 1 << 16);
 
-	disp_tgen_enable(disp_id, true);
+	disp_tgen_enable(ctx, true);
+#endif
 }
 
 /* convert from fourcc format to disp format */
@@ -419,11 +816,421 @@ static u32 vgop_get_format(u32 pixel_format)
 
 static void disp_set_framedone_interrupt(u8 disp_id, bool enable)
 {
+#ifdef CONFIG_ARCH_CV84X6
+	if (refill_poll)
+		enable = false;
+
+	_reg_write(REG_DISP_INT_ENABLE(disp_id), enable ? (odma_dbg ? 0x1F : 0x1B) : 0x0);
+	_reg_write(REG_DISP_INT_MASK(disp_id), 0x7F);
+#else
 	// enable or disable frame done intr
 	_reg_write(REG_DISP_INTER_SEL(disp_id), enable ? 0x2 : 0x0);
 	// frame done mask
 	_reg_write_mask(REG_DISP_INTER_CLR(disp_id), 0xff00, 0x3 << 8);
+#endif
 }
+
+#ifdef CONFIG_ARCH_CV84X6
+/*
+ * disp_calc_reg_set - compute the MPLL4 SSC reg_set from the target pixel
+ * clock (kHz) and the CLKGEN div_n.
+ *   reg_set = round( F_REF * FBDIV * 2^26 / (pixel_khz * div_n) )
+ */
+static u32 disp_calc_reg_set(u32 pixel_khz, u8 div_n)
+{
+	u64 mpll4 = (u64)pixel_khz * div_n;	/* MPLL4_out, kHz */
+	u64 num = (u64)MPLL4_FREF_KHZ * MPLL4_FBDIV;
+
+	num <<= 26;
+	num += mpll4 >> 1;
+
+	return (u32)div64_u64(num, mpll4);
+}
+
+// BM1684X2 disp0 : DISP pixel clock via MPLL4 SSC fractional synthesizer
+void disp_set_clk(u8 inst, u16 width, u16 height)
+{
+	const struct disp_clk_cfg_s *cfg = NULL;
+	u32 mpll4_on, mpll4_off, div_reg, reg_val;
+	u32 reg_set;
+	u8  div_n;
+	u32 timeout;
+	unsigned int i;
+
+	if (inst != 0) {
+		DRM_INFO("[CLK] disp_set_clk: inst %d not supported\n", inst);
+		return;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(disp_clk_tbl); i++) {
+		if (disp_clk_tbl[i].width == width &&
+		    disp_clk_tbl[i].height == height) {
+			cfg = &disp_clk_tbl[i];
+			break;
+		}
+	}
+	if (cfg == NULL) {
+		DRM_ERROR("[CLK] disp_set_clk: unsupported %dx%d\n", width, height);
+		return;
+	}
+
+	div_n = cfg->div_n;
+	reg_set = disp_calc_reg_set(cfg->pixel_khz, div_n);
+
+	/*
+	 * Repeated modeset at the same resolution (same reg_set/div_n): the clock
+	 * does not change, so skip directly without disturbing the PLL. The table
+	 * entries are static const, so equal pointers mean identical config.
+	 */
+	if (cfg == disp_clk_applied) {
+		DRM_INFO("[CLK] disp_set_clk %dx%d (%s): unchanged, keep PLL\n",
+			width, height, cfg->name);
+		return;
+	}
+
+	if (!sys_ctrl_base) {
+		DRM_ERROR("[CLK] disp_set_clk: sys_ctrl_base not mapped\n");
+		return;
+	}
+
+	/* mpll4_ctrl: FBDIV=24, REFDIV=1, POSTDIV1=0(/1), POSTDIV2=1(/1) */
+	mpll4_on  = (1u << 1) | (1u << 2) | (1u << 3) |
+		    (24u << 4) | (1u << 16) |
+		    (1u << 22) | (1u << 23) | (0u << 24) | (1u << 28);
+	mpll4_off = mpll4_on & ~(1u << 22);   /* clk_en = 0 during config */
+
+	/* CLKGEN Divider_0_for_clk_vo_disp: factor[23:16]=N, sel_factor(bit3)=1,
+	 * branch_enable(bit4)=1  -> mask 0xff0018 */
+	div_reg = ((u32)div_n << 16) | 0x18;
+
+	DRM_INFO("[CLK] disp_set_clk %dx%d (%s): pixel=%ukHz reg_set=0x%08x CLKGEN /%d\n",
+		width, height, cfg->name, cfg->pixel_khz, reg_set, div_n);
+
+	// Step 1: gate DISP clock downstream
+	_reg_write_mask(VO_SYS_CLK_ENABLE, BIT(20), 0x0);
+	_reg_write_mask(VO_SYS_CLK_DIV_DISP0, BIT(0), 0x0);
+
+	// Step 2: cut PLL->clkgen path (clk_en=0)
+	_reg_write(TOP_MISC_MPLL4_CTRL, mpll4_off);
+
+	// Step 3: program SSC fractional divider (spreading OFF)
+	reg_val = _reg_read(TOP_MISC_MPLL4_SSC_0);
+	reg_val &= ~((1u << 1) | (0x3u << 2) | (1u << 4));
+	_reg_write(TOP_MISC_MPLL4_SSC_0, reg_val);
+
+	// set fractional ratio
+	_reg_write(TOP_MISC_MPLL4_SSC_1, reg_set);
+	// pulse sw_up(bit0) to latch the new reg_set (w1t)
+	_reg_write(TOP_MISC_MPLL4_SSC_0, reg_val | (1u << 0));
+	udelay(1);
+
+	// Step 4: re-enable PLL clk and wait for relock
+	_reg_write(TOP_MISC_MPLL4_CTRL, mpll4_on);
+	timeout = 100000;
+	while (!(_reg_read(TOP_MISC_PLL_STATUS) & MPLL4_LOCK_BIT) &&
+	       timeout--)
+		;
+	if (timeout == 0xFFFFFFFF)
+		DRM_ERROR("[CLK] WARN: MPLL4 lock timeout, pll_status=0x%08x\n",
+			_reg_read(TOP_MISC_PLL_STATUS));
+	else
+		DRM_INFO("[CLK] MPLL4 locked, ctrl=0x%08x\n",
+			_reg_read(TOP_MISC_MPLL4_CTRL));
+
+	// Step 5: set CLKGEN divider and re-enable clock
+	_reg_write_mask(VO_SYS_CLK_DIV_DISP0, 0xff0018, div_reg);
+	_reg_write_mask(VO_SYS_CLK_DIV_DISP0, BIT(0), 0x1);
+	_reg_write_mask(VO_SYS_CLK_ENABLE, BIT(20), BIT(20));
+
+	DRM_INFO("[CLK] VO_SYS_CLK_DIV_DISP0=0x%08x, disp0 %s ready\n",
+		_reg_read(VO_SYS_CLK_DIV_DISP0), cfg->name);
+
+	disp_clk_applied = cfg;
+}
+#endif /* CONFIG_ARCH_CV84X6 */
+
+
+static void disp_crtc_finish_page_flip(struct cvitek_crtc *crtc)
+{
+	struct drm_device *dev = crtc->base.dev;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	if (crtc->event) {
+		drm_crtc_send_vblank_event(&crtc->base, crtc->event);
+		drm_crtc_vblank_put(&crtc->base);
+		crtc->event = NULL;
+	}
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+}
+
+#ifdef CONFIG_ARCH_CV84X6
+/* ===================== Polling refill (refill_poll=1) ===================== */
+
+/* Frame timing / recovery constants for the polling-refill thread. */
+#define REFILL_FRAME_PERIOD_US	16667	/* 720x480@60: frame period 16.67ms */
+#define REFILL_BLIND_GRACE_US	2000	/* blind fallback: grace after the predicted point with no done */
+/* Max frames to wait for hardware recover_en after a bw_fail; beyond this the
+ * software forces recovery to avoid the picture freezing permanently. */
+#define DISP_BW_RECOVER_MAX_WAIT_FRAMES  60
+
+/* Offset table for the lean register snapshot at a bw_fail site (pure readl, no side effects) */
+static const u16 disp_dump_off_tbl[] = {
+	0x0000, 0x0004, 0x0008, 0x000c, 0x0010, 0x0014, 0x0018, 0x001c,
+	0x0020, 0x0030, 0x0034, 0x0038, 0x003c, 0x0040, 0x0044, 0x0048,
+	0x004c, 0x0050, 0x0054, 0x0058, 0x005c, 0x0060, 0x0064, 0x0070,
+	0x0200, 0x0204, 0x0208, 0x020c, 0x0250, 0x0254,
+	0x0260, 0x0264, 0x0268, 0x026c, 0x0270,
+};
+
+/* bw_fail / on-site diagnostics: print a one-line status summary + a dump of key registers (readl only) */
+static void disp_poll_snapshot_lean(struct disp_hw_ctx *ctx, unsigned int seq, s64 ms,
+				    const char *tag)
+{
+	unsigned int id = ctx->disp_id;
+	void __iomem *base = REG_DISP_BASE(id);
+	u32 dbg      = _reg_read(REG_DISP_DEBUG_STATUS(id));
+	u32 rdma_cnt = _reg_read(REG_FRAME_RDMA_CNT(id));
+	u32 tgen_cnt = _reg_read(REG_FRAME_TGEN_CNT(id));
+	u32 rdma_st  = _reg_read(REG_RDMA_ST(id));
+	char buf[16 * 14 + 32];
+	int i, n = 0;
+
+	DRM_ERROR("disp%d: [%s#%u] t=%lldms DBG=0x%08x[bw=%d rdma=%d tgen=%d wrap=%d str=%d] "
+		  "RDMA_CNT=%u TGEN_CNT=%u RDMA_ST=0x%x refill_cnt=%llu bwf=%d\n",
+		  id, tag, seq, ms, dbg,
+		  !!(dbg & BIT(4)), !!(dbg & BIT(3)), !!(dbg & BIT(1)),
+		  !!(dbg & BIT(6)), !!(dbg & BIT(0)),
+		  rdma_cnt, tgen_cnt, rdma_st,
+		  ctx->refill_cnt, ctx->refill_fail_dumped);
+
+	buf[0] = '\0';
+	for (i = 0; i < ARRAY_SIZE(disp_dump_off_tbl); i++) {
+		n += sprintf(buf + n, " %04x:%08x",
+			     disp_dump_off_tbl[i],
+			     _reg_read(base + disp_dump_off_tbl[i]));
+		if ((i & 15) == 15 || i == ARRAY_SIZE(disp_dump_off_tbl) - 1) {
+			DRM_ERROR("disp%d: [%s#%u]%s\n", id, tag, seq, buf);
+			n = 0;
+			buf[0] = '\0';
+		}
+	}
+}
+
+/*
+ * Polling-refill thread (refill_poll=1): pinned to CPU7, SCHED_FIFO.
+ * See original BM1684X2 driver for the full rationale.
+ */
+static int disp_refill_fn(void *data)
+{
+	struct disp_hw_ctx *ctx = data;
+	struct sched_param sp = { .sched_priority = MAX_RT_PRIO / 2 };
+	unsigned int spin = 0;
+
+	sched_setscheduler(current, SCHED_FIFO, &sp);
+
+	while (!kthread_should_stop()) {
+		unsigned long flags;
+		u32 s, clr = 0;
+		bool need_vblank = false, hit_bwfail = false, trigged = false;
+		ktime_t wake_at;
+
+		/* Idle period: truly sleep so RCU/watchdog stay healthy */
+		if (!ctx->refill_active) {
+			set_current_state(TASK_INTERRUPTIBLE);
+			schedule_timeout(msecs_to_jiffies(20));
+			continue;
+		}
+
+		/* Wide-window predictive sleep */
+		if (ctx->refill_anchor_valid) {
+			wake_at = ktime_add_us(ctx->refill_last_done,
+					       REFILL_FRAME_PERIOD_US
+					       - (u32)refill_wake_ms * 1000);
+			set_current_state(TASK_INTERRUPTIBLE);
+			schedule_hrtimeout(&wake_at, HRTIMER_MODE_ABS);
+			spin = 0;
+		} else {
+			set_current_state(TASK_INTERRUPTIBLE);
+			schedule_timeout(usecs_to_jiffies(2000) ?: 1);
+			spin = 0;
+		}
+
+		/* Busy-wait wide window */
+		{
+			ktime_t busy_start = ktime_get();
+		for (;;) {
+			ktime_t ts_seen;
+
+			local_irq_save(flags);
+			s = _reg_read(REG_DISP_DEBUG_STATUS(ctx->disp_id));
+
+			// rdma_done: only clear the bit, no trigger
+			if (s & BIT(3))
+				clr |= BIT(3);
+
+			// tgen_done: clear + issue RDMA_TRIG to refill
+			if (s & BIT(1)) {
+				u32 d_us;
+
+				clr |= BIT(1);
+				need_vblank = true;
+				ts_seen = ktime_get();
+				_reg_write(REG_DISP_RDMA_TRIG(ctx->disp_id), 0x1);
+				ctx->refill_cnt++;
+				ctx->refill_last_done = ts_seen;
+				ctx->refill_anchor_valid = true;
+
+				/* done->TRIG latency stats (min/avg/max) */
+				d_us = ktime_to_us(ktime_sub(ktime_get(), ts_seen));
+				if (!ctx->refill_trig_cnt || d_us < ctx->refill_trig_min_us)
+					ctx->refill_trig_min_us = d_us;
+				if (d_us > ctx->refill_trig_max_us)
+					ctx->refill_trig_max_us = d_us;
+				ctx->refill_trig_sum_us += d_us;
+				ctx->refill_trig_cnt++;
+				trigged = true;
+			}
+
+			// bw_fail: clear + record the site (do NOT stop polling)
+			if (s & BIT(4)) {
+				clr |= BIT(4);
+				hit_bwfail = true;
+				need_vblank = true;
+				ctx->refill_last_done = ktime_get();
+				ctx->refill_anchor_valid = true;
+				ctx->refill_fail_ts       = ktime_get();
+				ctx->refill_fail_hvcnt    = _reg_read(REG_FRAME_HVCNT(ctx->disp_id));
+				ctx->refill_fail_rdma_cnt = _reg_read(REG_FRAME_RDMA_CNT(ctx->disp_id));
+				ctx->refill_fail_tgen_cnt = _reg_read(REG_FRAME_TGEN_CNT(ctx->disp_id));
+				ctx->refill_fail_status   = s;
+				ctx->refill_fail_axi      = _reg_read(REG_DISP_AXI_CFG(ctx->disp_id));
+				ctx->refill_fail_fifo     = _reg_read(REG_DISP_FIFO(ctx->disp_id));
+				ctx->refill_fail_inten    = _reg_read(REG_DISP_INT_ENABLE(ctx->disp_id));
+				ctx->refill_fail_rdma_st  = _reg_read(REG_RDMA_ST(ctx->disp_id));
+			}
+
+			if (clr)
+				_reg_write(REG_DISP_DEBUG_STATUS(ctx->disp_id), clr);
+			local_irq_restore(flags);
+
+			if (trigged || hit_bwfail)
+				break;
+
+			/* Blind fallback */
+			if (ctx->refill_anchor_valid &&
+			    ktime_after(ktime_get(),
+					ktime_add_us(ctx->refill_last_done,
+						     REFILL_FRAME_PERIOD_US
+						     + REFILL_BLIND_GRACE_US))) {
+				local_irq_save(flags);
+				_reg_write(REG_DISP_RDMA_TRIG(ctx->disp_id), 0x1);
+				local_irq_restore(flags);
+				ctx->refill_cnt++;
+				ctx->refill_last_done = ktime_get();
+				DRM_WARN("disp%d: [REFILL] blind TRIG (no done in window)\n",
+					 ctx->disp_id);
+				break;
+			}
+
+			/* Busy-wait anti-hang */
+			if (++spin >= 512) {
+				spin = 0;
+				touch_softlockup_watchdog();
+				rcu_all_qs();
+			}
+			udelay(1);
+
+			/* Absolute busy-wait cap: never busy-wait more than 25ms */
+			if (ktime_us_delta(ktime_get(), busy_start) > 25000)
+				break;
+		}
+		}
+
+		/* handle_vblank/finish_page_flip take their own locks internally */
+		if (need_vblank && ctx->refill_crtc) {
+			drm_crtc_handle_vblank(ctx->refill_crtc);
+			disp_crtc_finish_page_flip(to_cvitek_crtc(ctx->refill_crtc));
+		}
+
+		/* done->TRIG latency stats: print one line every 60 frames */
+		if (trigged && ctx->refill_trig_cnt &&
+		    (ctx->refill_trig_cnt % 60) == 0) {
+			u32 avg = (u32)div64_u64(ctx->refill_trig_sum_us,
+					       ctx->refill_trig_cnt);
+			DRM_INFO("disp%d: [REFILL] done->trig min=%u avg=%u max=%u us (n=%llu)\n",
+				 ctx->disp_id, ctx->refill_trig_min_us, avg,
+				 ctx->refill_trig_max_us, ctx->refill_trig_cnt);
+		}
+
+		if (hit_bwfail) {
+			if (!ctx->refill_fail_dumped) {
+				ctx->refill_fail_dumped = true;
+				DRM_ERROR("disp%d: [REFILL-BWFAIL] survived %llu frames status=0x%x HVCNT=0x%x "
+					  "RDMA_CNT=%u TGEN_CNT=%u AXI=0x%x FIFO=0x%x INT_EN=0x%x RDMA_ST=0x%x\n",
+					  ctx->disp_id,
+					  ctx->refill_cnt,
+					  ctx->refill_fail_status, ctx->refill_fail_hvcnt,
+					  ctx->refill_fail_rdma_cnt, ctx->refill_fail_tgen_cnt,
+					  ctx->refill_fail_axi, ctx->refill_fail_fifo,
+					  ctx->refill_fail_inten, ctx->refill_fail_rdma_st);
+				disp_poll_snapshot_lean(ctx, ctx->poll_snap_seq++,
+					ktime_to_ms(ktime_get()),
+					"PSNAP-BWFAIL");
+			}
+			continue;
+		}
+	}
+	return 0;
+}
+
+static irqreturn_t disp_irq_handler(int irq, void *data)
+{
+	struct device *disp_dev = data;
+	struct cvitek_disp *cvitek_disp = dev_get_drvdata(disp_dev);
+	struct disp_hw_ctx *ctx = cvitek_disp->hw_ctx;
+	union disp_intr_status intr_status;
+
+	intr_status.raw = _reg_read(REG_DISP_INT_STATUS(ctx->disp_id));
+	if (!intr_status.raw)
+		return IRQ_NONE;
+
+	_reg_write(REG_DISP_INT_STATUS(ctx->disp_id), intr_status.raw);
+
+	if (intr_status.b.disp_bw_fail && !ctx->bw_restoration) {
+		_reg_write_mask(REG_DISP_INT_MASK(ctx->disp_id), BIT(4), 0);
+		ctx->bw_restoration = 1;
+		DRM_DEBUG_DRIVER("disp %d: bw failed\n", ctx->disp_id);
+	}
+
+	if (intr_status.b.rdma_frame_done && !intr_status.b.disp_bw_fail &&
+	    !disp_patgen_mode && ctx->disp_rdma_on &&
+	    !ctx->bw_restoration)
+		_reg_write(REG_DISP_RDMA_TRIG(ctx->disp_id), 0x1);
+
+	if (intr_status.b.tgen_frame_done) {
+		if (ctx->bw_restoration &&
+		    (_reg_read(REG_DISP_INTER_RECOVER_EN(ctx->disp_id)) & 1)) {
+			ctx->bw_restoration = 0;
+			_reg_write(REG_TRIG_LINE_NUM(ctx->disp_id), 0x10000);
+			_reg_write(REG_DISP_RDMA_TRIG(ctx->disp_id), 0x1);
+			_reg_write_mask(REG_DISP_INT_MASK(ctx->disp_id), BIT(4), BIT(4));
+		}
+
+		if (ctx->vblank_enabled) {
+			drm_crtc_handle_vblank(&cvitek_disp->ccrtc.base);
+			disp_crtc_finish_page_flip(&cvitek_disp->ccrtc);
+		}
+	}
+
+	if (intr_status.b.odma_frame_done) {
+		if (ctx->odma_enabled && ctx->odma_dump_cnt < ODMA_DUMP_MAX)
+			schedule_work(&ctx->odma_work);
+	}
+
+	return IRQ_HANDLED;
+}
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
 
 static union disp_dbg_status disp_dbg_status(u8 disp_id)
 {
@@ -463,20 +1270,6 @@ static void disp_intr_clr(u8 disp_id, union disp_intr intr_clr)
 
 	if (intr_clr.b.fifo_full_error)
 		_reg_write_mask(REG_DISP_ODMA_FIFO_CFG(disp_id), BIT(9), BIT(9));
-}
-
-static void disp_crtc_finish_page_flip(struct cvitek_crtc *crtc)
-{
-	struct drm_device *dev = crtc->base.dev;
-	unsigned long flags;
-
-	spin_lock_irqsave(&dev->event_lock, flags);
-	if (crtc->event) {
-		drm_crtc_send_vblank_event(&crtc->base, crtc->event);
-		drm_crtc_vblank_put(&crtc->base);
-		crtc->event = NULL;
-	}
-	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
 
 u64 timespec64_to_us(struct timespec64 *disp_time_spec)
@@ -600,6 +1393,8 @@ static irqreturn_t disp_irq_handler(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+#endif /* CONFIG_ARCH_CV84X6 */
+
 
 static int disp_crtc_enable_vblank(struct drm_crtc *crtc)
 {
@@ -608,6 +1403,9 @@ static int disp_crtc_enable_vblank(struct drm_crtc *crtc)
 
 	DRM_DEBUG_DRIVER("---- enter disp crtc enable vblank. ----\n");
 
+#ifdef CONFIG_ARCH_CV84X6
+	ctx->vblank_enabled = true;
+#endif
 	disp_set_framedone_interrupt(ctx->disp_id, true);
 
 	return 0;
@@ -618,9 +1416,17 @@ static void disp_crtc_disable_vblank(struct drm_crtc *crtc)
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
 
+#ifdef CONFIG_ARCH_CV84X6
+	/*
+	 * Only stop the software vblank reporting, not the hardware interrupt, to prevent DRM's
+	 * idle disable_vblank from breaking the RDMA refill chain and blanking the screen.
+	 */
+	ctx->vblank_enabled = false;
+#else
 	DRM_DEBUG_DRIVER("---- enter disp crtc disable vblank. ----\n");
 
 	disp_set_framedone_interrupt(ctx->disp_id, false);
+#endif
 }
 
 static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc *crtc,
@@ -630,6 +1436,30 @@ static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc
 	struct drm_color_lut *lut = NULL;
 	uint32_t i, r, g, b, word;
 
+#ifdef CONFIG_ARCH_CV84X6
+	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x06, 0x06);
+
+	if (!crtc->state->gamma_lut) {
+		_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x06, 0x00);
+		return;
+	}
+
+	// Write gamma LUT
+	lut = (struct drm_color_lut *)crtc->state->gamma_lut->data;
+
+	for (i = 0; i < crtc->gamma_size; ++i) {
+		r = drm_color_lut_extract(lut[i].red, 10);
+		g = drm_color_lut_extract(lut[i].green, 10);
+		b = drm_color_lut_extract(lut[i].blue, 10);
+		word = r | (g << 10) | (b << 20);
+		_reg_write(REG_DISP_GAMMA_WR_LUT(ctx->disp_id), word);
+		_reg_write(REG_DISP_GAMMA_WR_LUT(ctx->disp_id), (1 << 7) | i);
+	}
+
+	// Disable gamma table control and enable gamma table
+	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x06, 0x00);
+	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x09, 0x01);
+#else
 	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x03);
 
 	if (!crtc->state->gamma_lut) {
@@ -650,7 +1480,7 @@ static void disp_crtc_write_gamma_lut(struct cvitek_crtc *ccrtc, struct drm_crtc
 
 	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x03, 0x00);
 	_reg_write_mask(REG_DISP_GAMMA_CTRL(ctx->disp_id), 0x0C, 0x04);
-
+#endif
 }
 
 static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
@@ -658,15 +1488,22 @@ static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
 {
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
+#ifndef CONFIG_ARCH_CV84X6
 	bool is_enable;
+#endif
 
 	DRM_DEBUG_DRIVER("---- enter disp crtc atomic enable. ----\n");
 
 	disp_enable_window_bgcolor(ctx->disp_id, false);
 
-	is_enable = disp_tgen_enable(ctx->disp_id, true);
+#ifdef CONFIG_ARCH_CV84X6
+	// set intr
+	disp_set_framedone_interrupt(ctx->disp_id, true);
+#else
+	is_enable = disp_tgen_enable(ctx, true);
 	while (is_enable != true)
-		is_enable = disp_tgen_enable(ctx->disp_id, true);
+		is_enable = disp_tgen_enable(ctx, true);
+#endif
 
 	// if the state have a GAMMA LUT, need to update
 	if (crtc->state->gamma_lut)
@@ -702,14 +1539,31 @@ static void disp_crtc_atomic_disable(struct drm_crtc *crtc,
 	struct drm_device *drm = crtc->dev;
 	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
 	bool is_enable;
+#ifdef CONFIG_ARCH_CV84X6
+	int retry;
+#endif
 
 	DRM_DEBUG_DRIVER("---- enter disp crtc atomic disable. ----\n");
 
 	drm_crtc_vblank_off(crtc);
 
-	is_enable = disp_tgen_enable(ctx->disp_id, false);
+#ifdef CONFIG_ARCH_CV84X6
+	for (retry = 0; retry < 10; retry++) {
+		disp_tgen_enable(ctx, false);
+		is_enable = _reg_read(REG_DISP_CFG(ctx->disp_id)) & 0x80;
+		if (!is_enable)
+			break;
+		udelay(200);
+	}
+
+	if (is_enable)
+		DRM_ERROR("disp%d tgen disable failed after %d retries\n",
+			  ctx->disp_id, retry);
+#else
+	is_enable = disp_tgen_enable(ctx, false);
 	while (is_enable != false)
-		is_enable = disp_tgen_enable(ctx->disp_id, false);
+		is_enable = disp_tgen_enable(ctx, false);
+#endif
 
 	disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 	disp_enable_window_bgcolor(ctx->disp_id, true);
@@ -738,11 +1592,11 @@ static void disp_crtc_atomic_flush(struct drm_crtc *crtc,
 				  struct drm_crtc_state *old_state)
 {
 	struct cvitek_crtc *ccrtc = to_cvitek_crtc(crtc);
+#ifdef CONFIG_ARCH_CV84X6
+	struct disp_hw_ctx *ctx = ccrtc->hw_ctx;
+#endif
 
 	DRM_DEBUG_DRIVER("---- enter disp crtc atomic flush. ----\n");
-
-	// force update
-	// _reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x10000, 1 << 16);
 
 	/*
 	 * Only update GAMMA if the 'active' flag is not changed,
@@ -753,6 +1607,20 @@ static void disp_crtc_atomic_flush(struct drm_crtc *crtc,
 		disp_crtc_write_gamma_lut(ccrtc, crtc, old_state);
 	}
 
+#ifdef CONFIG_ARCH_CV84X6
+	disp_tgen_enable(ctx, true);
+
+	if (crtc->state->event) {
+		unsigned long flags;
+
+		crtc->state->event->pipe = drm_crtc_index(crtc);
+		WARN_ON(drm_crtc_vblank_get(crtc) != 0);
+		spin_lock_irqsave(&crtc->dev->event_lock, flags);
+		ccrtc->event = crtc->state->event;
+		spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+		crtc->state->event = NULL;
+	}
+#else
 	if (crtc->state->event) {
 		crtc->state->event->pipe = drm_crtc_index(crtc);
 
@@ -761,6 +1629,7 @@ static void disp_crtc_atomic_flush(struct drm_crtc *crtc,
 		ccrtc->event = crtc->state->event;
 		crtc->state->event = NULL;
 	}
+#endif
 }
 
 static int cvitek_crtc_atomic_get_property(struct drm_crtc *crtc,
@@ -904,6 +1773,7 @@ static const struct drm_crtc_funcs disp_crtc_funcs = {
 	.gamma_set = drm_atomic_helper_legacy_gamma_set,
 };
 
+
 static int disp_set_rect(struct disp_hw_ctx *ctx, struct disp_rect rect)
 {
 	if ((rect.y > ctx->disp_timing.vfde_end) ||
@@ -945,12 +1815,42 @@ static void disp_set_mem(struct disp_hw_ctx *ctx, struct disp_mem *mem)
 		   ((mem->height - 1) << 16) | (mem->width - 1));
 	_reg_write_mask(REG_DISP_PITCH_Y(ctx->disp_id), 0x00ffffff,
 			mem->pitch_y);
+#ifdef CONFIG_ARCH_CV84X6
+	_reg_write_mask(REG_DISP_PITCH_C(ctx->disp_id), 0x00ffffff,
+			mem->pitch_c);
+#else
 	_reg_write(REG_DISP_PITCH_C(ctx->disp_id), mem->pitch_c);
+#endif
 
 	disp_reg_set_shadow_mask(ctx, false);
 
 	disp_set_addr(ctx, mem->addr0, mem->addr1, mem->addr2);
 }
+
+#ifdef CONFIG_ARCH_CV84X6
+static void disp_odma_set_mem(struct disp_hw_ctx *ctx, struct disp_mem *mem)
+{
+	u64 addr0 = ctx->odma_wb_paddr, addr1 = 0, addr2 = 0;
+
+	disp_reg_set_shadow_mask(ctx, true);
+
+	_reg_write(REG_DISP_ODMA_PITCH_Y(ctx->disp_id), mem->pitch_y);
+	_reg_write(REG_DISP_ODMA_PITCH_C(ctx->disp_id), mem->pitch_c);
+
+	_reg_write(REG_DISP_ODMA_X_STR(ctx->disp_id), mem->start_x);
+	_reg_write(REG_DISP_ODMA_Y_STR(ctx->disp_id), mem->start_y);
+	_reg_write(REG_DISP_ODMA_WIDETH(ctx->disp_id), (mem->width - 1));
+	_reg_write(REG_DISP_ODMA_HEIGHT(ctx->disp_id), (mem->height - 1));
+	disp_reg_set_shadow_mask(ctx, false);
+
+	_reg_write(REG_DISP_ODMA_Y_L(ctx->disp_id), addr0);
+	_reg_write(REG_DISP_ODMA_Y_H(ctx->disp_id), addr0 >> 32);
+	_reg_write(REG_DISP_ODMA_U_L(ctx->disp_id), addr1);
+	_reg_write(REG_DISP_ODMA_U_H(ctx->disp_id), addr1 >> 32);
+	_reg_write(REG_DISP_ODMA_V_L(ctx->disp_id), addr2);
+	_reg_write(REG_DISP_ODMA_V_H(ctx->disp_id), addr2 >> 32);
+}
+#endif /* CONFIG_ARCH_CV84X6 */
 
 void disp_gop_ow_set_cfg(struct disp_hw_ctx *ctx, u8 layer, u8 window, struct disp_gop_ow_cfg *ow_cfg)
 {
@@ -979,7 +1879,6 @@ void disp_gop_set_cfg(struct disp_hw_ctx *ctx, u8 layer, struct disp_gop_cfg *cf
 	disp_reg_set_shadow_mask(ctx, true);
 
 	_reg_write(REG_DISP_GOP_CFG(ctx->disp_id, layer), cfg->gop_ctrl.raw);
-
 
 	if (cfg->gop_ctrl.b.colorkey_en)
 		_reg_write(REG_DISP_GOP_COLORKEY(ctx->disp_id, layer), cfg->colorkey);
@@ -1066,7 +1965,8 @@ static int disp_plane_atomic_check(struct drm_plane *plane,
 	return 0;
 }
 
-// To avoid bw fail
+#ifndef CONFIG_ARCH_CV84X6
+// To avoid bw fail  (A2 only)
 static void disp_set_bw_cfg(u32 fmt, unsigned int crtc_w, u32 disp_id)
 {
 	if (fmt == DISP_FORMAT_XRGB_8888) {
@@ -1092,7 +1992,330 @@ static void disp_set_bw_cfg(u32 fmt, unsigned int crtc_w, u32 disp_id)
 		_reg_write_mask(REG_DISP_PITCH_Y(disp_id), 0xff000000, 0xff << 24);
 	}
 }
+#endif /* !CONFIG_ARCH_CV84X6 */
 
+#ifdef CONFIG_ARCH_CV84X6
+/* cv84x6 only: map disp format to VPSS scaler format (for VPSS online path) */
+static enum sclr_format disp_fmt_to_sclr_fmt(u32 disp_fmt)
+{
+	switch (disp_fmt) {
+	case DISP_FORMAT_XRGB_8888:
+		return SCL_FMT_RGB_PACKED;
+	case DISP_FORMAT_RGB_888:
+		return SCL_FMT_RGB_PACKED;
+	case DISP_FORMAT_BGR_888:
+		return SCL_FMT_BGR_PACKED;
+	case DISP_FORMAT_YUV_PLANAR_420:
+		return SCL_FMT_YUV420;
+	case DISP_FORMAT_YUV_PLANAR_422:
+		return SCL_FMT_YUV422;
+	case DISP_FORMAT_NV12:
+		return SCL_FMT_NV12;
+	case DISP_FORMAT_NV21:
+		return SCL_FMT_NV21;
+	case DISP_FORMAT_NV16:
+		return SCL_FMT_YUV422SP1;
+	case DISP_FORMAT_NV61:
+		return SCL_FMT_YUV422SP2;
+	case DISP_FORMAT_YUYV:
+		return SCL_FMT_YUYV;
+	case DISP_FORMAT_YVYU:
+		return SCL_FMT_YVYU;
+	case DISP_FORMAT_UYVY:
+		return SCL_FMT_UYVY;
+	case DISP_FORMAT_VYUY:
+		return SCL_FMT_VYUY;
+	default:
+		return SCL_FMT_RGB_PACKED;
+	}
+}
+#endif /* CONFIG_ARCH_CV84X6 */
+
+/*
+ * disp_update_channel: fundamentally different between chips.
+ *   cv84x6: disp_sel (DMA / 32bit DMA / VPSS online) + ODMA writeback + new FIFO cfg
+ *   A2     : classic XRGB->vgop path + disp_set_bw_cfg
+ */
+#ifdef CONFIG_ARCH_CV84X6
+static void disp_update_channel(struct cvitek_plane *cplane,
+			       enum drm_plane_type type,
+			       struct drm_framebuffer *fb, int crtc_x,
+			       int crtc_y, unsigned int crtc_w,
+			       unsigned int crtc_h, u32 src_x,
+			       u32 src_y, u32 src_w, u32 src_h)
+{
+	struct disp_hw_ctx *ctx = cplane->hw_ctx;
+	u32 disp_id = ctx->disp_id;
+	struct drm_gem_cma_object *cma_obj;
+	u32 ch = cplane->ch;
+	struct disp_rect rect;
+	dma_addr_t addr;
+	u32 fmt, i, bytesperpixel;
+	u8 hscl = 0, vscl = 0, ow_c;
+	u8 disp_sel = 0, tgen_status = 0;
+	u32 fifo_cfg;
+
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+	memset(&ctx->debugfs_disp_state[disp_id].dump_info, 0, sizeof(struct disp_dump_info));
+	if (type == DRM_PLANE_TYPE_PRIMARY && (fb->format->format != DRM_FORMAT_XRGB8888))
+		ctx->debugfs_disp_state[disp_id].dump_info.primary_fmt = fb->format->format;
+
+	ctx->debugfs_disp_state[disp_id].dump_info.width = fb->width;
+	ctx->debugfs_disp_state[disp_id].dump_info.height = fb->height;
+	ctx->debugfs_disp_state[disp_id].dump_info.hsub = fb->format->hsub;
+	ctx->debugfs_disp_state[disp_id].dump_info.vsub = fb->format->vsub;
+#endif
+
+	if (type == DRM_PLANE_TYPE_PRIMARY) {
+		//fmt
+		fmt = disp_get_format(fb->format->format);
+
+		// disp_sel: When disp_sel_mode < 0, auto-select base on fmt;
+		if (disp_sel_mode < 0)
+			disp_sel = (fmt == DISP_FORMAT_XRGB_8888 ? DISP_SEL_DMA_32BIT : DISP_SEL_DMA);
+		else
+			disp_sel = disp_sel_mode;
+
+		if (fmt != ctx->current_fmt) {
+			ctx->fmt_changed = true;
+			ctx->current_fmt = fmt;
+
+			if (ctx->vo_sys_inited) {
+				_reg_write_mask(REG_VO_SYS_IP_RESET, 0x80, 0x80);
+				udelay(50);
+				_reg_write_mask(REG_VO_SYS_IP_RESET, 0x80, 0x00);
+				udelay(100);
+
+				tgen_status = _reg_read(REG_DISP_CFG(ctx->disp_id)) & 0x80;
+				if (tgen_status) {
+					_reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x0080, 0x00);
+					_reg_write_mask(REG_DISP_CFG(ctx->disp_id), 0x10000, 1 << 16);
+				}
+			}
+		}
+
+		switch(fmt) {
+			case DISP_FORMAT_XRGB_8888:
+				_reg_write_mask(REG_DISP_CFG(disp_id), DISP_CFG_FMT_SEL_MASK,
+						(DISP_FMT_SEL_32B_X_8888_PACKED << DISP_FMT_SEL_32B_SHIFT) | disp_sel);
+				disp_set_in_10bit_csc(ctx, DISP_CSC_NONE);
+				break;
+			case DISP_FORMAT_YUV_PLANAR_420:
+			case DISP_FORMAT_YUV_PLANAR_422:
+			case DISP_FORMAT_NV21:
+			case DISP_FORMAT_NV12:
+			case DISP_FORMAT_NV61:
+			case DISP_FORMAT_NV16:
+			case DISP_FORMAT_UYVY:
+			case DISP_FORMAT_VYUY:
+			case DISP_FORMAT_YUYV:
+			case DISP_FORMAT_YVYU:
+				_reg_write_mask(REG_DISP_CFG(disp_id), DISP_CFG_FMT_SEL_MASK,
+						(fmt << DISP_FMT_SEL_SHIFT) | disp_sel);
+				disp_set_in_csc(ctx, DISP_CSC_601_LIMIT_YUV2RGB);
+				break;
+			case DISP_FORMAT_RGB_888:
+			case DISP_FORMAT_BGR_888:
+				_reg_write_mask(REG_DISP_CFG(disp_id), DISP_CFG_FMT_SEL_MASK,
+						(fmt << DISP_FMT_SEL_SHIFT) | disp_sel);
+				disp_set_in_csc(ctx, DISP_CSC_NONE);
+				break;
+			default:
+				DRM_ERROR(" fmt:(%d) is not support\n", fmt);
+				break;
+		}
+
+		if (odma_dbg && !ctx->odma_wb_vaddr) {
+			ctx->odma_dump_cnt = 0;
+			ctx->odma_wb_size = src_w * src_h * ODMA_WB_BPP;
+			ctx->odma_wb_vaddr = dma_alloc_coherent(fb->dev->dev,
+					ctx->odma_wb_size, &ctx->odma_wb_paddr,
+					GFP_KERNEL);
+			if (ctx->odma_wb_vaddr) {
+				ctx->odma_enabled = true;
+				DRM_INFO("odma wb buf: %ux%u, %u bytes, paddr=0x%pad\n",
+					 src_w, src_h, ctx->odma_wb_size,
+					 &ctx->odma_wb_paddr);
+			} else {
+				ctx->odma_enabled = false;
+				DRM_ERROR("failed to alloc odma wb buf (%u bytes)\n",
+					  ctx->odma_wb_size);
+			}
+		}
+
+		if (ctx->odma_enabled) {
+			_reg_write(REG_DISP_ODMA_CFG(disp_id), (fmt << 8) | (1 << 25) | (1 << 24) | (1));
+			_reg_write(REG_CSC_ODMA_8(ctx->disp_id), 0);
+			_reg_write(REG_DISP_ODMA_REG_18(disp_id), DISP_8B10B_MAP_HIGH); // 8b->10b [data, 2'b0]
+		}
+
+		_reg_write(REG_8B10B_MAP(disp_id), DISP_8B10B_MAP_HIGH); // 8b->10b [data, 2'b0]
+
+		/*
+		 * BW fail optimization: for packed RGB (XRGB8888/RGB888/BGR888),
+		 * enable reg_pck_lb_serial (bit31) to borrow the line buffers of
+		 * the other two channels.
+		 */
+		if (fmt == DISP_FORMAT_XRGB_8888 ||
+		    fmt == DISP_FORMAT_RGB_888 ||
+		    fmt == DISP_FORMAT_BGR_888)
+			fifo_cfg = DISP_FIFO_PCK_LB_SERIAL |
+				   (DISP_FIFO_PR_TH_Y_DEFAULT << DISP_FIFO_PR_TH_Y_SHIFT) |
+				   (DISP_FIFO_RD_TH_Y_PCK << DISP_FIFO_RD_TH_Y_SHIFT);
+		else
+			fifo_cfg = (DISP_FIFO_PR_TH_Y_DEFAULT << DISP_FIFO_PR_TH_Y_SHIFT) |
+				   (DISP_FIFO_RD_TH_Y_NONPCK << DISP_FIFO_RD_TH_Y_SHIFT);
+		_reg_write(REG_DISP_FIFO(disp_id), fifo_cfg);
+
+		_reg_write(REG_DISP_FIFO_C(disp_id), DISP_FIFO_C_TH_MAX);
+		_reg_write(REG_DISP_AXI_CFG(disp_id), DISP_AXI_CFG_64B_ALIGN | DISP_AXI_CFG_BURST_LN(0xF) | DISP_AXI_CFG_OS_MAX(0xF));
+
+		rect.x = crtc_x;
+		rect.y = crtc_y;
+		rect.w = crtc_w;
+		rect.h = crtc_h;
+		disp_set_rect(ctx, rect);
+
+		for (i = 0; i < fb->format->num_planes; i++) {
+			cma_obj = drm_fb_cma_get_gem_obj(fb, i);
+			addr = cma_obj->paddr + fb->offsets[i];
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+			ctx->debugfs_disp_state[disp_id].dump_info.cma_object_vaddr[i] =
+				(u64)(cma_obj->vaddr + fb->offsets[i]);
+			ctx->debugfs_disp_state[disp_id].dump_info.pitches[i] = fb->pitches[i];
+#endif
+			if (i == 0)
+				ctx->disp_cfg.mem.addr0 = addr;
+			else if (i == 1)
+				ctx->disp_cfg.mem.addr1 = addr;
+			else
+				ctx->disp_cfg.mem.addr2 = addr;
+		}
+
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+		if (fmt == DISP_FORMAT_XRGB_8888)
+			ctx->debugfs_disp_state[disp_id].dump_info.primary_xr24 = true;
+#endif
+
+		ctx->disp_cfg.mem.pitch_y = fb->pitches[0];
+		ctx->disp_cfg.mem.pitch_c = fb->pitches[1];
+		ctx->disp_cfg.mem.start_x = src_x;
+		ctx->disp_cfg.mem.start_y = src_y;
+		ctx->disp_cfg.mem.width = src_w;
+		ctx->disp_cfg.mem.height = src_h;
+
+		if (ctx->odma_enabled) {
+			struct disp_mem odma_mem = ctx->disp_cfg.mem;
+
+			odma_mem.pitch_y = ctx->disp_cfg.mem.width * ODMA_WB_BPP;
+			odma_mem.pitch_c = 0;
+			odma_mem.start_x = 0;
+			odma_mem.start_y = 0;
+			disp_odma_set_mem(ctx, &odma_mem);
+		}
+
+		disp_set_mem(ctx, &ctx->disp_cfg.mem);
+
+		if (disp_sel == DISP_SEL_VPSS_ONLINE) {
+			enum sclr_format sfmt = disp_fmt_to_sclr_fmt(fmt);
+
+			cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
+			vpss_disp_online_single(VPSS_VO, src_w, src_h, sfmt,
+						cma_obj->paddr, false, false);
+		}
+
+		ctx->vo_sys_inited = true;
+	} else {
+		ctx->disp_vgop_status[ch - 1] = 1;
+		ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.burst = 15;
+		hscl = ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.hscl_en;
+		vscl = ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.b.vscl_en;
+
+		cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
+		addr = cma_obj->paddr + fb->offsets[0];
+		fmt = vgop_get_format(fb->format->format);
+		bytesperpixel = (fmt == VGOP_FORMAT_ARGB8888) ? 4 : 2;
+
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+		ctx->debugfs_disp_state[disp_id].dump_info.cma_object_vaddr[0] =
+			(u64)(cma_obj->vaddr + fb->offsets[0]);
+		ctx->debugfs_disp_state[disp_id].dump_info.pitches[0] = fb->pitches[0];
+		ctx->debugfs_disp_state[disp_id].dump_info.overlay = true;
+#endif
+
+		if (!(ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.raw & 0xff)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].gop_ctrl.raw |= 1;
+			ow_c = 0;
+		} else {
+			ow_c = ctx->disp_cfg.gop_cfg[ch - 1].ow_fb_id;
+		}
+
+		if (crtc_x < 0) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = 0;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = crtc_w;
+		} else if (((crtc_x + crtc_w) > ctx->disp_timing.width)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = crtc_x - 1;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = ctx->disp_timing.width - crtc_x + 1;
+		} else {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x = crtc_x;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w = crtc_w;
+		}
+
+		if (crtc_y < 0) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = 0;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].addr -= ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].pitch * crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h + crtc_y;
+		} else if (((crtc_y + crtc_h) > ctx->disp_timing.height)) {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = ctx->disp_timing.height - crtc_y;
+		} else {
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
+			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h;
+		}
+
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h = crtc_h;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].fmt = fmt;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].addr = addr;
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].pitch = fb->pitches[0];
+
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.x = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x +
+			(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w << hscl) - hscl;
+
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.y = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y +
+			(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h << vscl) - vscl;
+
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.w =
+			ALIGN(ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w * bytesperpixel, 16);
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h = ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h;
+
+		disp_gop_ow_set_cfg(ctx, ch - 1, ow_c, &ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c]);
+
+		DRM_INFO("channel%d:imgsize(%d,%d) mem_size:(%d, %d)",
+		ch, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].mem_size.h);
+		DRM_INFO("channel%d: vgop(%d):(%d, %d)-%dx%d end(%d, %d) fmt:(%d)",
+		ch, ow_c, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.x, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.w, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h,
+		ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.x, ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].end.y, fmt);
+
+		disp_gop_set_cfg(ctx, ch - 1, &ctx->disp_cfg.gop_cfg[ch - 1]);
+	}
+
+#if defined(CONFIG_CVITEK_DRM_DEBUG)
+	if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_KEEP ||
+		ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_ONCE ||
+		ctx->debugfs_disp_state[disp_id].disp_dump_times > 0) {
+		if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_ONCE)
+			ctx->debugfs_disp_state[disp_id].disp_dump_status = DUMP_DISABLE;
+		else if (ctx->debugfs_disp_state[disp_id].disp_dump_status == DUMP_MULTI)
+			ctx->debugfs_disp_state[disp_id].disp_dump_times--;
+
+		cvitek_drm_dump_plane_buffer(&ctx->debugfs_disp_state[disp_id].dump_info,
+			ctx->debugfs_disp_state[disp_id].frame_count++);
+	}
+#endif
+}
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
 static void disp_update_channel(struct cvitek_plane *cplane,
 			       enum drm_plane_type type,
 			       struct drm_framebuffer *fb, int crtc_x,
@@ -1274,8 +2497,13 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].addr -= ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].pitch * crtc_y;
 			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h + crtc_y;
 		} else if (((crtc_y + crtc_h) > ctx->disp_timing.height)) {
-			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
-			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = ctx->disp_timing.height - crtc_y;
+			if (crtc_y >= ctx->disp_timing.height) {
+				ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = ctx->disp_timing.height - 1;
+				ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = 1;
+			} else {
+				ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
+				ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = ctx->disp_timing.height - crtc_y;
+			}
 		} else {
 			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].start.y = crtc_y;
 			ctx->disp_cfg.gop_cfg[ch - 1].ow_cfg[ow_c].img_size.h = crtc_h;
@@ -1330,6 +2558,7 @@ static void disp_update_channel(struct cvitek_plane *cplane,
 			ch, src_x, src_y, src_w, src_h,
 			crtc_x, crtc_y, crtc_w, crtc_h, fmt);
 }
+#endif /* CONFIG_ARCH_CV84X6 */
 
 static void disp_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_plane_state *old_state)
@@ -1354,7 +2583,9 @@ static void disp_plane_atomic_update(struct drm_plane *plane,
 			   state->src_w >> 16, state->src_h >> 16);
 
 	disp_enable_window_bgcolor(ctx->disp_id, false);
+#ifndef CONFIG_ARCH_CV84X6
 	disp_set_fde_bgcolor(ctx->disp_id, ctx->bg_rgb[0], ctx->bg_rgb[1], ctx->bg_rgb[2]);
+#endif
 
 	/*cover cfg*/
 	for(i = 0; i < CVITEK_MAX_COVER_NUM; i++)
@@ -1371,12 +2602,20 @@ static void disp_plane_atomic_disable(struct drm_plane *plane,
 	int primary_plane = 0;
 	int i;
 
+#ifdef CONFIG_ARCH_CV84X6
+	_reg_write(REG_DISP_PAT_CFG(ctx->disp_id), 0x07010008); // close color bar
+#else
 	DRM_DEBUG_DRIVER("---- enter disp plane atomic disable. ----\n");
+#endif
 
 	if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+#ifdef CONFIG_ARCH_CV84X6
+		_reg_write(REG_CHANNEL_SWAP(ctx->disp_id), 0x0);
+#endif
 		disp_set_addr(ctx, 0, 0, 0);
 		disp_set_window_bgcolor(ctx->disp_id, 0, 0, 0);
 		disp_enable_window_bgcolor(ctx->disp_id, true);
+
 		if (ctx->disp_vgop_status[primary_plane] == 1) {
 			memset(&ctx->disp_cfg.gop_cfg[0], 0, sizeof(struct disp_gop_cfg));
 			disp_gop_set_cfg(ctx, primary_plane, &ctx->disp_cfg.gop_cfg[0]);
@@ -1497,6 +2736,35 @@ static int cvitek_atomic_plane_get_property(struct drm_plane *plane,
 
 	return -EINVAL;
 }
+
+#ifdef CONFIG_ARCH_CV84X6
+static void odma_dump_work_handler(struct work_struct *work)
+{
+	struct disp_hw_ctx *ctx = container_of(work, struct disp_hw_ctx, odma_work);
+	struct file *file;
+	char file_name[80];
+	loff_t pos = 0;
+	u32 idx;
+
+	if (ctx->odma_dump_cnt >= ODMA_DUMP_MAX || !ctx->odma_wb_vaddr)
+		return;
+
+	idx = ctx->odma_dump_cnt++;
+
+	snprintf(file_name, sizeof(file_name),
+		 "/tmp/odma_disp%d_frame%u_rgb888.bin", ctx->disp_id, idx);
+
+	file = filp_open(file_name, O_RDWR | O_CREAT | O_TRUNC, 0644);
+	if (!IS_ERR(file)) {
+		kernel_write(file, ctx->odma_wb_vaddr, ctx->odma_wb_size, &pos);
+		fput(file);
+		DRM_INFO("odma dump: %s (%u bytes, frame %u/%u)\n",
+			 file_name, ctx->odma_wb_size, idx + 1, ODMA_DUMP_MAX);
+	} else {
+		DRM_ERROR("odma dump: open %s failed\n", file_name);
+	}
+}
+#endif /* CONFIG_ARCH_CV84X6 */
 
 static int disp_gamma_show(struct seq_file *s, void *data)
 {
@@ -1715,6 +2983,7 @@ static struct drm_plane_funcs disp_plane_funcs = {
 
 };
 
+
 static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device *dev, struct drm_crtc *crtc,
 			       struct drm_plane *prim_plane, struct drm_plane *cursor_plane,
 			       const struct disp_match_data *match_data)
@@ -1929,11 +3198,37 @@ static void *disp_hw_ctx_alloc(struct platform_device *pdev)
 	for (i = 0; i < CVITEK_MAX_PLANE; i++)
 		ctx->disp_vgop_status[i] = 0;
 
+#ifdef CONFIG_ARCH_CV84X6
+	ret = devm_request_irq(dev, ctx->irq, disp_irq_handler,
+			       IRQF_SHARED, dev->driver->name, dev);
+	if (ret)
+		return ERR_PTR(-EIO);
+
+	/* odma writeback init */
+	ctx->odma_enabled = false;
+	INIT_WORK(&ctx->odma_work, odma_dump_work_handler);
+
+	ctx->refill_active = false;
+	ctx->refill_crtc = NULL;
+	ctx->refill_thread = NULL;
+	if (refill_poll) {
+		ctx->refill_thread = kthread_create(disp_refill_fn, ctx,
+						    "disp%d_refill", ctx->disp_id);
+		if (IS_ERR(ctx->refill_thread)) {
+			ctx->refill_thread = NULL;
+		} else {
+			kthread_bind(ctx->refill_thread, 7);
+			wake_up_process(ctx->refill_thread);
+		}
+	}
+#else
 	/* vblank irq init */
 	ret = devm_request_irq(dev, ctx->irq, disp_irq_handler,
 			       IRQF_SHARED, dev->driver->name, dev);
 	if (ret)
 		return ERR_PTR(-EIO);
+#endif /* CONFIG_ARCH_CV84X6 */
+
 	return ctx;
 }
 
@@ -1943,6 +3238,16 @@ static void disp_hw_ctx_cleanup(struct platform_device *pdev, void *hw_ctx)
 
 	if (hw_ctx) {
 		ctx = hw_ctx;
+#ifdef CONFIG_ARCH_CV84X6
+		if (ctx->refill_thread) {
+			ctx->refill_active = false;
+			kthread_stop(ctx->refill_thread);
+		}
+		cancel_work_sync(&ctx->odma_work);
+		if (ctx->odma_wb_vaddr)
+			dma_free_coherent(&pdev->dev, ctx->odma_wb_size,
+					  ctx->odma_wb_vaddr, ctx->odma_wb_paddr);
+#endif
 		if (ctx->irq)
 			disable_irq(ctx->irq);
 		devm_kfree(&pdev->dev, hw_ctx);
@@ -2013,6 +3318,10 @@ static int cvitek_disp_private_init(struct device *disp_dev, struct drm_device *
 	}
 
 	cvitek_disp->ccrtc.hw_ctx = ctx;
+
+#ifdef CONFIG_ARCH_CV84X6
+	((struct disp_hw_ctx *)ctx)->refill_crtc = &cvitek_disp->ccrtc.base;
+#endif
 
 	return 0;
 }
@@ -2088,6 +3397,32 @@ const struct component_ops cvitek_disp_ops = {
 };
 EXPORT_SYMBOL_GPL(cvitek_disp_ops);
 
+#ifdef CONFIG_ARCH_CV84X6
+struct disp_match_data cv84x6_disp0 = {
+	.crtc_id = 0,
+	.num_planes = 4,
+	.prim_plane = 0,
+	.gamma_lut_size = 65,
+	.irq_name = "disp0",
+	.primary_formats = primary_formats,
+	.primary_formats_cnt = ARRAY_SIZE(primary_formats),
+	.overlay_formats = overlay_formats,
+	.overlay_formats_cnt = ARRAY_SIZE(overlay_formats),
+	.crtc_helper_funcs = &disp_crtc_helper_funcs,
+	.crtc_funcs = &disp_crtc_funcs,
+	.plane_helper_funcs = &disp_plane_helper_funcs,
+	.plane_funcs = &disp_plane_funcs,
+
+	.alloc_hw_ctx = disp_hw_ctx_alloc,
+	.cleanup_hw_ctx = disp_hw_ctx_cleanup,
+};
+
+static const struct of_device_id disp_match_table[] = {
+	{ .compatible = "cvitek,cv84x6_disp0",
+	  .data = &cv84x6_disp0},
+	{ /* end node */ },
+};
+#else  /* !CONFIG_ARCH_CV84X6 : A2 */
 struct disp_match_data cv186x_disp0 = {
 	.crtc_id = 0,
 	.num_planes = 4,
@@ -2133,6 +3468,7 @@ static const struct of_device_id disp_match_table[] = {
 	  .data = &cv186x_disp1 },
 	{ /* end node */ },
 };
+#endif /* CONFIG_ARCH_CV84X6 */
 MODULE_DEVICE_TABLE(of, disp_match_table);
 
 static int cvitek_disp_probe(struct platform_device *pdev)
@@ -2158,3 +3494,4 @@ struct platform_driver cvitek_disp_driver = {
 		.of_match_table = disp_match_table,
 	},
 };
+

@@ -76,8 +76,14 @@ static struct snd_soc_dai_link_component cv1835_adc_cpus[] = {
 		.dai_name = "29130000.i2s",
 	},
 	{
+#if defined(CONFIG_ARCH_CV84X6)
+		.name = "29110000.i2s",
+		.dai_name = "29110000.i2s",
+#else
 		.name = "29120000.i2s",
 		.dai_name = "29120000.i2s",
+#endif
+
 	},
 };
 
@@ -98,8 +104,14 @@ static struct snd_soc_dai_link_component cv1835_adc_platform[] = {
 		.dai_name = "29130000.i2s",
 	},
 	{
+#if defined(CONFIG_ARCH_CV84X6)
+		.name = "29110000.i2s",
+		.dai_name = "29110000.i2s",
+#else
 		.name = "29120000.i2s",
 		.dai_name = "29120000.i2s",
+#endif
+
 	},
 };
 

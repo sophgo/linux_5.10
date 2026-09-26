@@ -1,6 +1,10 @@
 #ifndef __CVITEK_DISP_H__
 #define __CVITEK_DISP_H__
 
+#ifdef CONFIG_ARCH_CV84X6
+#include <linux/ktime.h>
+#include <linux/atomic.h>
+#endif
 #include "cvitek_drm_debugfs.h"
 
 #define to_cvitek_crtc(crtc) \
@@ -16,6 +20,109 @@
 #define DISP_COVER_1     		1
 #define DISP_COVER_2     		2
 #define DISP_COVER_3     		3
+
+#ifdef CONFIG_ARCH_CV84X6
+/*
+ * reg_disp_sel (bit[2:0]):
+ *   0: from DMA
+ *   1: from scaler_disp
+ *   2: from 32bit DMA
+ */
+#define DISP_SEL_SHIFT                      0
+#define DISP_SEL_MASK                       (0x7 << DISP_SEL_SHIFT)
+#define DISP_SEL_DMA                        0
+#define DISP_SEL_VPSS_ONLINE                1
+#define DISP_SEL_DMA_32BIT                  2
+
+/*
+ * reg_fmt_sel_32b (bit[11:8]): disp source from 32bit DMA:。
+ */
+#define DISP_FMT_SEL_32B_SHIFT              8
+#define DISP_FMT_SEL_32B_MASK               (0xF << DISP_FMT_SEL_32B_SHIFT)
+#define DISP_FMT_SEL_32B_YUV420_PLANAR      0x0  /* YUV420 planar */
+#define DISP_FMT_SEL_32B_NV21               0x1  /* NV21 {V,U} */
+#define DISP_FMT_SEL_32B_NV12               0x2  /* NV12 {U,V} */
+#define DISP_FMT_SEL_32B_X_2101010_PACKED   0x3  /* X###2101010 packet {X,#,#,#} */
+#define DISP_FMT_SEL_32B_2101010_X_PACKED   0x4  /* ###X2101010 packet {#,#,#,X} */
+#define DISP_FMT_SEL_32B_X_8888_PACKED      0x6  /* X###8888 packed {X,#,#,#} */
+#define DISP_FMT_SEL_32B_8888_X_PACKED      0x7  /* ###X8888 packed {#,#,#,X} */
+
+/*
+ * reg_fmt_sel (bit[15:12]): disp source from DMA:
+ *   4'h0 YUV420 planar   4'h1 YUV422 planar   4'h2 RGB888 planar
+ *   4'h3 RGB {R,G,B}     4'h4 RGB {B,G,R}     4'h5 Y only
+ *   4'h8 NV21 {V,U}      4'h9 NV12 {U,V}      4'ha YUV422-SP1{V,U}
+ *   4'hb YUV422-SP2{U,V} 4'hc YUV2-1{U,Y,V,Y} 4'hd YUV2-2{V,Y,U,Y}
+ *   4'he YUV2-3{Y,U,Y,V} 4'hf YUV2-4{Y,V,Y,U}
+ */
+#define DISP_FMT_SEL_SHIFT                  12
+#define DISP_FMT_SEL_MASK                   (0xF << DISP_FMT_SEL_SHIFT)
+#define DISP_CFG_FMT_SEL_MASK               (DISP_SEL_MASK | DISP_FMT_SEL_32B_MASK | DISP_FMT_SEL_MASK)
+
+/*
+ * REG_8B10B_MAP.reg_8b10b_map (bit[3:0]): 8bit -> 10bit data map.
+ */
+#define DISP_8B10B_MAP_SHIFT                0
+#define DISP_8B10B_MAP_MASK                 (0xF << DISP_8B10B_MAP_SHIFT)
+#define DISP_8B10B_MAP_LOW                  0x0  /* [2'b0, data]        (default) */
+#define DISP_8B10B_MAP_MID                  0x1  /* [1'b0, data, 1'b0] */
+#define DISP_8B10B_MAP_HIGH                 0x2  /* [data, 2'b0] */
+#define DISP_8B10B_MAP_REPL_HI              0x3  /* [data, data[7:6]] */
+#define DISP_8B10B_MAP_REPL_LO              0x4  /* [data, data[1:0]] */
+
+/*
+ * REG_DISP_FIFO / REG_Y_TH (0x30) fields:
+ *   reg_fifo_rd_th_y   (bit[8:0])  : read y threshold; issue a read request when buffer data drops below this
+ *   reg_fifo_pr_th_y   (bit[23:16]): read y high priority threshold
+ *   reg_pck_lb_serial  (bit31)     : whether the line buffer is serial for packed formats
+ *                                    0=not serial, 1=serial (must enable for packed RGB)
+ *
+ * BW fail optimization (4K high bandwidth): the FIFO max watermark is affected
+ * by reg_pck_lb_serial; must satisfy rd_th_y <= watermark cap - burstIn
+ * (reg_burst_ln, currently 0xF=15):
+ *   - packed and serial enabled:   cap 384 -> rd_th_y = 384 - 15 = 369 (0x171)
+ *   - non-packed (serial disabled): cap 144 -> rd_th_y = 144 - 15 = 129 (0x081)
+ */
+#define DISP_FIFO_RD_TH_Y_SHIFT             0
+#define DISP_FIFO_RD_TH_Y_MASK              (0x1FF << DISP_FIFO_RD_TH_Y_SHIFT)
+#define DISP_FIFO_PR_TH_Y_SHIFT             16
+#define DISP_FIFO_PR_TH_Y_MASK              (0xFF << DISP_FIFO_PR_TH_Y_SHIFT)
+#define DISP_FIFO_PCK_LB_SERIAL             (1U << 31)
+
+#define DISP_FIFO_RD_TH_Y_PCK               511  /* 384 - burstIn(16), serial enable */
+#define DISP_FIFO_RD_TH_Y_NONPCK            128  /* 144 - burstIn(16), serial disable */
+#define DISP_FIFO_PR_TH_Y_DEFAULT           0xFF
+
+/*
+ * REG_DISP_FIFO_C / REG_C_TH (0x34) fields:
+ *   reg_fifo_rd_th_c   (bit[7:0])  : read c threshold; issue a read request when buffer data drops below this
+ *   reg_fifo_pr_th_c   (bit[15:8]) : read c high priority threshold
+ */
+#define DISP_FIFO_RD_TH_C_SHIFT             0
+#define DISP_FIFO_RD_TH_C_MASK              (0xFF << DISP_FIFO_RD_TH_C_SHIFT)
+#define DISP_FIFO_PR_TH_C_SHIFT             8
+#define DISP_FIFO_PR_TH_C_MASK              (0xFF << DISP_FIFO_PR_TH_C_SHIFT)
+
+#define DISP_FIFO_RD_TH_C(v)                (((v) & 0xFF) << DISP_FIFO_RD_TH_C_SHIFT)
+#define DISP_FIFO_PR_TH_C(v)                (((v) & 0xFF) << DISP_FIFO_PR_TH_C_SHIFT)
+#define DISP_FIFO_C_TH_MAX                  (DISP_FIFO_RD_TH_C(0xFF) | DISP_FIFO_PR_TH_C(0xFF))
+
+/*
+ * REG_AXI_CFG (0x58) fields:
+ *   reg_os_max    (bit[3:0])  : max number of outstanding transactions
+ *   reg_burst_ln  (bit[11:8]) : burst length
+ *   reg_64b_align (bit16)     : read address 64-byte align enable
+ *                               (only effective when reg_burst_ln is 3/7/11/15)
+ */
+#define DISP_AXI_CFG_OS_MAX_SHIFT           0
+#define DISP_AXI_CFG_OS_MAX_MASK            (0xF << DISP_AXI_CFG_OS_MAX_SHIFT)
+#define DISP_AXI_CFG_BURST_LN_SHIFT         8
+#define DISP_AXI_CFG_BURST_LN_MASK          (0xF << DISP_AXI_CFG_BURST_LN_SHIFT)
+#define DISP_AXI_CFG_64B_ALIGN              (1U << 16)
+
+#define DISP_AXI_CFG_OS_MAX(v)              (((v) & 0xF) << DISP_AXI_CFG_OS_MAX_SHIFT)
+#define DISP_AXI_CFG_BURST_LN(v)            (((v) & 0xF) << DISP_AXI_CFG_BURST_LN_SHIFT)
+#endif /* CONFIG_ARCH_CV84X6 */
 
 /* cvitek-format translate table */
 struct cvitek_format {
@@ -109,6 +216,20 @@ struct disp_csc_matrix {
 	u8 add[3];
 };
 
+#ifdef CONFIG_ARCH_CV84X6
+union disp_intr_status {
+	struct {
+		u32 tgen_frame_str : 1;
+		u32 tgen_frame_done : 1;
+		u32 odma_frame_done : 1;
+		u32 rdma_frame_done : 1;
+		u32 disp_bw_fail : 1;
+		u32 odma_fifo_fail : 1;
+		u32 tgen_wrap_fifo_full : 1;
+	} b;
+	u32 raw;
+};
+#else
 union disp_intr {
 	struct {
 		u32 fifo_full_error : 1;
@@ -119,6 +240,8 @@ union disp_intr {
 	} b;
 	u32 raw;
 };
+#endif /* CONFIG_ARCH_CV84X6 */
+
 
 enum disp_csc {
 	DISP_CSC_NONE,
@@ -382,8 +505,86 @@ struct disp_hw_ctx {
 	spinlock_t disp_mask_spinlock;
 	bool primary_formats_xr24;
 	struct disp_cover_cfg cover_cfg[CVITEK_MAX_COVER_NUM];
-
 	struct debugfs_disp_state debugfs_disp_state[CVITEK_MAX_CRTC];
+#ifdef CONFIG_ARCH_CV84X6
+	bool disp_rdma_on;
+	bool rdma_trig_done;
+	/*
+	 * Flag that the previous RDMA frame is done (rdma_frame_done received).
+	 * RDMA trigger cadence: set on rdma_frame_done -> the next
+	 * tgen_frame_done triggers the next RDMA only if this is set, then clears
+	 * it. Ensures RDMA re-triggers for a frame only after the previous frame
+	 * has been fetched and the vblank cadence point is reached, avoiding
+	 * bw_fail due to data starvation.
+	 */
+	bool rdma_done_pending;
+	/*
+	 * DRM framework vblank enable state. This SoC's continuous RDMA refresh
+	 * relies on the frame-done interrupt re-triggering in the irq handler, so
+	 * the interrupt must not be disabled together with vblank. Use this flag
+	 * to control whether vblank is reported to DRM; the interrupt itself stays
+	 * always on.
+	 */
+	bool vblank_enabled;
+	/*
+	 * Whether the VO_SYS/VPSS online pipeline has already run once (hot state).
+	 * Used to decide whether a VO_SYS IP reset is needed on a repeated modeset:
+	 *   - cold start (first time): hardware initial values are clean, no reset needed;
+	 *   - hot reconfigure (already ran): residual pipeline state from last time,
+	 *     an IP reset is required before reconfiguring, otherwise the VPSS scaler
+	 *     and DISP timing get row-alignment/size mismatch -> image distortion.
+	 * Once set, this flag is NOT cleared on atomic_disable (unlike rdma_trig_done),
+	 * so a second modeset at the same resolution can still trigger an IP reset.
+	 */
+	bool vo_sys_inited;
+	u32 current_disp_sel;
+	bool disp_sel_changed;
+	u32 current_fmt;
+	bool fmt_changed;
+	int bw_restoration;         /* bw_fail recovery state: 1=waiting for hardware recover, software refill stopped */
+
+	/* interrupt-storm protection */
+	unsigned long irq_window_start;
+	u32 irq_count;
+	bool irq_disabled_by_storm;
+
+	/* odma writeback debug */
+	bool odma_enabled;
+	void *odma_wb_vaddr;
+	dma_addr_t odma_wb_paddr;
+	u32 odma_wb_size;
+	struct work_struct odma_work;
+	u32 odma_dump_cnt;   /* frames dumped so far; stop after reaching the cap (ODMA_DUMP_MAX) */
+
+	/*
+	 * Polling-refill thread (refill_poll=1): pinned to CPU7 + SCHED_FIFO,
+	 * disables all disp interrupts, busy-polls the 0x200 status register to
+	 * refill, eliminating bw_fail caused by interrupt latency.
+	 */
+	struct task_struct *refill_thread;
+	bool     refill_active;          /* set true after enable so the thread starts refilling; set false on bw_fail */
+	struct drm_crtc *refill_crtc;    /* filled in by private_init, used by handle_vblank inside the thread */
+	u64      refill_cnt;             /* number of successful refills */
+	/* bw_fail stop site: record one set when stopping, print afterwards */
+	ktime_t  refill_fail_ts;
+	u32      refill_fail_hvcnt;
+	u32      refill_fail_rdma_cnt;
+	u32      refill_fail_tgen_cnt;
+	u32      refill_fail_status;
+	u32      refill_fail_axi;         /* AXI_CFG(0x58) at bw_fail */
+	u32      refill_fail_fifo;        /* FIFO(0x30) at bw_fail */
+	u32      refill_fail_inten;       /* INT_ENABLE(0x204) at bw_fail */
+	u32      refill_fail_rdma_st;     /* RDMA_ST(0x270) at bw_fail */
+	bool     refill_fail_dumped;     /* site printed only once; also serves as "has bw_fail happened" flag */
+	/* v3 wide-window polling: phase anchor + done->TRIG latency stats */
+	ktime_t  refill_last_done;       /* time of the most recent refill (phase anchor) */
+	bool     refill_anchor_valid;    /* set true after the first frame; only then use predictive sleep */
+	u64      refill_trig_cnt;        /* number of done->TRIG latency samples */
+	u32      refill_trig_min_us;     /* done->TRIG latency min */
+	u32      refill_trig_max_us;     /* done->TRIG latency max */
+	u64      refill_trig_sum_us;     /* done->TRIG latency sum (for avg) */
+	unsigned int poll_snap_seq;      /* bw_fail site snapshot sequence number */
+#endif /* CONFIG_ARCH_CV84X6 */
 };
 
 struct cvitek_crtc {

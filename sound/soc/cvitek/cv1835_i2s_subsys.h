@@ -9,6 +9,10 @@
 #define DWI2S_CLK_CTRL0_VAL 0x1C0
 #define DWI2S_SLAVEMODE_SOURCE 0x0
 
+#define DWI2S_MODE_REG_VAL_X2 0x1c
+#define DWI2S_CLK_CTRL0_VAL_X2 0x50
+#define DWI2S_SLAVEMODE_SOURCE_X2 0x0
+
 #define SUBSYS_I2S0     (0x1 << 0)
 #define SUBSYS_I2S1     (0x1 << 1)
 #define SUBSYS_I2S2     (0x1 << 2)
@@ -43,7 +47,7 @@
 #define I2S_RESET_REG			0x1C
 #define I2S_TX_STATUS_REG		0x48
 
-#if defined(CONFIG_ARCH_CV186X)
+#if defined(CONFIG_ARCH_CV186X) || defined(CONFIG_ARCH_CV84X6)
 //#define MULTI_SYNC_0				0x20
 #define MULTI_SYNC_1				0x24
 
@@ -65,6 +69,8 @@
 #define I2S5_MASTER_CLK_CTRL1	0xac
 
 #define DW_I2S_MODE_REG			0x0c4
+#define RGE_HDMI_I2S_CLK_CTRL0	0x100
+#define RGE_HDMI_I2S_CLK_CTRL1	0x104
 #define DW_I2S_SLAVEMODE_SOURCE	0x0c8
 #define DW_I2S_CLK_CTRL0		0x0d0
 #define DW_I2S_CLK_CTRL1		0x0d4
@@ -122,4 +128,8 @@ void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1);
 
 void aud_clk_enable(void);
 void aud_clk_disable(void);
+void i2s_set_io_direction(bool i2s1_rx);
+
+void dwi2s_hdmi_set_mclk(u32 dwi2s_mode, u32 ctl0, u32 ctl1);
+
 #endif

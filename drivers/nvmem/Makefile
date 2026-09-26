@@ -56,4 +56,5 @@ nvmem_zynqmp_nvmem-y		:= zynqmp_nvmem.o
 obj-$(CONFIG_SPRD_EFUSE)	+= nvmem_sprd_efuse.o
 nvmem_sprd_efuse-y		:= sprd-efuse.o
 
-obj-$(CONFIG_SOPHON_OTP)	+= sophon-otp.o
+obj-$(CONFIG_SOPHON_88A2_OTP)	+= 88a2-otp.o
+obj-$(CONFIG_SOPHON_84X6_OTP)	+= 84x6-otp.o

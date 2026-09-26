@@ -214,12 +214,20 @@ static const struct hdmi_codec_cea_spk_alloc hdmi_codec_channel_alloc[] = {
 	/* surround50 */
 	{ .ca_id = 0x0a, .n_ch = 6,
 	  .mask = FL | FR | FC | RL | RR },
-	/* 6.1 */
-	{ .ca_id = 0x0f, .n_ch = 8,
-	  .mask = FL | FR | LFE | FC | RL | RR | RC },
+	/*
+	 * surround71 (0x13) must be listed before 6.1 (0x0f): the lookup in
+	 * hdmi_codec_get_ch_alloc_table_idx() returns the first entry whose
+	 * n_ch matches and whose speaker mask is contained in the sink ELD.
+	 * A sink that advertises RC (rear center) in its ELD would otherwise
+	 * match the 6.1 (0x0f) mask first for an 8-channel stream and report
+	 * CA=0x0f (6.1) instead of the correct CA=0x13 (7.1).
+	 */
 	/* surround71 */
 	{ .ca_id = 0x13, .n_ch = 8,
 	  .mask = FL | FR | LFE | FC | RL | RR | RLC | RRC },
+	/* 6.1 */
+	{ .ca_id = 0x0f, .n_ch = 8,
+	  .mask = FL | FR | LFE | FC | RL | RR | RC },
 	/* others */
 	{ .ca_id = 0x03, .n_ch = 8,
 	  .mask = FL | FR | LFE | FC },

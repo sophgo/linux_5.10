@@ -28,7 +28,8 @@
 #include <linux/version.h>
 #include "local.h"
 #include "cvitek_dw_i2s.h"
-#include "cv1835_i2s_subsys.h"
+#include "cv84x6_i2s_subsys.h"
+
 
 struct proc_dir_entry *proc_dwi2s_dir;
 u32 dwi2s_mode_txrx;
@@ -108,6 +109,32 @@ static void dwi2s_debug(void __iomem *i2s_base)
 	printk("DWI2S_RX0_FIFO_FLUSH:0x%x", i2s_read_reg(i2s_base, DWI2S_RX0_FIFO_FLUSH));
 	printk("DWI2S_TX0_FIFO_FLUSH:0x%x", i2s_read_reg(i2s_base, DWI2S_TX0_FIFO_FLUSH));
 	printk("==================================\n");
+}
+
+static void codec_dump_regs(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_component *component;
+	unsigned int reg_val;
+	int i, reg;
+
+	printk("========== CODEC DUMP START (dwi2s_trigger) card=%s ========== \n", card->name);
+	printk("  rtd: dai_link=%s, num_components=%d\n", rtd->dai_link->name, rtd->num_components);
+	for (i = 0; i < rtd->num_components; i++) {
+		component = rtd->components[i];
+		printk("    component[%d]: name=%s, driver_name=%s\n",
+			i, component->name, component->driver->name);
+		if (strstr(component->name, "adau1372") ||
+		    strstr(component->driver->name, "adau1372")) {
+			printk("    === ADAU1372 registers 0x00-0x4D === \n");
+			for (reg = 0x00; reg <= 0x4D; reg++) {
+				reg_val = snd_soc_component_read(component, reg);
+				printk("    [ADAU1372] 0x%02x = 0x%02x\n", reg, reg_val);
+			}
+		}
+	}
+	printk("========== CODEC DUMP END ========== \n");
 }
 
 
@@ -523,18 +550,29 @@ less than or equal to the largest configured/programmed audio resolution*/
     clk_ctrl1 |= BCLK_DIV(bclk_div);
 
 #else
+//#if defined(CONFIG_ARCH_CV84X6)
+//	audio_clk = 10000000;
+//	clk_ctrl1 = 0x40002;
+//	dev_info(dev->dev, "[dwi2s] 84x6 fpga: audio_clk=%d, clk_ctrl1=0x%08x\n", audio_clk, clk_ctrl1);
+//#else
 /*because of i2s work clk is 24576khz in fpga*/
 audio_clk = CVI_24576_MHZ;
 clk_ctrl1 |= MCLK_DIV(2);
 mclk_div = 2;
 bclk_div = (audio_clk / 1000) / (WSS_32_CLKCYCLE * (config->sample_rate / 1000) * mclk_div);
 clk_ctrl1 |= BCLK_DIV(bclk_div);
-
+//#endif
 #endif
 
     dev_info(dev->dev, "Set clock ctrl1=0x%08x, mclk_div:%d bclk_div:%d\n", clk_ctrl1, mclk_div, bclk_div);
-	/* master mode*/
+
+/* master mode*/
+#if defined(CONFIG_ARCH_CV84X6)
+    dwi2s_set_mclk(DWI2S_MODE_REG_VAL_X2, DWI2S_SLAVEMODE_SOURCE_X2, DWI2S_CLK_CTRL0_VAL_X2, clk_ctrl1);
+#else
     dwi2s_set_mclk(DWI2S_MODE_REG_VAL, DWI2S_SLAVEMODE_SOURCE, DWI2S_CLK_CTRL0_VAL, clk_ctrl1);
+#endif
+
     dwi2s_get_subsys();
 
 	dev_info(dev->dev, "[dwi2s] clken=0x%08x, clk_cfg=0x%08x, cfg_wlen=0x%08x, cfg_fifo_len=0x%08x\n",
@@ -576,9 +614,13 @@ static int cvi_dwi2s_trigger(struct snd_pcm_substream *substream,
 		dev->active++;
 		cvi_dwi2s_resume(dai);
 		dwi2s_start(dev, substream);
-dev_info(dev->dev, "[%s]0start_cmd:%d\n", __func__, cmd);
+#if 0
+		dwi2s_debug(dev->i2s_base);
+		codec_dump_regs(substream);
+#endif
+		dev_info(dev->dev, "[%s]0start_cmd:%d\n", __func__, cmd);
 		snd_pcm_stream_lock_irq(substream);
-dev_info(dev->dev, "[%s]1start_cmd:%d\n", __func__, cmd);
+		dev_info(dev->dev, "[%s]1start_cmd:%d\n", __func__, cmd);
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
@@ -588,7 +630,7 @@ dev_info(dev->dev, "[%s]1start_cmd:%d\n", __func__, cmd);
 		dev->active--;
 		dwi2s_stop(dev, substream);
 		cvi_dwi2s_suspend(dai);
-dev_info(dev->dev, "[%s]end_cmd:%d\n", __func__, cmd);
+		dev_info(dev->dev, "[%s]end_cmd:%d\n", __func__, cmd);
 //		snd_pcm_stream_lock_irq(substream);
 		break;
 	default:

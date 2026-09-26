@@ -2348,6 +2348,13 @@ retry_baser:
 	its_write_baser(its, baser, val);
 	tmp = baser->val;
 
+#if IS_ENABLED(CONFIG_CHIP_CPU_CV84X6)
+	if (tmp & GITS_BASER_SHAREABILITY_MASK)
+		tmp &= ~GITS_BASER_SHAREABILITY_MASK;
+	else
+		gic_flush_dcache_to_poc(base, PAGE_ORDER_TO_SIZE(order));
+#endif
+
 	if ((val ^ tmp) & GITS_BASER_SHAREABILITY_MASK) {
 		/*
 		 * Shareability didn't stick. Just use
@@ -3076,6 +3083,9 @@ static void its_cpu_init_lpis(void)
 
 	gicr_write_propbaser(val, rbase + GICR_PROPBASER);
 	tmp = gicr_read_propbaser(rbase + GICR_PROPBASER);
+#if IS_ENABLED(CONFIG_CHIP_CPU_CV84X6)
+	tmp &= ~GICR_PROPBASER_SHAREABILITY_MASK;
+#endif
 
 	if ((tmp ^ val) & GICR_PROPBASER_SHAREABILITY_MASK) {
 		if (!(tmp & GICR_PROPBASER_SHAREABILITY_MASK)) {
@@ -3100,6 +3110,9 @@ static void its_cpu_init_lpis(void)
 
 	gicr_write_pendbaser(val, rbase + GICR_PENDBASER);
 	tmp = gicr_read_pendbaser(rbase + GICR_PENDBASER);
+#if IS_ENABLED(CONFIG_CHIP_CPU_CV84X6)
+	tmp &= ~GICR_PENDBASER_SHAREABILITY_MASK;
+#endif
 
 	if (!(tmp & GICR_PENDBASER_SHAREABILITY_MASK)) {
 		/*
@@ -5043,6 +5056,9 @@ static int __init its_probe_one(struct resource *res,
 
 	gits_write_cbaser(baser, its->base + GITS_CBASER);
 	tmp = gits_read_cbaser(its->base + GITS_CBASER);
+#if IS_ENABLED(CONFIG_CHIP_CPU_CV84X6)
+	tmp &= ~GITS_CBASER_SHAREABILITY_MASK;
+#endif
 
 	if ((tmp ^ baser) & GITS_CBASER_SHAREABILITY_MASK) {
 		if (!(tmp & GITS_CBASER_SHAREABILITY_MASK)) {

@@ -134,13 +134,58 @@ static const char *const compat_hwcap2_str[] = {
 };
 #endif /* CONFIG_COMPAT */
 
+static const char *sophon_chip_model;
+
+static const char *sophon_get_chip_model(void)
+{
+	void __iomem *va;
+	u32 chip_id;
+	u32 chip_ver = 0;
+
+	if (sophon_chip_model)
+		return sophon_chip_model;
+
+	va = ioremap(0x28100000, sizeof(u32));
+	if (!va) {
+		sophon_chip_model = "unknown";
+		return sophon_chip_model;
+	}
+	chip_id = readl(va);
+	iounmap(va);
+
+	if (chip_id == 0x1686A200) {
+		va = ioremap(0x27102014, sizeof(u32));
+		if (va) {
+			chip_ver = readl(va) & 0x7;
+			iounmap(va);
+		}
+		if (chip_ver == 0x1)
+			sophon_chip_model = "cv186ah";
+		else
+			sophon_chip_model = "bm1688";
+	} else if (chip_id == 0x16940000) {
+		va = ioremap(0x27100210, sizeof(u32));
+		if (va) {
+			chip_ver = readl(va) & 0x3;
+			iounmap(va);
+		}
+		if (chip_ver == 0x1)
+			sophon_chip_model = "cv84x2";
+		else if (chip_ver == 0x2)
+			sophon_chip_model = "cv84x4";
+		else
+			sophon_chip_model = "cv84x6";
+	} else {
+		sophon_chip_model = "unknown";
+	}
+
+	return sophon_chip_model;
+}
+
 static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
-	int value;
 	bool compat = personality(current->personality) == PER_LINUX;
-
-	value = readl(ioremap(0x27102014, 4)) & 0x7;
 
 	for_each_online_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
@@ -152,14 +197,8 @@ static int c_show(struct seq_file *m, void *v)
 		 * "processor".  Give glibc what it expects.
 		 */
 		seq_printf(m, "processor\t: %d\n", i);
-		if (compat) {
-			if (value == 0x1)
-				seq_printf(m, "model name\t: %s\n", "cv186ah");
-			else if (value == 0x0 || value == 0x7)
-				seq_printf(m, "model name\t: %s\n", "bm1688");
-			else
-				seq_printf(m, "model name\t: %s\n", "null");
-		}
+		if (compat)
+			seq_printf(m, "model name\t: %s\n", sophon_get_chip_model());
 
 		seq_printf(m, "BogoMIPS\t: %lu.%02lu\n",
 			   loops_per_jiffy / (500000UL/HZ),

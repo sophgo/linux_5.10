@@ -24,12 +24,12 @@
 #include <linux/moduleparam.h>
 #include <linux/interrupt.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/pm.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/watchdog.h>
 #include <linux/debugfs.h>
-#include <linux/sched/debug.h>
 
 #define WDOG_CONTROL_REG_OFFSET			0x00
 #define WDOG_CONTROL_REG_WDT_EN_MASK		0x01
@@ -57,8 +57,7 @@
 #define DW_WDT_NUM_TOPS		16
 #define DW_WDT_FIX_TOP(_idx)	(1U << (16 + _idx))
 
-#define DW_WDT_DEFAULT_SECONDS	85
-#define DW_WDT_BACKTRACE_TIMEOUT (50*1000) /* 50 seconds */
+#define DW_WDT_DEFAULT_SECONDS	30
 
 static const u32 dw_wdt_fix_tops[DW_WDT_NUM_TOPS] = {
 	DW_WDT_FIX_TOP(0), DW_WDT_FIX_TOP(1), DW_WDT_FIX_TOP(2),
@@ -84,6 +83,8 @@ struct dw_wdt_timeout {
 	unsigned int msec;
 };
 
+struct dw_wdt_reset_gate;
+
 struct dw_wdt {
 	void __iomem		*regs;
 	struct clk		*clk;
@@ -96,6 +97,14 @@ struct dw_wdt {
 	/* Save/restore */
 	u32			control;
 	u32			timeout;
+	/* cv84x6 SoC reset gates: WDT_EN cannot be cleared by SW once set
+	 * (only by system reset), so toggling the gates emulates stop/start.
+	 */
+#ifdef CONFIG_ARCH_CV84X6
+	const struct dw_wdt_reset_gate	*gate;
+	void __iomem		*gate_rtc_en;
+	void __iomem		*gate_top;
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry		*dbgfs_dir;
@@ -103,6 +112,67 @@ struct dw_wdt {
 };
 
 #define to_dw_wdt(wdd)	container_of(wdd, struct dw_wdt, wdd)
+
+#ifdef CONFIG_ARCH_CV84X6
+/* cv84x6 WDT timeout-reset output goes through two gates, both off by default.
+ * WDT_EN cannot be SW-cleared once set (datasheet: cleared only by system
+ * reset), so start() enables the gates to make reset effective and stop()
+ * disables them to emulate stopping the watchdog.
+ */
+struct dw_wdt_reset_gate {
+	u32 rtc_unlock_phys, rtc_unlock_key;	/* RTC domain write-protect unlock */
+	u32 rtc_enable_phys, rtc_enable_val;	/* RTC domain reset-request enable */
+	u32 top_phys, top_mask;			/* TOP domain reset enable (RMW) */
+};
+
+static const struct dw_wdt_reset_gate cv84x6_reset_gate = {
+	.rtc_unlock_phys = 0x05025004, .rtc_unlock_key = 0xAB18,
+	.rtc_enable_phys = 0x050260E0, .rtc_enable_val  = 0x3,
+	.top_phys        = 0x28100008, .top_mask        = BIT(2),
+};
+
+/* Map gate registers at probe into dw_wdt->gate_* for fast start/stop toggling. */
+static void dw_wdt_map_reset_gates(struct device *dev, struct dw_wdt *dw_wdt,
+				   const struct dw_wdt_reset_gate *g)
+{
+	if (!g)			/* fallback "snps,dw-wdt": .data=NULL, skip */
+		return;
+	dw_wdt->gate = g;
+	dw_wdt->gate_rtc_en = devm_ioremap(dev, g->rtc_enable_phys, 4);
+	dw_wdt->gate_top   = devm_ioremap(dev, g->top_phys, 4);
+	if (!dw_wdt->gate_rtc_en || !dw_wdt->gate_top)
+		dev_warn(dev, "reset-gate ioremap failed, WDT reset may not fire\n");
+}
+
+/* Enable/disable reset gates. enable=true on (start), false off (stop). Idempotent. */
+static void dw_wdt_set_reset_gates(struct dw_wdt *dw_wdt, bool enable)
+{
+	const struct dw_wdt_reset_gate *g = dw_wdt->gate;
+	void __iomem *unl, *top;
+	u32 v;
+
+	if (!g || !dw_wdt->gate_rtc_en || !dw_wdt->gate_top)
+		return;
+
+	if (enable) {
+		unl = ioremap(g->rtc_unlock_phys, 4);	/* unlock reg: use once, unmap */
+		if (unl) {
+			writel(g->rtc_unlock_key, unl);
+			iounmap(unl);
+		}
+		writel(g->rtc_enable_val, dw_wdt->gate_rtc_en);
+		v = readl(dw_wdt->gate_top);
+		writel(v | g->top_mask, dw_wdt->gate_top);
+		dev_dbg(dw_wdt->wdd.parent, "reset gates on (top 0x%x->0x%x)\n",
+			v, v | g->top_mask);
+	} else {
+		v = readl(dw_wdt->gate_top);
+		writel(v & ~g->top_mask, dw_wdt->gate_top);	/* clear TOP gate: breaks the reset path */
+		dev_dbg(dw_wdt->wdd.parent, "reset gates off (top 0x%x->0x%x)\n",
+			v, v & ~g->top_mask);
+	}
+}
+#endif	/* CONFIG_ARCH_CV84X6 */
 
 static inline int dw_wdt_is_enabled(struct dw_wdt *dw_wdt)
 {
@@ -195,43 +265,23 @@ static void cpu_alive(void *passed_regs)
 }
 #endif
 static int isFirst = 1;
-static ktime_t last_feed_time;
 static int dw_wdt_ping(struct watchdog_device *wdd)
 {
 	struct dw_wdt *dw_wdt = to_dw_wdt(wdd);
-	ktime_t now = ktime_get();
-	s64 delta_ms = ktime_to_ms(ktime_sub(now, last_feed_time));
-	int cpu;
 
 #ifdef CONFIG_SMP
 	unsigned int ncpus;
-	cpumask_set_cpu(smp_processor_id(), &cpus_alive);
+
 	ncpus = num_online_cpus() - 1;
 
 	if ((isFirst == 1) || cpumask_weight(&cpus_alive) >= ncpus) {
 #endif
-		pr_debug("Watchdog feed interval: %lld ms max:%d ncpus:%d alive: %*pbl\n",
-			delta_ms, wdd->timeout,
-			ncpus, cpumask_pr_args(&cpus_alive));
-		last_feed_time = now;
 		writel(WDOG_COUNTER_RESTART_KICK_VALUE, dw_wdt->regs +
 			WDOG_COUNTER_RESTART_REG_OFFSET);
 
 #ifdef CONFIG_SMP
 		isFirst = 0;
 		cpus_alive = CPU_MASK_NONE;
-	} else if (delta_ms > DW_WDT_BACKTRACE_TIMEOUT) {
-        pr_err("Watchdog feed blocked %lld ms! Tout: %d, (%d)Responded CPUs: %*pbl\n",
-               delta_ms, wdd->timeout,ncpus, cpumask_pr_args(&cpus_alive));
-
-        for_each_online_cpu(cpu) {
-            if (!cpumask_test_cpu(cpu, &cpus_alive)) {
-                pr_err("=== Backtrace for CPU %d (current CPU: %d) ===\n",
-                       cpu, smp_processor_id());
-                dump_cpu_task(cpu);
-                pr_err("=== End backtrace for CPU %d ===\n", cpu);
-            }
-        }
 	}
 	smp_call_function(cpu_alive, NULL, 0);
 	// memory barrier
@@ -357,6 +407,10 @@ static int dw_wdt_start(struct watchdog_device *wdd)
 	dw_wdt_set_timeout(wdd, wdd->timeout);
 	dw_wdt_ping(&dw_wdt->wdd);
 	dw_wdt_arm_system_reset(dw_wdt);
+#ifdef CONFIG_ARCH_CV84X6
+	/* cv84x6: WDT_EN cannot be SW-cleared, so gating emulates start/stop */
+	dw_wdt_set_reset_gates(dw_wdt, true);
+#endif
 
 	return 0;
 }
@@ -370,6 +424,10 @@ static int dw_wdt_stop(struct watchdog_device *wdd)
 {
 	struct dw_wdt *dw_wdt = to_dw_wdt(wdd);
 
+#ifdef CONFIG_ARCH_CV84X6
+	/* disabling the TOP gate emulates stopping */
+	dw_wdt_set_reset_gates(dw_wdt, false);
+#else
 	if (!dw_wdt->rst) {
 		set_bit(WDOG_HW_RUNNING, &wdd->status);
 		return 0;
@@ -377,6 +435,7 @@ static int dw_wdt_stop(struct watchdog_device *wdd)
 
 	reset_control_assert(dw_wdt->rst);
 	reset_control_deassert(dw_wdt->rst);
+#endif
 
 	return 0;
 }
@@ -388,11 +447,10 @@ static int dw_wdt_restart(struct watchdog_device *wdd,
 
 	writel(0, dw_wdt->regs + WDOG_TIMEOUT_RANGE_REG_OFFSET);
 	dw_wdt_update_mode(dw_wdt, DW_WDT_RMOD_RESET);
-	if (dw_wdt_is_enabled(dw_wdt)) {
-		last_feed_time = ktime_get();
+	if (dw_wdt_is_enabled(dw_wdt))
 		writel(WDOG_COUNTER_RESTART_KICK_VALUE,
 		       dw_wdt->regs + WDOG_COUNTER_RESTART_REG_OFFSET);
-	} else
+	else
 		dw_wdt_arm_system_reset(dw_wdt);
 
 	/* wait for reset to assert... */
@@ -661,6 +719,11 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_ARCH_CV84X6
+	/* cv84x6: map reset-gate registers for start/stop toggling */
+	dw_wdt_map_reset_gates(dev, dw_wdt, of_device_get_match_data(dev));
+#endif
+
 	dw_wdt->rate = clk_get_rate(dw_wdt->clk);
 	if (dw_wdt->rate == 0) {
 		ret = -EINVAL;
@@ -740,9 +803,24 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	if (dw_wdt_is_enabled(dw_wdt)) {
 		wdd->timeout = dw_wdt_get_timeout(dw_wdt);
 		set_bit(WDOG_HW_RUNNING, &wdd->status);
+
+#ifdef CONFIG_ARCH_CV84X6
+		dw_wdt_ping(&dw_wdt->wdd);
+		dw_wdt_set_reset_gates(dw_wdt, true);
+#endif
+
 	} else {
 		wdd->timeout = DW_WDT_DEFAULT_SECONDS;
 		watchdog_init_timeout(wdd, 0, dev);
+
+#ifdef CONFIG_ARCH_CV84X6
+		/* Boot-enabled: arm WDT and enable reset gates at probe */
+		dw_wdt_set_timeout(wdd, wdd->timeout);
+		dw_wdt_ping(&dw_wdt->wdd);
+		dw_wdt_arm_system_reset(dw_wdt);
+		dw_wdt_set_reset_gates(dw_wdt, true);
+		set_bit(WDOG_HW_RUNNING, &wdd->status);
+#endif
 	}
 
 	platform_set_drvdata(pdev, dw_wdt);
@@ -781,6 +859,9 @@ static int dw_wdt_drv_remove(struct platform_device *pdev)
 
 #ifdef CONFIG_OF
 static const struct of_device_id dw_wdt_of_match[] = {
+#ifdef CONFIG_ARCH_CV84X6
+	{ .compatible = "cvitek,cv84x6-wdt", .data = &cv84x6_reset_gate },
+#endif
 	{ .compatible = "snps,dw-wdt", },
 	{ /* sentinel */ }
 };

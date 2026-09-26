@@ -1,5 +1,6 @@
 # Cvitek Platform Support
-obj-$(CONFIG_SND_CV1835_I2S) += cv1835_i2s.o
+obj-$(CONFIG_ARCH_CV84X6) += cv84x6_i2s.o
+obj-$(CONFIG_ARCH_CV186X) += cv1835_i2s.o
 
 # Cvitek Machine Support
 snd-soc-cv1835-adau1372-objs := cv1835_adau1372.o
@@ -44,10 +45,18 @@ obj-$(CONFIG_SND_SOC_CV186X_DWU2S_ADAU1372) += cv186x_adau1372.o
 
 #other
 obj-$(CONFIG_SND_SOC_CV183x_DUMMY_CARD) += cv1835_dummy_codec.o
-obj-$(CONFIG_SND_SOC_CV183x_DUMMY_CODEC) += dummy_codec.o
+
+obj-$(CONFIG_ARCH_CV84X6) += cv84x6_dummy_codec.o
+obj-$(CONFIG_ARCH_CV186X) += dummy_codec.o
 
 # Cvitek audio subsys support
-obj-$(CONFIG_CV1835_I2S_SUBSYS) += cv1835_i2s_subsys.o
+obj-$(CONFIG_ARCH_CV84X6) += cv84x6_i2s_subsys.o
+obj-$(CONFIG_ARCH_CV186X) += cv1835_i2s_subsys.o
 
 obj-$(CONFIG_SND_SOC_CV1835_LT9611) += cv1835_lt9611.o
 
+#cvitek hdmi i2s
+obj-$(CONFIG_SND_SOC_CVITEK_HDMI_I2S) += soph_dw_hdmi_i2s.o
+soph_dw_hdmi_i2s-y := cvitek_dw_hdmi_i2s.o
+obj-$(CONFIG_SND_SOC_CVITEK_HDMI_CARD) += soph_hdmi_card.o
+soph_hdmi_card-y := cv84x6_hdmi_card.o

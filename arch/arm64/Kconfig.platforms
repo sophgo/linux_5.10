@@ -330,6 +330,11 @@ config ARCH_CVITEK
     bool "Cvitek SoC Family"
     select ION_CVITEK
     select SCHED_CVIOPTIMIZE
+    select PINCTRL
+    select PINCTRL_BM
+    select PINMUX
+    select PINCONF
+    select GENERIC_PINCONF
     help
       This enables support for Cvitek SoC family.
 
@@ -342,51 +347,31 @@ choice
 
 config ARCH_CV183X
     bool "Cvitek CV183X SoC"
-    select PINCTRL
-    select PINCTRL_BM
-    select PINMUX
-    select PINCONF
-    select GENERIC_PINCONF
     help
       This enables support for Cvitek's CV183X
 
 config ARCH_CV182X
     bool "Cvitek CV182X SoC"
-    select PINCTRL
-    select PINCTRL_BM
-    select PINMUX
-    select PINCONF
-    select GENERIC_PINCONF
     help
       This enables support for Cvitek's CV182X
 
 config ARCH_CV181X
     bool "Cvitek CV181X SoC"
-    select PINCTRL
-    select PINCTRL_BM
-    select PINMUX
-    select PINCONF
-    select GENERIC_PINCONF
     help
       This enables support for Cvitek's CV181X
 
 config ARCH_CV186X
     bool "Cvitek CV186X SoC"
-    select PINCTRL
-    select PINCTRL_BM
-    select PINMUX
-    select PINCONF
-    select GENERIC_PINCONF
     help
       This enables support for Cvitek's CV186X
 
+config ARCH_CV84X6
+    bool "Cvitek CV84X6 SoC"
+    help
+      This enables support for Cvitek's CV84X6
+
 config ARCH_CV952X
     bool "Cvitek CV952X SoC"
-    select PINCTRL
-    select PINCTRL_BM
-    select PINMUX
-    select PINCONF
-    select GENERIC_PINCONF
     help
       This enables support for Cvitek's CV952X
 
@@ -518,6 +503,39 @@ config ARCH_CV186X_ASIC
 
 endchoice
 endif # end ARCH_CV186X
+
+if ARCH_CV84X6
+config ARCH_CVITEK_CHIP
+    string "cv84x6"
+    help
+      This enables support for Cvitek CV84X6 series
+
+choice
+    prompt "Select the platform of SoC"
+    default ARCH_CV84X6_FPGA
+    help
+      Select the platform of SoC
+        FPGA
+        PALLADIUM
+        ASIC
+
+config ARCH_CV84X6_PALLADIUM
+    bool "Cvitek CV84X6 SoC - Palladium"
+    help
+      This enables support for Cvitek's CV84X6 SoC on Palladium platform
+
+config ARCH_CV84X6_FPGA
+    bool "Cvitek CV84X6 SoC - FPGA"
+    help
+      This enables support for Cvitek's CV84X6 SoC on FPGA platform
+
+config ARCH_CV84X6_ASIC
+    bool "Cvitek CV84X6 SoC- ASIC"
+    help
+      This enables support for Cvitek's CV84X6 SoC ASIC
+
+endchoice
+endif # end ARCH_CV84X6
 
 if ARCH_CV952X
 config ARCH_CVITEK_CHIP

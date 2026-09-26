@@ -38,7 +38,6 @@ static void dw_dma_off(struct dw_dma *dw);
 static void dw_dma_on(struct dw_dma *dw);
 static bool dw_dma_filter(struct dma_chan *chan, void *param);
 static int dw_dma_cyclic_start(struct dma_chan *chan);
-static u32 dwc_cyclic_get_hw_pos(struct dw_dma_chan *dwc);
 
 #define to_dw_desc(h)	list_entry(h, struct dw_desc, desc_node)
 
@@ -499,37 +498,13 @@ static void dwc_complete_all(struct dw_dma *dw, struct dw_dma_chan *dwc)
 		dwc_descriptor_complete(dwc, desc, true);
 }
 
-/* Returns the programmed block transfer size in bytes (NOT actual progress) */
-static inline u32 dwc_get_block_size(struct dw_dma_chan *dwc)
+/* Returns how many bytes were already received from source */
+static inline u32 dwc_get_sent(struct dw_dma_chan *dwc)
 {
 	u64 bts = channel_readq(dwc, BLOCK_TS);
 	u64 ctl = channel_readq(dwc, CTL);
 
 	return ((bts & DWC_BLOCK_TS_MASK) + 1) * (1 << (ctl >> 8 & 7));
-}
-
-/*
- * Returns how many bytes were actually transferred for the current in-progress
- * descriptor by reading DAR/SAR hardware registers and comparing against the
- * descriptor's programmed start address.
- */
-static inline u32 dwc_get_transferred(struct dw_dma_chan *dwc,
-				       struct dw_desc *desc)
-{
-	u64 current_addr, start_addr;
-
-	if (dwc->direction == DMA_DEV_TO_MEM || dwc->direction == DMA_MEM_TO_MEM) {
-		current_addr = channel_readq(dwc, DAR);
-		start_addr = lli_read(desc, dar);
-	} else {
-		current_addr = channel_readq(dwc, SAR);
-		start_addr = lli_read(desc, sar);
-	}
-
-	if (current_addr >= start_addr)
-		return (u32)(current_addr - start_addr);
-
-	return 0;
 }
 
 static inline void dwc_chan_disable(struct dw_dma *dw, struct dw_dma_chan *dwc)
@@ -544,6 +519,25 @@ static inline void dwc_chan_disable(struct dw_dma *dw, struct dw_dma_chan *dwc)
 	dma_writeq(dw, CH_EN, dma_ch_en);
 	while (dma_readq(dw, CH_EN) & dwc->mask)
 		cpu_relax();
+
+	/*
+	 * Aborting the channel may leave a latched interrupt status bit (e.g.
+	 * BLOCK_TFR_DONE for cyclic audio DMA) set. On a level-triggered shared
+	 * IRQ line (GICv3 Level) that leftover status keeps the line asserted
+	 * after the channel is stopped, so subsequent dw_dma_interrupt() calls
+	 * find nothing to do and return IRQ_NONE, which the core eventually
+	 * reports as "nobody cared" and disables the IRQ. Clear this channel's
+	 * pending status so the line is de-asserted when the channel is torn
+	 * down (terminate_all / cyclic stop).
+	 *
+	 * NOTE: do NOT clear INTSTATUS_ENABLEREG here. That is the persistent
+	 * per-channel interrupt enable configured once in dwc_initialize(),
+	 * which is skipped on the next start when DW_DMA_IS_INITIALIZED is
+	 * still set. Disabling it here would leave completion interrupts off on
+	 * the following playback, stalling the DMA (hw_ptr stuck at 0).
+	 */
+	channel_writeq(dwc, INTCLEARREG, 0xffffffff);
+	dma_writeq(dw, COMM_INTCLEAR, 0x10f);
 }
 
 static int dwc_resume(struct dma_chan *chan)
@@ -572,6 +566,7 @@ static int dwc_pause(struct dma_chan *chan)
 
 	unsigned long flags;
 	unsigned int count = 20; /* timeout iterations */
+	u64 dma_ch_en;
 
 	spin_lock_irqsave(&dwc->lock, flags);
 
@@ -583,6 +578,11 @@ static int dwc_pause(struct dma_chan *chan)
 		 & (1 << (__ffs(dwc->mask) + DW_DMAC_CH_PAUSE_OFFSET)))
 	       && count--)
 		udelay(2);
+
+	dma_ch_en = dma_readq(dw, CH_EN);
+	dma_ch_en |= (dwc->mask << DW_DMAC_CH_EN_WE_OFFSET);
+	dma_ch_en &= ~dwc->mask;
+	dma_writeq(dw, CH_EN, dma_ch_en);
 
 	set_bit(DW_DMA_IS_PAUSED, &dwc->flags);
 
@@ -626,7 +626,7 @@ static void dwc_scan_descriptors(struct dw_dma *dw, struct dw_dma_chan *dwc)
 		/* Check first descriptors llp */
 		if (lli_read(desc, llp) == llp) {
 			/* This one is currently in progress */
-			desc->residue -= dwc_get_transferred(dwc, desc);
+			desc->residue -= dwc_get_sent(dwc);
 			spin_unlock_irqrestore(&dwc->lock, flags);
 			return;
 		}
@@ -635,7 +635,7 @@ static void dwc_scan_descriptors(struct dw_dma *dw, struct dw_dma_chan *dwc)
 		list_for_each_entry(child, &desc->tx_list, desc_node) {
 			if (lli_read(child, llp) == llp) {
 				/* Currently in progress */
-				desc->residue -= dwc_get_transferred(dwc, child);
+				desc->residue -= dwc_get_sent(dwc);
 				spin_unlock_irqrestore(&dwc->lock, flags);
 				return;
 			}
@@ -800,12 +800,7 @@ static enum dma_status dwc_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 
 	if (test_bit(DW_DMA_IS_CYCLIC, &dwc->flags)) {
 		if (cookie == dwc->cdesc->desc[0]->txd.cookie) {
-			u32 hw_pos = dwc_cyclic_get_hw_pos(dwc);
-			u32 residue = dwc->cdesc->desc[0]->total_len - hw_pos;
-
-			if (residue == 0)
-				residue = dwc->cdesc->desc[0]->total_len;
-			dma_set_residue(txstate, residue);
+			dma_set_residue(txstate, dwc->cdesc->desc[0]->residue);
 			return ret;
 		}
 		dma_set_residue(txstate, dwc->cdesc->desc[0]->total_len);
@@ -1353,37 +1348,40 @@ out_err:
 	kfree(cdesc);
 	clear_bit(DW_DMA_IS_CYCLIC, &dwc->flags);
 
-	return (struct dma_async_tx_descriptor *)retval;
+	/*
+	 * The dmaengine API expects prep callbacks to return NULL on failure.
+	 * The ASoC dmaengine PCM layer (dmaengine_pcm_prepare_and_submit) only
+	 * checks for a NULL return and will dereference an ERR_PTR, causing a
+	 * kernel oops. This path is hit when the atomic DMA descriptor pool is
+	 * exhausted (e.g. high sample rates need many 64-byte LLI descriptors),
+	 * so return NULL to fail gracefully instead of crashing.
+	 */
+	return NULL;
 }
 
-
-static u32 dwc_cyclic_get_hw_pos(struct dw_dma_chan *dwc)
-{
-	struct dw_desc *first = dwc->cdesc->desc[0];
-	u64 current_addr, buf_addr;
-
-	if (dwc->direction == DMA_DEV_TO_MEM) {
-		current_addr = channel_readq(dwc, DAR);
-		buf_addr = lli_read(first, dar);
-	} else {
-		current_addr = channel_readq(dwc, SAR);
-		buf_addr = lli_read(first, sar);
-	}
-
-	return (u32)((current_addr - buf_addr) % first->total_len);
-}
 
 static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc)
 {
+	dma_addr_t llp;
+	int i;
 	u32 sent_total = 0;
-	struct dw_desc *first;
+	struct dw_desc *desc, *first;
 	struct dmaengine_desc_callback cb;
-	u32 new_hw_pos;
+	u32 new_hw_pos = 0;
 
+	llp = channel_readq(dwc, LLP);
 	first = dwc->cdesc->desc[0];
 	sent_total += dwc->cdesc->last_sent;
 
-	new_hw_pos = dwc_cyclic_get_hw_pos(dwc);
+	if (first->txd.phys != DWC_LLP_LOC(llp)) {
+		for (i = 1; i < dwc->cdesc->periods; i++) {
+			desc = dwc->cdesc->desc[i];
+			new_hw_pos += dwc_get_sent(dwc);
+			if (desc->txd.phys == DWC_LLP_LOC(llp))
+				break;
+		}
+	} else
+		new_hw_pos = 0; /* back to ring buffer head */
 
 	if (new_hw_pos >= first->hw_pos)
 		sent_total += new_hw_pos - first->hw_pos;
@@ -1391,9 +1389,7 @@ static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc)
 		sent_total += first->total_len + new_hw_pos - first->hw_pos;
 
 	first->hw_pos = new_hw_pos;
-	first->residue = first->total_len - new_hw_pos;
-	if (first->residue == 0)
-		first->residue = first->total_len;
+	first->residue = first->total_len - (new_hw_pos - new_hw_pos % dwc->cdesc->period_len);
 	dwc->hw_pos = new_hw_pos;
 	dwc->interrupt_count++;
 
@@ -1410,6 +1406,8 @@ static void dwc_handle_cyclic(struct dw_dma *dw, struct dw_dma_chan *dwc)
 			 "SAR:0x%llx DAR:0x%llx residue:%d sent_total:%d ch_status:0x%llx int_status:0x%llx\n",
 			 channel_readq(dwc, SAR), channel_readq(dwc, DAR), first->residue, sent_total,
 			 channel_readq(dwc, STATUS), channel_readq(dwc, INTSTATUS));
+
+	/* TODO error resuem */
 }
 
 /**
@@ -1590,8 +1588,24 @@ static irqreturn_t dw_dma_interrupt(int irq, void *dev_id)
 	struct dw_dma_chan *dwc;
 
 	/* Check if we have any interrupt from the DMAC which is not in use */
-	if (!dw->in_use)
+	if (!dw->in_use) {
+		/*
+		 * The controller is not in use, but on a level-triggered
+		 * shared IRQ line a leftover interrupt status would keep the
+		 * line asserted and cause an interrupt storm ("nobody cared"
+		 * -> IRQ disabled). If there really is pending status, clear
+		 * it and ack the IRQ; otherwise it is not ours.
+		 */
+		if (dma_readq(dw, INTSTATUS)) {
+			dma_writeq(dw, COMM_INTCLEAR, 0x10f);
+			for (i = 0; i < dw->dma.chancnt; i++) {
+				dwc = &dw->chan[i];
+				channel_writeq(dwc, INTCLEARREG, 0xffffffff);
+			}
+			return IRQ_HANDLED;
+		}
 		return IRQ_NONE;
+	}
 
 	status = dma_readq(dw, INTSTATUS);
 	/* Check if we have any interrupt from the DMAC */

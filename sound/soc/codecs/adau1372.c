@@ -682,16 +682,16 @@ static int adau1372_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		dev_dbg(adau1372->dev, "set codec to NB_NF\n");
-#if defined(CONFIG_ARCH_CVITEK)
-		sai1 |= ADAU1372_SAI1_BCLKEDGE;
-#endif
+//#if defined(CONFIG_ARCH_CVITEK)
+//		sai1 |= ADAU1372_SAI1_BCLKEDGE;
+//#endif
 		invert_lrclk = false;
 		break;
 	case SND_SOC_DAIFMT_NB_IF:
 		dev_dbg(adau1372->dev, "set codec to NB_IF\n");
-#if defined(CONFIG_ARCH_CVITEK)
-		sai1 |= ADAU1372_SAI1_BCLKEDGE;
-#endif
+//#if defined(CONFIG_ARCH_CVITEK)
+//		sai1 |= ADAU1372_SAI1_BCLKEDGE;
+//#endif
 		invert_lrclk = true;
 		break;
 	case SND_SOC_DAIFMT_IB_NF:
@@ -1078,12 +1078,8 @@ static void adau1372_reg_init(struct regmap *regmap)
 #else
 	regmap_write(regmap, ADAU1372_REG_CLKOUT_SEL, 0x01); /* CLOCK OUT */
 #endif
-
-#if defined(CONFIG_ARCH_CV183X_FPGA)
 	regmap_write(regmap, ADAU1372_REG_SOUT_SOURCE_0_1, 0x76); /* Set AIN3/2 as audio input source */
-#else
-	regmap_write(regmap, ADAU1372_REG_SOUT_SOURCE_0_1, 0x55); /* Set AIN1/1 as audio input source */
-#endif
+
 	regmap_write(regmap, ADAU1372_REG_SOUT_SOURCE_2_3, 0x44);
 	regmap_write(regmap, ADAU1372_REG_SOUT_SOURCE_4_5, 0x44);
 	regmap_write(regmap, ADAU1372_REG_SOUT_SOURCE_6_7, 0x44);
@@ -1165,10 +1161,10 @@ int adau1372_probe(struct device *dev, struct regmap *regmap,
 
 	switch (rate) {
 	case 12288000:
-		clk_ctrl = ADAU1372_CLK_CTRL_CC_MDIV;
+		clk_ctrl = 0;
 		break;
 	case 24576000:
-		clk_ctrl = 0;
+		clk_ctrl = ADAU1372_CLK_CTRL_CC_MDIV;
 		break;
 	default:
 		clk_ctrl = 0;

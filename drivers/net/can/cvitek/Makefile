@@ -3,6 +3,5 @@
 #  Makefile for the Bosch C_CAN controller drivers.
 #
 
-obj-$(CONFIG_CAN_SDVT_CAN) += cvitek_can.o
-obj-$(CONFIG_CAN_SDVT_PLATFORM) += cvitek_can_platform.o
-obj-$(CONFIG_CAN_SDVT_BASIC) += sdvt_can_basic.o
+obj-$(CONFIG_CAN_CVITEK_MCAN)	+= 84X6/
+obj-$(CONFIG_CAN_CVITEK_SDVT)	+= 88a2/

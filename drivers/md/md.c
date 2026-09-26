@@ -480,7 +480,7 @@ static void md_end_io(struct bio *bio)
 	mempool_free(md_io, &mddev->md_io_pool);
 
 	if (bio->bi_end_io)
-		bio->bi_end_io(bio);
+		bio_endio(bio);
 }
 
 static blk_qc_t md_submit_bio(struct bio *bio)

@@ -1,0 +1,6 @@
+# SDVT-License-Identifier: GPL-2.0-only
+
+config CAN_CVITEK_SDVT
+	tristate "SDVT_CAN integrated inside the Cvitek chip"
+	help
+	  This driver adds SDVT IP SDVT_CAN

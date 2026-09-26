@@ -42,11 +42,155 @@ struct dwc3_of_simple {
 	int			num_clocks;
 	struct reset_control	*resets;
 	bool			need_reset;
+#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+#if IS_ENABLED(CONFIG_ARCH_CV84X6)
+	/* 84x6: USB TOP general control register, i.e. reg[0] (0x39200000/0x39200100) */
+	void __iomem *reg_usb_top;
+	/* Physical base of reg[0]; needed to derive the shared PHY block address. */
+	phys_addr_t reg_usb_top_phys;
+#else
+	/* 88a2 (CV186X): USB subsystem reg[0] (0x39000100) + PHY tune reg[1] (0x28100040) */
 	void __iomem *reg_usbsys;
 	void __iomem *reg_phy_tune_ctrl_reg;
-	int vbus_gpio;
 	struct dwc3_sophgo_regs_backup regs_backup;
+#endif
+	int vbus_gpio;
+#endif
 };
+
+/*
+ * Both the CV186X (88a2) and CV84X6 (84x6) DWC3 controllers are described in
+ * device tree with the same "sophgo,cv186x-dwc3" compatible, but their USB
+ * subsystem / SuperSpeed-PHY register layouts and bring-up sequences are
+ * completely different. The two SoCs are mutually-exclusive build targets
+ * (CONFIG_ARCH_CV84X6 vs CONFIG_ARCH_CV186X), so the correct PHY-init variant
+ * is selected at compile time below.
+ */
+#if IS_ENABLED(CONFIG_ARCH_CV84X6)
+
+#define USB_SUBSYS_TOP_OFFSET			0x200000
+#define USB_SUBSYS_PHY0_OFFSET			0x140000
+#define USB_SUBSYS_PHY1_OFFSET			0x1c0000
+
+/*
+ * The two DWC3 controllers share a single USB subsystem, but each owns its own
+ * SuperSpeed PHY and its own TOP "general control" register:
+ *   USB0: top @ subsys+0x200000, PHY0 @ subsys+0x140000
+ *   USB1: top @ subsys+0x200100, PHY1 @ subsys+0x1c0000
+ * The controllers' TOP registers are 0x100 apart while the subsystem base is
+ * common, so USB1's base cannot be derived as (top - 0x200000).
+ */
+#define USB_TOP_CTRL_STRIDE			0x100
+
+#define USB_PHY0_SRAM_CTRL			0x08
+#define USB_PHY0_MISC_INPUT			0x10
+#define USB_TOP_GENERAL_PWR_CTRL_USB0		0x00
+
+#define USB_PHY0_BL_BYPASS_EN			GENMASK(1, 0)
+#define USB_PHY0_SRAM_INIT_BYP			BIT(0)
+#define USB_PHY0_SRAM_LOAD_DONE			BIT(1)
+#define USB_PHY0_SRAM_INIT_DONE			BIT(2)
+
+#define USB_PHY0_RX0_TERM_MODE			BIT(5)
+
+static void cv84x6_usb_config_phy_bl_bypass(void __iomem *reg_phy, bool bypass)
+{
+	u32 value;
+
+	value = readl(reg_phy + USB_PHY0_SRAM_CTRL);
+	value &= ~USB_PHY0_BL_BYPASS_EN;
+	if (bypass)
+		value |= USB_PHY0_SRAM_INIT_BYP;
+	else
+		value |= USB_PHY0_SRAM_LOAD_DONE;
+	writel(value, reg_phy + USB_PHY0_SRAM_CTRL);
+}
+
+static int cv84x6_usb_wait_sram_init_done(void __iomem *reg_phy)
+{
+	u32 value = 0;
+	u32 check = USB_PHY0_SRAM_INIT_DONE;
+	u32 timeout = 1000;
+
+	while (timeout--) {
+		value = readl(reg_phy + USB_PHY0_SRAM_CTRL);
+		if (value & check)
+			return 0;
+		udelay(10);
+	}
+
+	pr_err("%s timeout: %x %x\n", __func__, value, check);
+
+	return -ETIMEDOUT;
+}
+
+static int cv84x6_usb_phy_init(struct dwc3_of_simple *simple)
+{
+	void __iomem *reg_usb_top = simple->reg_usb_top;
+	phys_addr_t top_phys = simple->reg_usb_top_phys;
+	/*
+	 * reg_usb_top is an ioremap()'d virtual pointer that maps ONLY the 0x100
+	 * TOP window, so is_usb1 and the shared PHY block address must be derived
+	 * from the *physical* base of reg[0], not from the virtual pointer.
+	 */
+	bool is_usb1 = top_phys & USB_TOP_CTRL_STRIDE;
+	/* Subsystem base is common to both controllers; strip USB1's 0x100 stride. */
+	phys_addr_t subsys_phys = top_phys - USB_SUBSYS_TOP_OFFSET -
+				  (is_usb1 ? USB_TOP_CTRL_STRIDE : 0);
+	phys_addr_t phy_phys = subsys_phys +
+			(is_usb1 ? USB_SUBSYS_PHY1_OFFSET : USB_SUBSYS_PHY0_OFFSET);
+	void __iomem *reg_phy;
+	u32 value;
+	int ret;
+
+	/* The PHY block lives outside reg[0]'s window; map it separately. */
+	reg_phy = devm_ioremap(simple->dev, phy_phys, 0x1000);
+	if (!reg_phy)
+		return -ENOMEM;
+
+	value = readl(reg_phy + USB_PHY0_MISC_INPUT);
+	value |= USB_PHY0_RX0_TERM_MODE;
+	writel(value, reg_phy + USB_PHY0_MISC_INPUT);
+
+	/* assert phy reset (usb3: bit6, usb2: bit5) */
+	value = readl(reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	value |= BIT(6) | BIT(5);
+	writel(value, reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	udelay(5);
+
+	/* lane reset */
+	value = readl(reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	value &= ~GENMASK(1, 0);
+	writel(value, reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	udelay(15);
+
+	/* release phy reset */
+	value = readl(reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	value &= ~(BIT(6) | BIT(5));
+	writel(value, reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	udelay(10);
+
+	ret = cv84x6_usb_wait_sram_init_done(reg_phy);
+	if (ret)
+		return ret;
+
+	cv84x6_usb_config_phy_bl_bypass(reg_phy, false);
+
+	/* release lane reset */
+	value = readl(reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	value |= GENMASK(1, 0);
+	writel(value, reg_usb_top + USB_TOP_GENERAL_PWR_CTRL_USB0);
+	msleep(20);
+
+	return 0;
+}
+
+static int sophgo_dwc3_phy_init(struct dwc3_of_simple *simple)
+{
+	return cv84x6_usb_phy_init(simple);
+}
+
+#elif IS_ENABLED(CONFIG_ARCH_CV186X)
 
 #define OTP_USB_XTAL_PHY_MASK	0x3
 
@@ -77,8 +221,6 @@ struct dwc3_of_simple {
 
 #define USB_PHY_TUNE_CTRL_REG2				0x8
 
-
-#if IS_ENABLED(CONFIG_ARCH_CVITEK)
 static int dwc3_sophgo_start(struct dwc3_of_simple *simple)
 {
 	uint32_t value;
@@ -131,13 +273,6 @@ static int dwc3_sophgo_start(struct dwc3_of_simple *simple)
 	value |= (los_mask << REG_USB_PHY_PCS_RX_LOS_MASK_VAL_POS);
 	writel(value, simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
 
-	if (gpio_is_valid(simple->vbus_gpio)) {
-		if (devm_gpio_request_one(simple->dev, simple->vbus_gpio, GPIOF_OUT_INIT_HIGH, "vbus-gpio")) {
-			simple->vbus_gpio = -EINVAL;
-			dev_err(simple->dev, "request gpio fail!\n");
-		}
-	}
-
 	return 0;
 }
 
@@ -168,7 +303,12 @@ static void dwc3_sophgo_restore_registers(struct dwc3_of_simple *simple)
 	writel(simple->regs_backup.tune_ctrl_reg1, simple->reg_phy_tune_ctrl_reg + USB_PHY_TUNE_CTRL_REG1);
 }
 
-#endif
+static int sophgo_dwc3_phy_init(struct dwc3_of_simple *simple)
+{
+	return dwc3_sophgo_start(simple);
+}
+
+#endif /* CONFIG_ARCH_CV84X6 / CONFIG_ARCH_CV186X */
 
 static int dwc3_of_simple_probe(struct platform_device *pdev)
 {
@@ -193,6 +333,12 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 	if (of_device_is_compatible(np, "sophgo,cv186x-dwc3")) {
 
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+#if IS_ENABLED(CONFIG_ARCH_CV84X6)
+		simple->reg_usb_top = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(simple->reg_usb_top))
+			return PTR_ERR(simple->reg_usb_top);
+		simple->reg_usb_top_phys = res->start;
+#else
 		simple->reg_usbsys = devm_ioremap_resource(&pdev->dev, res);
 		if (IS_ERR(simple->reg_usbsys))
 			return PTR_ERR(simple->reg_usbsys);
@@ -201,11 +347,19 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 		simple->reg_phy_tune_ctrl_reg = devm_ioremap_resource(&pdev->dev, res);
 		if (IS_ERR(simple->reg_phy_tune_ctrl_reg))
 			return PTR_ERR(simple->reg_phy_tune_ctrl_reg);
-
+#endif
 		simple->vbus_gpio = of_get_named_gpio(simple->dev->of_node, "vbus-gpio", 0);
 		dev_dbg(simple->dev, "get vbus_gpio number:%d\n", simple->vbus_gpio);
 
-		ret = dwc3_sophgo_start(simple);
+		if (gpio_is_valid(simple->vbus_gpio)) {
+			if (devm_gpio_request_one(simple->dev, simple->vbus_gpio,
+						  GPIOF_OUT_INIT_HIGH, "vbus-gpio")) {
+				simple->vbus_gpio = -EINVAL;
+				dev_err(simple->dev, "request gpio fail!\n");
+			}
+		}
+
+		ret = sophgo_dwc3_phy_init(simple);
 		if (ret)
 			return ret;
 	}
@@ -314,7 +468,7 @@ static int __maybe_unused dwc3_of_simple_suspend(struct device *dev)
 {
 	struct dwc3_of_simple *simple = dev_get_drvdata(dev);
 
-	#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+#if IS_ENABLED(CONFIG_ARCH_CV186X)
 	dwc3_sophgo_backup_registers(simple);
 #endif
 
@@ -328,7 +482,7 @@ static int __maybe_unused dwc3_of_simple_resume(struct device *dev)
 {
 	struct dwc3_of_simple *simple = dev_get_drvdata(dev);
 
-#if IS_ENABLED(CONFIG_ARCH_CVITEK)
+#if IS_ENABLED(CONFIG_ARCH_CV186X)
 	dwc3_sophgo_restore_registers(simple);
 #endif
 

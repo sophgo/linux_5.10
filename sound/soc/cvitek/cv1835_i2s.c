@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
+#include <linux/bits.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
@@ -28,6 +29,7 @@
 #include "cv1835_i2s_subsys.h"
 #include <linux/version.h>
 
+extern void __iomem *subsys_reg;
 struct proc_dir_entry *proc_audio_dir;
 static int cvi_i2s_suspend(struct snd_soc_dai *dai);
 static int cvi_i2s_resume(struct snd_soc_dai *dai);
@@ -128,47 +130,11 @@ static void i2s_fifo_reset(struct cvi_i2s_dev *dev, u32 stream)
 	}
 }
 
-//#if 0
-//static void i2s_debug(struct cvi_i2s_dev *dev)
-//{
-//	printk("[i2s_reg]\n");
-//
-//	printk("BLK_MODE_SETTING:0x%x\n", i2s_read_reg(dev->i2s_base, 0x0));
-//	printk("FRAME_SETTING:0x%x\n", i2s_read_reg(dev->i2s_base, 0x4));
-//	printk("SLOT_SETTING1:0x%x\n", i2s_read_reg(dev->i2s_base, 0x8));
-//	printk("SLOT_SETTING2:0x%x\n", i2s_read_reg(dev->i2s_base, 0xc));
-//
-//	printk("DATA_FORMAT:0x%x\n", i2s_read_reg(dev->i2s_base, 0x10));
-//	printk("BLK_CFG:0x%x\n", i2s_read_reg(dev->i2s_base, 0x14));
-//	printk("I2S_ENABL:0x%x\n", i2s_read_reg(dev->i2s_base, 0x18));
-//	printk("I2S_RESET:0x%x\n", i2s_read_reg(dev->i2s_base, 0x1c));
-//
-//	printk("I2S_INT_EN:0x%x\n", i2s_read_reg(dev->i2s_base, 0x20));
-//	printk("I2S_INT:0x%x\n", i2s_read_reg(dev->i2s_base, 0x24));
-//	printk("FIFO_THRESHOLD:0x%x\n", i2s_read_reg(dev->i2s_base, 0x28));
-//	printk("I2S_LRCK_MASTER:0x%x\n", i2s_read_reg(dev->i2s_base, 0x2c));
-//
-//	printk("FIFO_RESET:0x%x\n", i2s_read_reg(dev->i2s_base, 0x30));
-//	printk("RX_STATUS:0x%x\n", i2s_read_reg(dev->i2s_base, 0x40));
-//	printk("TX_STATUS:0x%x\n", i2s_read_reg(dev->i2s_base, 0x48));
-//	printk("FIFO_STATUS:0x%x\n", i2s_read_reg(dev->i2s_base, 0x4c));
-//
-//	printk("I2S_CLK_CTRL0:0x%x\n", i2s_read_reg(dev->i2s_base, 0x60));
-//	printk("I2S_CLK_CTRL1:0x%x\n", i2s_read_reg(dev->i2s_base, 0x64));
-//	printk("I2S_PCM_SYNTH:0x%x\n", i2s_read_reg(dev->i2s_base, 0x68));
-//
-//}
-//#endif
-
 #define I2S_RETRY_COUNT 30000
 static void i2s_reset(struct cvi_i2s_dev *dev, u32 stream)
 {
 	u32 retry = 0;
 
-	dev_dbg(dev->dev, "blk_mode=0x%08x, clk_ctrl=0x%08x, i2s_enable=0x%08x\n",
-		i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING),
-		i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0),
-		i2s_read_reg(dev->i2s_base, I2S_ENABLE));
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		i2s_write_reg(dev->i2s_base, I2S_RESET, I2S_RESET_TX_PULL_UP);
 
@@ -176,7 +142,6 @@ static void i2s_reset(struct cvi_i2s_dev *dev, u32 stream)
 			if ((retry++) > I2S_RETRY_COUNT)
 				break;
 		}
-
 		if (retry > I2S_RETRY_COUNT)
 			dev_err(dev->dev, "WARNING!!! I2S TX RESET failed\n");
 
@@ -185,11 +150,17 @@ static void i2s_reset(struct cvi_i2s_dev *dev, u32 stream)
 	} else { /* reset RX*/
 		i2s_write_reg(dev->i2s_base, I2S_RESET, I2S_RESET_RX_PULL_UP);
 
-		while (!((i2s_read_reg(dev->i2s_base, RX_STATUS) & RESET_RX_SCLK) >> 23)) {
-			if ((retry++) > I2S_RETRY_COUNT)
-				break;
+		/* Slave RX SCLK comes from master via mux; if master is already
+		 * running, RX_STATUS bit23 stays 0 (SCLK toggling) and the wait
+		 * would time out. Skip the wait for slave mode. */
+		if (dev->role != SLAVE_MODE) {
+			while (!((i2s_read_reg(dev->i2s_base, RX_STATUS) & RESET_RX_SCLK) >> 23)) {
+				if ((retry++) > I2S_RETRY_COUNT)
+					break;
+			}
+		} else {
+			udelay(10);
 		}
-
 		if (retry > I2S_RETRY_COUNT)
 			dev_err(dev->dev, "WARNING!!! I2S RX RESET failed\n");
 
@@ -208,16 +179,16 @@ static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 		if (val & (I2S_INT_RXFO | I2S_INT_RXFU)) {
 			dev_dbg(dev->dev, "WARNING!!! I2S RX FIFO exception occur int_status=0x%x\n", val);
 			i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_OFF);
-			i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0,
-				      (i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0) | AUD_ENABLE));
+			i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off,
+				      (i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off) | AUD_ENABLE));
 			i2s_fifo_reset(dev, SNDRV_PCM_STREAM_CAPTURE);
 			i2s_reset(dev, SNDRV_PCM_STREAM_CAPTURE);
 			i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_ON);
 		} else if (val & (I2S_INT_TXFO | I2S_INT_TXFU)) {
 			dev_dbg(dev->dev, "WARNING!!! I2S TX FIFO exception occur int_status=0x%x\n", val);
 			i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_OFF);
-			i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0,
-				      (i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0) | AUD_ENABLE));
+			i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off,
+				      (i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off) | AUD_ENABLE));
 			i2s_fifo_reset(dev, SNDRV_PCM_STREAM_PLAYBACK);
 			i2s_reset(dev, SNDRV_PCM_STREAM_PLAYBACK);
 			i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_ON);
@@ -230,22 +201,93 @@ static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void i2s_debug(struct cvi_i2s_dev *dev)
+{
+	dev_info(dev->dev, "[dump reg] I2S%d DEBUG START\n", dev->dev_id);
+	dev_info(dev->dev, "[dump reg] BLK_MODE_SETTING:0x%x\n", i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING));
+	dev_info(dev->dev, "[dump reg] FRAME_SETTING:0x%x\n", i2s_read_reg(dev->i2s_base, FRAME_SETTING));
+	dev_info(dev->dev, "[dump reg] SLOT_SETTING1:0x%x\n", i2s_read_reg(dev->i2s_base, SLOT_SETTING1));
+	dev_info(dev->dev, "[dump reg] SLOT_SETTING2:0x%x\n", i2s_read_reg(dev->i2s_base, SLOT_SETTING2));
+	dev_info(dev->dev, "[dump reg] DATA_FORMAT:0x%x\n", i2s_read_reg(dev->i2s_base, DATA_FORMAT));
+	dev_info(dev->dev, "[dump reg] BLK_CFG:0x%x\n", i2s_read_reg(dev->i2s_base, BLK_CFG));
+	dev_info(dev->dev, "[dump reg] I2S_ENABLE:0x%x\n", i2s_read_reg(dev->i2s_base, I2S_ENABLE));
+	dev_info(dev->dev, "[dump reg] I2S_RESET:0x%x\n", i2s_read_reg(dev->i2s_base, I2S_RESET));
+	dev_info(dev->dev, "[dump reg] I2S_INT_EN:0x%x\n", i2s_read_reg(dev->i2s_base, I2S_INT_EN));
+	dev_info(dev->dev, "[dump reg] I2S_INT:0x%x\n", i2s_read_reg(dev->i2s_base, I2S_INT));
+	dev_info(dev->dev, "[dump reg] FIFO_THRESHOLD:0x%x\n", i2s_read_reg(dev->i2s_base, FIFO_THRESHOLD));
+	dev_info(dev->dev, "[dump reg] I2S_LRCK_MASTER:0x%x\n", i2s_read_reg(dev->i2s_base, I2S_LRCK_MASTER));
+	dev_info(dev->dev, "[dump reg] dev->clk_ctrl0_off:0x%x\n", i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off));
+	dev_info(dev->dev, "[dump reg] dev->clk_ctrl1_off:0x%x\n", i2s_read_reg(dev->i2s_base, dev->clk_ctrl1_off));
+	dev_info(dev->dev, "[dump reg] I2S%d DEBUG END\n", dev->dev_id);
+}
+
+static void subsys_dump_regs(struct device *pdev)
+{
+	int i;
+
+	if (!subsys_reg)
+		return;
+
+	dev_info(pdev, "[dump reg] SUBSYS DUMP START\n");
+	for (i = 0; i <= 0x18C; i += 4) {
+		dev_info(pdev, "[dump reg] [SUBSYS] 0x%03x = 0x%08x\n", i, readl(subsys_reg + i));
+	}
+	dev_info(pdev, "[dump reg] SUBSYS DUMP END\n");
+}
+
+static void i2s_dump_regs(struct cvi_i2s_dev *dev)
+{
+	int i;
+
+	dev_info(dev->dev, "[dump reg] I2S%d DUMP START\n", dev->dev_id);
+	for (i = 0; i <= 0xD0; i += 4) {
+		dev_info(dev->dev, "[dump reg] [I2S%d] 0x%03x = 0x%08x\n", dev->dev_id, i, i2s_read_reg(dev->i2s_base, i));
+	}
+	dev_info(dev->dev, "[dump reg] I2S%d DUMP END\n", dev->dev_id);
+}
+
+static void codec_dump_regs(struct snd_pcm_substream *substream, struct device *pdev)
+{
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_component *component;
+	unsigned int reg_val;
+	int i, reg;
+
+	dev_info(pdev, "[dump reg] CODEC DUMP START (cvi_i2s_trigger) card=%s\n", card->name);
+	dev_info(pdev, "[dump reg] rtd: dai_link=%s, num_components=%d\n", rtd->dai_link->name, rtd->num_components);
+	for (i = 0; i < rtd->num_components; i++) {
+		component = rtd->components[i];
+		dev_info(pdev, "[dump reg] component[%d]: name=%s, driver_name=%s\n",
+			i, component->name, component->driver->name);
+		if (strstr(component->name, "adau1372") ||
+		    strstr(component->driver->name, "adau1372")) {
+			dev_info(pdev, "[dump reg] ADAU1372 registers 0x00-0x4D\n");
+			for (reg = 0x00; reg <= 0x4D; reg++) {
+				reg_val = snd_soc_component_read(component, reg);
+				dev_info(pdev, "[dump reg] [ADAU1372] 0x%02x = 0x%02x\n", reg, reg_val);
+			}
+		}
+	}
+	dev_info(pdev, "[dump reg] CODEC DUMP END\n");
+}
+
 static void i2s_start(struct cvi_i2s_dev *dev,
 		      struct snd_pcm_substream *substream)
 {
 
 	u32 i2s_enable = i2s_read_reg(dev->i2s_base, I2S_ENABLE);
-	u32 clk_ctrl = i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0);
+	u32 clk_ctrl = i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off);
 	u32 blk_mode_setting = i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING);
 
 	if (!strcmp(substream->pcm->card->shortname, "cvi_adc") ||
 	    !strcmp(substream->pcm->card->shortname, "cv182x_adc") ||
 	    !strcmp(substream->pcm->card->shortname, "cv182xa_adc")) {
 		if ((clk_ctrl & AUD_ENABLE) != AUD_ENABLE)
-			i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, clk_ctrl | AUD_ENABLE);
+			i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, clk_ctrl | AUD_ENABLE);
 	} else {
 		if (((blk_mode_setting & ROLE_MASK) == MASTER_MODE) && ((clk_ctrl & AUD_ENABLE) != AUD_ENABLE))
-			i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, clk_ctrl | AUD_ENABLE);
+			i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, clk_ctrl | AUD_ENABLE);
 	}
 
 	i2s_fifo_reset(dev, substream->stream);
@@ -254,9 +296,15 @@ static void i2s_start(struct cvi_i2s_dev *dev,
 	i2s_clear_irqs(dev, substream->stream);
 	i2s_enable_irqs(dev, substream->stream);
 
-	if (i2s_enable == I2S_OFF) {
+	if (i2s_enable == I2S_OFF || dev->clk_ctrl0_off == I2S_CLK_CTRL0_DUPLEX) {
 		//i2s_subsys_switch(dev->dev_id, I2S_ON);
-		i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_ON);
+		/* X2 IIS4 is duplex-variant: I2S_ENABLE uses bit0=TX_ON, bit1=RX_ON
+		 * (1=TX, 2=RX, 3=both). Simplex IPs use 1=ON. */
+		if (dev->clk_ctrl0_off == I2S_CLK_CTRL0_DUPLEX)
+			i2s_write_reg(dev->i2s_base, I2S_ENABLE,
+				      substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? 1 : 2);
+		else
+			i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_ON);
 		udelay(9);
 
 	} else
@@ -265,7 +313,7 @@ static void i2s_start(struct cvi_i2s_dev *dev,
 	dev_dbg(dev->dev,
 		"blk_mode=0x%08x, clk_ctrl=0x%08x, int_en=0x%08x, frame_setting=0x%08x, slot_setting=0x%08x, data_format=0x%08x\n",
 		i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING),
-		i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0),
+		i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off),
 		i2s_read_reg(dev->i2s_base, I2S_INT_EN),
 		i2s_read_reg(dev->i2s_base, FRAME_SETTING),
 		i2s_read_reg(dev->i2s_base, SLOT_SETTING1),
@@ -283,15 +331,16 @@ static void i2s_stop(struct cvi_i2s_dev *dev,
 
 	if (!dev->mclk_out) {
 		u32 blk_mode_setting = i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING);
-		u32 clk_ctrl = i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0);
+		u32 clk_ctrl = i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off);
 
 		if (((blk_mode_setting & ROLE_MASK) == MASTER_MODE) && ((clk_ctrl & AUD_ENABLE) == AUD_ENABLE))	{
 			dev_dbg(dev->dev, "Disable aud_en\n");
-			i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, clk_ctrl & ~(AUD_ENABLE));
+			i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, clk_ctrl & ~(AUD_ENABLE));
 		}
 	}
 
-	if (i2s_enable == I2S_ON) {
+	if (i2s_enable == I2S_ON || i2s_enable == 1 || i2s_enable == 2 ||
+	    dev->clk_ctrl0_off == I2S_CLK_CTRL0_DUPLEX) {
 		//i2s_subsys_switch(dev->dev_id, I2S_OFF);
 		i2s_write_reg(dev->i2s_base, I2S_ENABLE, I2S_OFF);
 		i2s_fifo_reset(dev, substream->stream);
@@ -359,7 +408,6 @@ static int cvi_i2s_startup(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 	dev->tx_substream = substream;
-	printk(KERN_ERR"cvi_i2s_startup i2s_dev:%d,substream:%p\n",dev->dev_id,dev->tx_substream);
 	return 0;
 }
 
@@ -580,6 +628,10 @@ static int cvi_i2s_hw_params(struct snd_pcm_substream *substream,
 		    !strcmp(substream->pcm->card->shortname, "cv186x_adc") ||
 		    !strcmp(substream->pcm->card->shortname, "cv186x_dac"))
 			audio_clk = CVI_16384_MHZ;
+#if defined(CONFIG_ARCH_CV84X6)
+		else if (!strcmp(substream->pcm->card->shortname, "cvi_sound_card_0"))
+			audio_clk = 10000000;
+#endif
 		else
 			audio_clk = CVI_24576_MHZ;
 		break;
@@ -732,8 +784,12 @@ static int cvi_i2s_hw_params(struct snd_pcm_substream *substream,
 	i2s_write_reg(dev->i2s_base, DATA_FORMAT, data_format);
 
 	clk_ctrl1 |= BCLK_DIV(bclk_div);
+
+//#if defined(CONFIG_ARCH_CV84X6)
+//	clk_ctrl1 = 0x40002;
+//#endif
 	dev_dbg(dev->dev, "Set clock ctrl1=0x%08x\n", clk_ctrl1);
-	i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL1, clk_ctrl1);
+	i2s_write_reg(dev->i2s_base, dev->clk_ctrl1_off, clk_ctrl1);
 
 #if defined(CONFIG_SND_SOC_CV1835_CONCURRENT_I2S)
 	if (dev->dev_id != 0 && dev->dev_id != 3 && dev->dev_id != i2s_subsys_query_master())
@@ -743,7 +799,7 @@ static int cvi_i2s_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(dev->dev, "frame_setting=0x%08x, slot_setting1=0x%08x, clk_ctrl1=0x%08x, data_format=0x%08x\n",
 		i2s_read_reg(dev->i2s_base, FRAME_SETTING),
 		i2s_read_reg(dev->i2s_base, SLOT_SETTING1),
-		i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL1),
+		i2s_read_reg(dev->i2s_base, dev->clk_ctrl1_off),
 		i2s_read_reg(dev->i2s_base, DATA_FORMAT));
 
 	return 0;
@@ -768,6 +824,17 @@ static int cvi_i2s_prepare(struct snd_pcm_substream *substream,
 	else
 		blk_mode_setting |= RX_MODE;
 
+	/* X2 IIS4 duplex-variant: BLK_MODE bit13=TX_DUPLEX_MODE, bit14=RX_DUPLEX_MODE
+	 * must be set together with TX_MODE/RX_MODE for the IP to actually drive the
+	 * duplex enable encoding in I2S_ENABLE (1=TX, 2=RX). */
+	if (dev->clk_ctrl0_off == I2S_CLK_CTRL0_DUPLEX) {
+		blk_mode_setting &= ~(BIT(13) | BIT(14));
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			blk_mode_setting |= BIT(13);
+		else
+			blk_mode_setting |= BIT(14);
+	}
+
 	i2s_write_reg(dev->i2s_base, BLK_MODE_SETTING, blk_mode_setting);
 
 	return 0;
@@ -786,13 +853,25 @@ static int cvi_i2s_trigger(struct snd_pcm_substream *substream,
 		snd_pcm_stream_unlock_irq(substream);
 		dev->active++;
 #if defined(CONFIG_SND_SOC_CV1835_CONCURRENT_I2S)
+#if defined(CONFIG_ARCH_CV84X6)
+		if(dev->dev_id == 2)
+			i2s_master_clk_switch_on(true);
+#else
 		if (dev->dev_id != 0 && dev->dev_id != 3 && dev->dev_id != i2s_subsys_query_master()) {
 			dev_dbg(dev->dev, "enable master clk generation\n");
 			i2s_master_clk_switch_on(true);
+			i2s_set_io_direction(true);
 		}
+#endif
 #endif
 		cvi_i2s_resume(dai);
 		i2s_start(dev, substream);
+#if 0
+		subsys_dump_regs(dev->dev);
+		i2s_dump_regs(dev);
+		i2s_debug(dev);
+		codec_dump_regs(substream, dev->dev);
+#endif
 		snd_pcm_stream_lock_irq(substream);
 		break;
 
@@ -804,10 +883,15 @@ static int cvi_i2s_trigger(struct snd_pcm_substream *substream,
 //		i2s_debug(dev);
 		i2s_stop(dev, substream);
 #if defined(CONFIG_SND_SOC_CV1835_CONCURRENT_I2S)
+#if defined(CONFIG_ARCH_CV84X6)
+		i2s_master_clk_switch_on(false);
+
+#else
 		if (dev->dev_id != 0 && dev->dev_id != 3 && dev->dev_id != i2s_subsys_query_master()) {
 			dev_dbg(dev->dev, "disable master clk generation\n");
 			i2s_master_clk_switch_on(false);
 		}
+#endif
 #endif
 		cvi_i2s_suspend(dai);
 //		snd_pcm_stream_lock_irq(substream);
@@ -1138,7 +1222,7 @@ static int i2s_proc_show(struct seq_file *m, void *v)
 
 	seq_printf(m, "\nblk_mode=0x%08x,          clk_ctrl=0x%08x,          int_en=0x%08x\n",
 		   i2s_read_reg(dev->i2s_base, BLK_MODE_SETTING),
-		   i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0),
+		   i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off),
 		   i2s_read_reg(dev->i2s_base, I2S_INT_EN));
 
 	seq_printf(m, "\nframe_setting=0x%08x,     slot_setting=0x%08x,      data_format=0x%08x\n",
@@ -1156,8 +1240,8 @@ static int i2s_proc_show(struct seq_file *m, void *v)
 		   i2s_read_reg(dev->i2s_base, DMA_ACK_COUNT));
 
 	seq_printf(m, "\nclk_ctrl0=0x%08x,         clk_ctrl1=0x%08x\n",
-		   i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0),
-		   i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL1));
+		   i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off),
+		   i2s_read_reg(dev->i2s_base, dev->clk_ctrl1_off));
 
 	return 0;
 }
@@ -1234,6 +1318,11 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 		device_property_read_u32(&pdev->dev, "dev-id",
 					 &dev->dev_id);
 		dev->clk = devm_clk_get(&pdev->dev, clk_id);
+		/* A2 simplex IIS: CLK_CTRL0/1 always at 0x60/0x64. The duplex
+		 * addresses 0x70/0x74 only apply to X2 IIS2/IIS4, not A2 — even
+		 * though A2 IIS1 happens to sit at 0x29120000, it is simplex. */
+		dev->clk_ctrl0_off = 0x60;
+		dev->clk_ctrl1_off = 0x64;
 	}
 	if (ret < 0)
 		return ret;
@@ -1265,17 +1354,28 @@ static int cvi_i2s_probe(struct platform_device *pdev)
 	else
 		dev->mclk_out = false;
 
-	val = i2s_read_reg(dev->i2s_base, I2S_CLK_CTRL0);
+	val = i2s_read_reg(dev->i2s_base, dev->clk_ctrl0_off);
 	val &= ~(AUD_CLK_SOURCE_MASK);
 	val &= ~(BCLK_OUT_FORCE_EN); /* blck_out output after transmission start */
 #if defined(CONFIG_SND_SOC_CV1835_USE_AUDIO_PLL)
-	if (dev->mclk_out)
-		i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, val | AUD_CLK_FROM_PLL | MCLK_OUT_EN | AUD_ENABLE);
+	if (dev->mclk_out) {
+		u32 extra = AUD_CLK_FROM_PLL | MCLK_OUT_EN | AUD_ENABLE;
+
+		/* X2 (CV84X6) simplex I2S master: match bmtest — BCLK_OUT_FORCE_EN
+		 * drives BCLK; MCLK_OUT_EN alone leaves BCLK undriven → TX FIFO
+		 * underflow. X2 IIS4 duplex-variant also uses BCLK_OUT_FORCE_EN. */
+#if defined(CONFIG_ARCH_CV84X6)
+		extra = AUD_CLK_FROM_PLL | BCLK_OUT_FORCE_EN | AUD_ENABLE;
+#endif
+		if (dev->clk_ctrl0_off == I2S_CLK_CTRL0_DUPLEX)
+			extra = AUD_CLK_FROM_PLL | BCLK_OUT_FORCE_EN | AUD_ENABLE;
+		i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, val | extra);
+	}
 	/* Turn aud_en on due to external codec might need MCLK to do register initialization */
 	else
-		i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, val | AUD_CLK_FROM_PLL);
+		i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, val | AUD_CLK_FROM_PLL);
 #else
-	i2s_write_reg(dev->i2s_base, I2S_CLK_CTRL0, val | AUD_CLK_FROM_MCLK_IN);
+	i2s_write_reg(dev->i2s_base, dev->clk_ctrl0_off, val | AUD_CLK_FROM_MCLK_IN);
 #endif
 
 	dev_set_drvdata(&pdev->dev, dev);
@@ -1381,8 +1481,8 @@ static int cvi_i2s_pm_suspend(struct device *dev)
 	i2s_dev->reg_ctx->i2s_int_en = i2s_read_reg(i2s_dev->i2s_base, I2S_INT_EN);
 	i2s_dev->reg_ctx->fifo_threshold = i2s_read_reg(i2s_dev->i2s_base, FIFO_THRESHOLD);
 	i2s_dev->reg_ctx->i2s_lrck_master = i2s_read_reg(i2s_dev->i2s_base, I2S_LRCK_MASTER);
-	i2s_dev->reg_ctx->i2s_clk_ctl0 = i2s_read_reg(i2s_dev->i2s_base, I2S_CLK_CTRL0);
-	i2s_dev->reg_ctx->i2c_clk_ctl1 = i2s_read_reg(i2s_dev->i2s_base, I2S_CLK_CTRL1);
+	i2s_dev->reg_ctx->i2s_clk_ctl0 = i2s_read_reg(i2s_dev->i2s_base, i2s_dev->clk_ctrl0_off);
+	i2s_dev->reg_ctx->i2c_clk_ctl1 = i2s_read_reg(i2s_dev->i2s_base, i2s_dev->clk_ctrl1_off);
 	i2s_dev->reg_ctx->i2s_pcm_synth = i2s_read_reg(i2s_dev->i2s_base, I2S_PCM_SYNTH);
 
 	if (i2s_dev->capability & CVI_I2S_MASTER)
@@ -1408,8 +1508,8 @@ static int cvi_i2s_pm_resume(struct device *dev)
 	i2s_write_reg(i2s_dev->i2s_base, I2S_INT_EN, i2s_dev->reg_ctx->i2s_int_en);
 	i2s_write_reg(i2s_dev->i2s_base, FIFO_THRESHOLD, i2s_dev->reg_ctx->fifo_threshold);
 	i2s_write_reg(i2s_dev->i2s_base, I2S_LRCK_MASTER, i2s_dev->reg_ctx->i2s_lrck_master);
-	i2s_write_reg(i2s_dev->i2s_base, I2S_CLK_CTRL0, i2s_dev->reg_ctx->i2s_clk_ctl0);
-	i2s_write_reg(i2s_dev->i2s_base, I2S_CLK_CTRL1, i2s_dev->reg_ctx->i2c_clk_ctl1);
+	i2s_write_reg(i2s_dev->i2s_base, i2s_dev->clk_ctrl0_off, i2s_dev->reg_ctx->i2s_clk_ctl0);
+	i2s_write_reg(i2s_dev->i2s_base, i2s_dev->clk_ctrl1_off, i2s_dev->reg_ctx->i2c_clk_ctl1);
 	i2s_write_reg(i2s_dev->i2s_base, I2S_PCM_SYNTH, i2s_dev->reg_ctx->i2s_pcm_synth);
 
 	if(really_state[i2s_dev->dev_id] && i2s_dev->tx_substream)

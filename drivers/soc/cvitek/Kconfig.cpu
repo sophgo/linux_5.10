@@ -2,8 +2,8 @@
 menu "CVITEK CPU selection"
         depends on ARCH_CVITEK
 
-config CHIP_CPU_CV84X2
-        bool "CV84X2"
+config CHIP_CPU_CV84X6
+        bool "CV84X6"
 	default n
 
 config CHIP_CPU_CV186X

@@ -2,6 +2,15 @@
 #include "cvitek_vo_sys_reg.h"
 #include "cvitek_mipipll_cfg.h"
 
+/*
+ * These PLL configs are only used for MIPI DSI / LVDS output and depend on
+ * DSI PHY registers (REG_DSI_PHY_TXPLL_SETUP / REG_MPLL_CTRL1 /
+ * REG_FPLL_CTRL2/5). HDMI-only SoCs such as CV84X6 do not need them, and
+ * those register macros are undefined there, so only compile this when
+ * DSI/LVDS is enabled to avoid needless build errors.
+ */
+#if defined(CONFIG_CVITEK_MIPI_DSI) || defined(CONFIG_CVITEK_LVDS)
+
 #define MIN(a, b) (((a) < (b))?(a):(b))
 #define MAX(a, b) (((a) > (b))?(a):(b))
 
@@ -57,3 +66,5 @@ void dphy_lvds_set_pll(u8 lvds_id, u32 clkkHz, u8 link)
 	_reg_write_mask(REG_FPLL_CTRL5(lvds_id), BIT(0), 1);
 	_reg_write_mask(REG_FPLL_CTRL5(lvds_id), BIT(0), 0);
 }
+
+#endif /* CONFIG_CVITEK_MIPI_DSI || CONFIG_CVITEK_LVDS */
