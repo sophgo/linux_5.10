@@ -189,6 +189,31 @@ static int cvitek_vo_sys_base_set(struct device *dev)
 	DRM_DEBUG_DRIVER("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
 		res->start, res->end, vo_sys_f_base);
 
+	return 0;
+}
+
+static int cvitek_vpss0_base_set(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drm_device *drm = dev_get_drvdata(dev);
+	struct resource *res;
+
+#ifdef CONFIG_ARCH_CV84X6
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	if (!res) {
+		dev_err(dev, "failed to get VPSS0 MEM resource\n");
+		return -EINVAL;
+	}
+
+	/* map VOSYS_VPSS0_CFG (0x67110000, 16KB) */
+	vpss0_base = devm_ioremap(dev, res->start, resource_size(res));
+	if (!vpss0_base) {
+		drm_err(drm, "failed to map VPSS0 registers\n");
+		return -ENXIO;
+	}
+	DRM_DEBUG_DRIVER("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
+		res->start, res->end, vpss0_base);
+#else
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res) {
 		dev_err(dev, "failed to get VO sys MEM resource\n");
@@ -202,10 +227,60 @@ static int cvitek_vo_sys_base_set(struct device *dev)
 	}
 	DRM_DEBUG_DRIVER("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
 		res->start, res->end, vo_sys_b_base);
+#endif
 
 	return 0;
 }
 
+#ifdef CONFIG_ARCH_CV84X6
+static int cvitek_top_pll_set(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drm_device *drm = dev_get_drvdata(dev);
+	struct resource *res;
+
+	/* map CLKGEN divider (0x28102000, 1KB): VO_SYS_CLK_DIV/ENABLE for DISP clock */
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	if (!res) {
+		dev_err(dev, "failed to get top pll MEM resource\n");
+		return -EINVAL;
+	}
+
+	vo_sys_div_base = devm_ioremap(dev, res->start, resource_size(res));
+	if (!vo_sys_div_base) {
+		drm_err(drm, "failed to map top pll registers\n");
+		return -ENXIO;
+	}
+	DRM_DEBUG_DRIVER("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
+		res->start, res->end, vo_sys_div_base);
+
+	return 0;
+}
+
+/* map SYS_CTRL (0x28100000, 4KB): TOP_MISC MPLL4 for disp_set_clk() */
+static int cvitek_sys_ctrl_base_set(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct drm_device *drm = dev_get_drvdata(dev);
+	struct resource *res;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+	if (!res) {
+		dev_err(dev, "failed to get sys_ctrl MEM resource\n");
+		return -EINVAL;
+	}
+
+	sys_ctrl_base = devm_ioremap(dev, res->start, resource_size(res));
+	if (!sys_ctrl_base) {
+		drm_err(drm, "failed to map sys_ctrl registers\n");
+		return -ENXIO;
+	}
+	DRM_DEBUG_DRIVER("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%p).\n",
+		res->start, res->end, sys_ctrl_base);
+
+	return 0;
+}
+#else
 static int cvitek_top_pll_set(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -228,6 +303,7 @@ static int cvitek_top_pll_set(struct device *dev)
 
 	return 0;
 }
+#endif
 
 static int cvitek_drm_bind(struct device *dev)
 {
@@ -260,16 +336,33 @@ static int cvitek_drm_bind(struct device *dev)
 		return ret;
 	}
 
+	// get vo_sys reg addr
 	ret = cvitek_vo_sys_base_set(dev);
 	if (ret)
 		return ret;
 
+	// get vo clk div reg addr
 	ret = cvitek_top_pll_set(dev);
 	if (ret)
 		return ret;
 
+	// get vpss0 reg addr (0x67110000)
+	ret = cvitek_vpss0_base_set(dev);
+	if (ret)
+		return ret;
+
+#ifdef CONFIG_ARCH_CV84X6
+	// get sys_ctrl reg addr (0x28100000, MPLL4 for disp_set_clk)
+	ret = cvitek_sys_ctrl_base_set(dev);
+	if (ret)
+		return ret;
+#endif
+
 	/* reset disp0 and disp1 */
 	reset_disp();
+#ifdef CONFIG_ARCH_CV84X6
+	cvitek_hdmi_reset();
+#endif
 
 	ret = drmm_mode_config_init(drm);
 	if (ret)

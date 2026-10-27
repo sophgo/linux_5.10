@@ -40,99 +40,36 @@ static struct scsi_host_template ahci_platform_sht = {
 	AHCI_SHT(DRV_NAME),
 };
 
-#define SSPERI_TOP_REG_BASE     0x20BE0000
-#define SSPERI_AXI_BASE         0x20000000
+/*
+ * The PCIe/SATA PHY SRAM is loaded and initialized by the ROM (see the ROM
+ * pcie driver: pcie_wait_sram_init_done() reading PCIE_PHY_MODE_REG1). SATA is
+ * wired to PHY1, so the ROM reports its SRAM init state in the PHY1 done bit.
+ * If the ROM did not finish PHY init there is no working link, so bail out.
+ */
+#define PCIE_PHY_INTF			0x21390000
+#define PCIE_PHY_MODE_REG1_OFFSET	0x1BC
+#define PCIE_PHY1_SRAM_INIT_DONE	(1 << 7)
 
-int sophgo_phy_init(void)
+static int sophgo_check_sram_init_done(struct device *dev)
 {
-	uint32_t reg;
-	int timeout = 100;
-	void __iomem *axi_base = NULL;
-	void __iomem *top_base = NULL;
+	void __iomem *phy_intf;
+	u32 val;
 
-	axi_base = ioremap(SSPERI_AXI_BASE, 0x44);
-	if (axi_base == NULL) {
-		pr_info("ioremap failed!\n");
-		return -1;
-	}
-	reg = readl(axi_base + 0x40);
-	reg &= ~(0x1 << 2);
-	writel(reg, axi_base + 0x40);
-	iounmap(axi_base);
-
-
-	top_base = ioremap(SSPERI_TOP_REG_BASE, 0x4f0);
-	if (top_base == NULL) {
-		pr_info("ioremap failed!\n");
-		return -1;
+	phy_intf = ioremap(PCIE_PHY_INTF, PCIE_PHY_MODE_REG1_OFFSET + 4);
+	if (!phy_intf) {
+		dev_err(dev, "failed to map PCIE PHY interface\n");
+		return -ENOMEM;
 	}
 
-	/* set pipe for sata and pcie both enable */
-	reg = readl(top_base + 0x44);
-	/* pipe mode set for sata */
-	reg &= ~(0x3);
-	reg |= (0x2);
-	writel(reg, top_base + 0x44);
+	val = readl(phy_intf + PCIE_PHY_MODE_REG1_OFFSET);
+	iounmap(phy_intf);
 
-	/* set phy protocol for sata operation */
-	reg = readl(top_base + 0x278);
-	reg &= ~(0x3);
-	reg |= 0x2;
-	writel(reg, top_base + 0x278);
-
-	/* phy lane0 rx_term_acdc control bit */
-	reg = readl(top_base + 0x48);
-	reg &= ~(0x3);
-	reg |= 0x2;
-	writel(reg, top_base + 0x48);
-
-	/* phy vph for 1.8v */
-	reg = readl(top_base + 0x34);
-	reg &= ~(0x7);
-	reg |= 0x7;
-	writel(reg, top_base + 0x34);
-
-	/* phy0 sram_ld_done 0
-	 * phy0 sram_bypass 0
-	 * phy0 refclk for use_pad，
-	 * phy0 ref_repeat_clk
-	 */
-	reg = readl(top_base + 0x4b0);
-	reg &= ~(0xf << 24);
-	reg &= ~(0x1 << 23);
-	reg |= (0x2 << 24);
-	reg |= (0x1 << 23);
-	writel(reg, top_base + 0x4b0);
-
-	/* set phy0 pwr_en/stable */
-	reg = readl(top_base + 0x4b8);
-	reg |= (0xf << 15);
-	writel(reg, top_base + 0x4b8);
-
-	reg = readl(top_base + 0x4a4);
-	reg |= (0x1 << 10);
-	writel(reg, top_base + 0x4a4);
-
-	udelay(10);
-	/* release phy_reset */
-	reg = readl(top_base + 0x34);
-	reg |= 0x1 << 28;
-	writel(reg, top_base + 0x34);
-
-	while (!(readl(top_base + 0x4b8) & 0x20)) {
-		if (timeout-- > 0) {
-			mdelay(1);
-		} else {
-			pr_info("phy sram init timeout");
-			return -1;
-			//break;
-		}
+	if (!(val & PCIE_PHY1_SRAM_INIT_DONE)) {
+		dev_err(dev, "PCIE PHY sram init not done (REG1=0x%08x), abort\n",
+			val);
+		return -ENODEV;
 	}
-	reg = readl(top_base + 0x4b0);
-	reg |= 0x1 << 27;
-	writel(reg, top_base + 0x4b0);
 
-	iounmap(top_base);
 	return 0;
 }
 
@@ -142,6 +79,10 @@ static int ahci_probe(struct platform_device *pdev)
 	struct ahci_host_priv *hpriv;
 	const struct ata_port_info *port;
 	int rc;
+
+	rc = sophgo_check_sram_init_done(dev);
+	if (rc)
+		return rc;
 
 	hpriv = ahci_platform_get_resources(pdev,
 					    AHCI_PLATFORM_GET_RESETS);
@@ -161,10 +102,6 @@ static int ahci_probe(struct platform_device *pdev)
 	port = acpi_device_get_match_data(dev);
 	if (!port)
 		port = &ahci_port_info;
-
-	rc = sophgo_phy_init();
-	if (rc)
-		goto disable_resources;
 
 	rc = ahci_platform_init_host(pdev, hpriv, port,
 				     &ahci_platform_sht);

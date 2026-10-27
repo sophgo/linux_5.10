@@ -143,6 +143,24 @@ config SATA_AHCI_PLATFORM
 
 	  If unsure, say N.
 
+config SATA_AHCI_CV186X
+	tristate "CV186X AHCI SATA support"
+	select SATA_HOST
+	help
+	  This option enables support for SOPHGO CV186X Soc AHCI Serial ATA
+	  controllers.
+
+	  If unsure, say N.
+
+config SATA_AHCI_CV84X6
+	tristate "CV84X6 AHCI SATA support"
+	select SATA_HOST
+	help
+	  This option enables support for SOPHGO CV84X6 Soc AHCI Serial ATA
+	  controllers.
+
+	  If unsure, say N.
+
 config AHCI_BRCM
 	tristate "Broadcom AHCI SATA support"
 	depends on ARCH_BRCMSTB || BMIPS_GENERIC || ARCH_BCM_NSP || \

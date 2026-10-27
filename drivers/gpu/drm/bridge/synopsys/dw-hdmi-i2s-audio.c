@@ -8,6 +8,7 @@
 
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
+#include <linux/of.h>
 
 #include <drm/bridge/dw_hdmi.h>
 #include <drm/drm_crtc.h>
@@ -70,6 +71,7 @@ static int dw_hdmi_i2s_hw_params(struct device *dev, void *data,
 		/* Fall-thru */
 	}
 
+	// support 16bit or 24 bit
 	switch (hparms->sample_width) {
 	case 16:
 		conf1 = HDMI_AUD_CONF1_WIDTH_16;
@@ -81,19 +83,19 @@ static int dw_hdmi_i2s_hw_params(struct device *dev, void *data,
 	}
 
 	switch (fmt->fmt) {
-	case HDMI_I2S:
+	case HDMI_I2S: // Standard I2S [waveform: one BCLK delay after LRCLK change, MSB first]
 		conf1 |= HDMI_AUD_CONF1_MODE_I2S;
 		break;
-	case HDMI_RIGHT_J:
+	case HDMI_RIGHT_J: // Right-justified (Sony format, LSB aligned to LRCLK edge, MSB first)
 		conf1 |= HDMI_AUD_CONF1_MODE_RIGHT_J;
 		break;
-	case HDMI_LEFT_J:
+	case HDMI_LEFT_J: // Left-justified (MSB aligned to LRCLK edge, LSB last)
 		conf1 |= HDMI_AUD_CONF1_MODE_LEFT_J;
 		break;
-	case HDMI_DSP_A:
+	case HDMI_DSP_A: // DSP mode A: LRCLK pulse sync, data burst follows immediately
 		conf1 |= HDMI_AUD_CONF1_MODE_BURST_1;
 		break;
-	case HDMI_DSP_B:
+	case HDMI_DSP_B: // DSP mode B: LRCLK pulse + 1 BCLK delay, data burst
 		conf1 |= HDMI_AUD_CONF1_MODE_BURST_2;
 		break;
 	default:
@@ -198,10 +200,19 @@ static int snd_dw_hdmi_probe(struct platform_device *pdev)
 	pdevinfo.data		= &pdata;
 	pdevinfo.size_data	= sizeof(pdata);
 	pdevinfo.dma_mask	= DMA_BIT_MASK(32);
+	/*
+	 * Inherit the parent (dw-hdmi) of_node so that the ASoC machine
+	 * driver can find this codec via a DT phandle (e.g. cvi,codec = <&hdmi>)
+	 * instead of a fragile "hdmi-audio-codec.N.auto" platform id.
+	 */
+	if (pdev->dev.parent && pdev->dev.parent->of_node)
+		pdevinfo.fwnode = of_fwnode_handle(pdev->dev.parent->of_node);
 
 	platform = platform_device_register_full(&pdevinfo);
-	if (IS_ERR(platform))
+	if (IS_ERR(platform)) {
+		dev_err(&pdev->dev, "%s: [HDMI I2S AUDIO] platform_device_register_full failed\n", __func__);
 		return PTR_ERR(platform);
+	}
 
 	dev_set_drvdata(&pdev->dev, platform);
 

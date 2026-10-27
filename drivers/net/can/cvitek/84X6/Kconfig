@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config CAN_CVITEK_MCAN
+	tristate "M_CAN integrated inside the Cvitek chip"
+	help
+	  Say Y here if you want support for M_CAN controller framework.
+	  This is common support for devices that embed the M_CAN IP.

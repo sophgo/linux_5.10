@@ -63,6 +63,7 @@ obj-$(CONFIG_AMLOGIC_THERMAL)     += amlogic_thermal.o
 obj-$(CONFIG_SPRD_THERMAL)	+= sprd_thermal.o
 obj-$(CONFIG_KHADAS_MCU_FAN_THERMAL)	+= khadas_mcu_fan.o
 obj-$(CONFIG_CV186X_THERMAL)	+= cv186x_thermal.o
+obj-$(CONFIG_CV84X6_THERMAL)	+= cv84x6_thermal.o
 obj-$(CONFIG_CV181X_THERMAL)	+= cv181x_thermal.o
 obj-$(CONFIG_CV180X_THERMAL)	+= cv180x_thermal.o
 obj-$(CONFIG_CV1835_THERMAL)    += cv1835_thermal.o

@@ -218,13 +218,6 @@ config SND_SOC_CV186X_CV186XDAC
 	 Then select it for built in or module.
 	 Say N, if not support
 
-config SND_SOC_CV183x_DUMMY_CODEC
-	tristate "Support concurrent TX and RX by one I2S and the other I2S"
-	depends on SND
-	help
-	  Say Y, ex. if you want to create a dummy codec to help create alsa
-	  card
-
 config SND_SOC_CV183x_DUMMY_CARD
 	tristate "Support concurrent TX and RX by one I2S and the other I2S"
 	depends on SND
@@ -234,6 +227,13 @@ config SND_SOC_CV183x_DUMMY_CARD
 	  of 1 I2S IP only has 1 FIFO, we need to bind 2 I2S IPs with 1 I/O
 
 	  If this device never do concurrent TX/RX, please don't select it
+
+# Backward-compat alias: legacy defconfigs select SND_SOC_CV183x_DUMMY_CODEC;
+# it now just selects DUMMY_CARD so both old and new defconfigs compile
+# dummy_codec.o / cv1835_dummy_codec.o consistently.
+config SND_SOC_CV183x_DUMMY_CODEC
+	tristate
+	select SND_SOC_CV183x_DUMMY_CARD
 
 config SND_SOC_CV1835_USE_AUDIO_PLL
 	tristate "Use internal audio PLL as I2S clock source"
@@ -258,3 +258,22 @@ config SND_SOC_CV1835_LT9611
 	tristate "Support for the lt9611 card"
 	help
 	  lt9611 codec enable.
+
+config SND_SOC_CVITEK_HDMI_I2S
+	tristate "CVITEK HDMI I2S Device Driver"
+	select SND_SOC_GENERIC_DMAENGINE_PCM
+	help
+	 Say y or m if you want to add support for HDMI I2S driver for
+	 CVITEK platform. The device supports up to 8 channels
+	 for playback through HDMI TX.
+	 Say N, if not support
+
+config SND_SOC_CVITEK_HDMI_CARD
+	tristate "Support for the CVITEK HDMI audio card"
+	depends on SND_SOC_CVITEK_HDMI_I2S
+	select SND_SOC_HDMI_CODEC
+	help
+	 Say y or m if you want to add support for HDMI audio output
+	 on CVITEK platform. This binds the HDMI I2S controller
+	 with the HDMI audio codec.
+	 Say N, if not support

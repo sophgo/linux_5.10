@@ -48,6 +48,10 @@
 #define DMA_ACK_COUNT		0x54
 #define I2S_CLK_CTRL0		0x60
 #define I2S_CLK_CTRL1		0x64
+/* X2 IIS4 (dev_id==3) is duplex-variant TDM IP: 0x60/0x64 are read-only
+ * DMA_STATUS, real CLK_CTRL0/1 sit at 0x70/0x74. */
+#define I2S_CLK_CTRL0_DUPLEX	0x70
+#define I2S_CLK_CTRL1_DUPLEX	0x74
 #define I2S_PCM_SYNTH		0x68
 #define RX_RD_PORT_CH0		0x80
 #define RX_RD_PORT_CH1		0x84
@@ -293,6 +297,8 @@ struct cvi_i2s_dev {
 	u8 mode;
 	u8 sample_edge;
 	u8 role;
+	u32 clk_ctrl0_off;	/* 0x60 normally, 0x70 for X2 IIS4 duplex */
+	u32 clk_ctrl1_off;	/* 0x64 normally, 0x74 for X2 IIS4 duplex */
 
 	/* data related to DMA transfers b/w i2s and DMAC */
 	union cvi_i2s_snd_dma_data play_dma_data;

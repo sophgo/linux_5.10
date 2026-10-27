@@ -644,7 +644,7 @@ struct phy_device {
 	const struct macsec_ops *macsec_ops;
 #endif
 
-#if IS_ENABLED(CONFIG_ARCH_CV186X)
+#if IS_ENABLED(CONFIG_ARCH_CV186X) || IS_ENABLED(CONFIG_ARCH_CV84X6)
 	char phy_led_flag;
 #endif
 };

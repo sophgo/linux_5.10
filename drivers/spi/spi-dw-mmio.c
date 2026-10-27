@@ -25,6 +25,14 @@
 
 #define DRIVER_NAME "dw_spi_mmio"
 
+#ifdef CONFIG_ARCH_CV186X
+#define SPI_CS_TOGGLE_REG          0x281001D0
+#define SPI_CS_TOGGLE_SPI0         (0x01 << 0)
+#define SPI_CS_TOGGLE_SPI1         (0x01 << 1)
+#define SPI_CS_TOGGLE_SPI2         (0x01 << 2)
+#define SPI_CS_TOGGLE_SPI3         (0x01 << 3)
+#endif
+
 struct dw_spi_mmio {
 	struct dw_spi  dws;
 	struct clk     *clk;
@@ -286,6 +294,41 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 	device_property_read_u32(&pdev->dev, "num-cs", &num_cs);
 
 	dws->num_cs = num_cs;
+
+#ifdef CONFIG_ARCH_CV186X
+	/* Handle cs_togle_en property for CV186X */
+	if (device_property_present(&pdev->dev, "cs_togle_en")) {
+		u32 cs_togle_en;
+		void __iomem *cs_toggle_reg;
+		int spi_idx = pdev->id;
+
+		/* If pdev->id is -1 (DT device), get index from alias (spi0/spi1/spi2/spi3) */
+		if (spi_idx < 0 && pdev->dev.of_node) {
+			spi_idx = of_alias_get_id(pdev->dev.of_node, "spi");
+		}
+
+		if (spi_idx < 0 || spi_idx > 3) {
+			dev_warn(&pdev->dev, "Invalid SPI index %d, cs_togle_en ignored\n", spi_idx);
+		} else {
+			device_property_read_u32(&pdev->dev, "cs_togle_en", &cs_togle_en);
+
+			cs_toggle_reg = ioremap(SPI_CS_TOGGLE_REG, 4);
+			if (cs_toggle_reg) {
+				u32 val = readl(cs_toggle_reg);
+
+				if (cs_togle_en) {
+					val |= BIT(spi_idx);
+					dev_info(&pdev->dev, "CS toggle enabled for SPI%d\n", spi_idx);
+				} else {
+					val &= ~BIT(spi_idx);
+					dev_info(&pdev->dev, "CS toggle disabled for SPI%d\n", spi_idx);
+				}
+				writel(val, cs_toggle_reg);
+				iounmap(cs_toggle_reg);
+			}
+		}
+	}
+#endif
 
 	init_func = device_get_match_data(&pdev->dev);
 	if (init_func) {

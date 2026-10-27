@@ -14,22 +14,63 @@
 
 struct cvi_i2s_subsys_dev *dev;
 void __iomem *master_reg;
+static void __iomem *audio_phy0_base_reg;
+static void __iomem *audio_phy1_base_reg;
+static u32 audio_phy0_base = 0;
+static u32 audio_phy1_base = 0;
 u32 current_freq;
 void __iomem *subsys_reg;
 
+#if defined(CONFIG_ARCH_CV84X6)
 typedef struct _audio_power_ctrl_ {
-    	struct clk *aud_clk[6];
+	struct clk *aud_clk[4];
+	struct clk *aud_dw;
+} aud_power_ctrl;
+
+static const char *const aud_clk_name[5] = {
+	"clk_aud1", "clk_aud2", "clk_aud3",
+	"clk_aud4", "clk_aud0"
+};
+#else
+typedef struct _audio_power_ctrl_ {
+	struct clk *aud_clk[6];
 	struct clk *aud_src;
 	struct clk *aud_dw;
 } aud_power_ctrl;
 
 static const char *const aud_clk_name[8] = {
-        "clk_sdma_aud0", "clk_sdma_aud1", "clk_sdma_aud2", "clk_sdma_aud3",
-        "clk_sdma_aud4", "clk_sdma_aud5", "clk_audsrc", "clk_aud_dw"
+	"clk_sdma_aud0", "clk_sdma_aud1", "clk_sdma_aud2", "clk_sdma_aud3",
+	"clk_sdma_aud4", "clk_sdma_aud5", "clk_audsrc", "clk_aud_dw"
 };
+#endif
 
 static aud_power_ctrl aud_pwm_ctrl = {0};
 
+#if defined(CONFIG_ARCH_CV84X6)
+int aud_register_clk(void)
+{
+	int ret;
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		aud_pwm_ctrl.aud_clk[i] = devm_clk_get(dev->dev, aud_clk_name[i]);
+		if (IS_ERR(aud_pwm_ctrl.aud_clk[i])) {
+			ret = PTR_ERR(aud_pwm_ctrl.aud_clk[i]);
+			dev_err(dev->dev, "failed to retrieve aud %s clock",  aud_clk_name[i]);
+			return ret;
+		}
+	}
+
+	aud_pwm_ctrl.aud_dw = devm_clk_get(dev->dev, aud_clk_name[4]);
+	if (IS_ERR(aud_pwm_ctrl.aud_dw)) {
+		ret = PTR_ERR(aud_pwm_ctrl.aud_dw);
+		dev_err(dev->dev, "failed to retrieve aud %s clock",  aud_clk_name[4]);
+		return ret;
+	}
+
+	return 0;
+}
+#else
 int aud_register_clk(void)
 {
 	int ret;
@@ -60,6 +101,7 @@ int aud_register_clk(void)
 
 	return 0;
 }
+#endif
 
 u32 i2s_subsys_query_master(void)
 {
@@ -93,6 +135,29 @@ void i2s_set_master_frame_setting(u32 frame_format)
 	writel(frame_format, master_reg + I2S_FRAME_SETTING_REG);
 }
 
+void i2s_set_io_direction(bool i2s1_rx)
+{
+
+	if(!audio_phy0_base_reg || !audio_phy1_base_reg){
+		dev_err(dev->dev, "audio_phy_base ioremap failed\n");
+		return ;
+	}
+	if (i2s1_rx){
+		int reg_val = readl(audio_phy1_base_reg + 0x12c);
+		writel(reg_val | 0xB, audio_phy1_base_reg + 0x12c);
+
+		reg_val = readl(audio_phy0_base_reg + 0x12c);
+		writel(reg_val | 0x8, audio_phy0_base_reg + 0x12c);
+	}
+	else{
+		int reg_val = readl(audio_phy1_base_reg + 0x12c);
+		writel(reg_val | 0x8, audio_phy1_base_reg + 0x12c);
+
+		reg_val = readl(audio_phy0_base_reg + 0x12c);
+		writel(reg_val | 0xB, audio_phy0_base_reg + 0x12c);
+	}
+}
+
 void i2s_master_clk_switch_on(bool on)
 {
 	u32 clk_ctrl0 = readl(master_reg + I2S_CLK_CTRL0_REG);
@@ -110,6 +175,42 @@ void i2s_master_clk_switch_on(bool on)
 
 }
 
+#if defined(CONFIG_ARCH_CV84X6)
+void cv1835_set_mclk(u32 freq)
+{
+	if (current_freq != freq)
+		current_freq = freq;
+	else
+		return;
+
+	switch (freq) {
+	case CVI_16384_MHZ:
+		dev_info(dev->dev, "Set clk_sdma_aud1~4 to 16384000\n");
+		clk_set_rate(aud_pwm_ctrl.aud_clk[0], 16384000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[1], 16384000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[2], 16384000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[3], 16384000);
+		break;
+	case CVI_22579_MHZ:
+		dev_info(dev->dev, "Set clk_sdma_aud1~4 to 22579200\n");
+		clk_set_rate(aud_pwm_ctrl.aud_clk[0], 22579200);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[1], 22579200);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[2], 22579200);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[3], 22579200);
+		break;
+	case CVI_24576_MHZ:
+		dev_info(dev->dev, "Set clk_sdma_aud1~4 to 24576000\n");
+		clk_set_rate(aud_pwm_ctrl.aud_clk[0], 24576000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[1], 24576000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[2], 24576000);
+		clk_set_rate(aud_pwm_ctrl.aud_clk[3], 24576000);
+		break;
+	default:
+		dev_info(dev->dev, "Unrecognised freq\n");
+		break;
+	}
+}
+#else
 void cv1835_set_mclk(u32 freq)
 {
 	struct clk *clk_a0pll;
@@ -161,13 +262,13 @@ void cv1835_set_mclk(u32 freq)
 
 	clk_sdma_aud4 = devm_clk_get(dev->dev, "clk_sdma_aud4");
 	if (IS_ERR(clk_sdma_aud4)) {
-		dev_err(dev->dev, "Get clk_sdma_aud2 failed\n");
+		dev_err(dev->dev, "Get clk_sdma_aud4 failed\n");
 		return;
 	}
 
 	clk_sdma_aud5 = devm_clk_get(dev->dev, "clk_sdma_aud5");
 	if (IS_ERR(clk_sdma_aud5)) {
-		dev_err(dev->dev, "Get clk_sdma_aud3 failed\n");
+		dev_err(dev->dev, "Get clk_sdma_aud5 failed\n");
 		return;
 	}
 
@@ -226,6 +327,7 @@ void cv1835_set_mclk(u32 freq)
 	iounmap(gp_reg3);
 #endif
 }
+#endif
 
 void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1)
 {
@@ -237,6 +339,20 @@ void dwi2s_set_mclk(u32 dwi2s_mode, u32 slave_source, u32 ctl0, u32 ctl1)
 	}
 }
 
+#if defined(CONFIG_ARCH_CV84X6)
+void dwi2s_hdmi_set_mclk(u32 dwi2s_mode, u32 ctl0, u32 ctl1)
+{
+	u32 clk0 = readl(subsys_reg + RGE_HDMI_I2S_CLK_CTRL0);
+
+	if (subsys_reg) {
+writel(dwi2s_mode, subsys_reg + DW_I2S_MODE_REG); // 0x1c --> enable mclk_out_en、bclk_out_en、ws_out_en
+		writel(clk0 | ctl0, subsys_reg + RGE_HDMI_I2S_CLK_CTRL0);
+		writel(ctl1, subsys_reg + RGE_HDMI_I2S_CLK_CTRL1);
+	}
+}
+EXPORT_SYMBOL(dwi2s_hdmi_set_mclk);
+#endif
+
 void dwi2s_get_subsys(void)
 {
 	if (subsys_reg) {
@@ -246,7 +362,33 @@ void dwi2s_get_subsys(void)
 			readl(subsys_reg + DW_I2S_CLK_CTRL0), readl(subsys_reg + DW_I2S_CLK_CTRL1));
 	}
 }
+EXPORT_SYMBOL(dwi2s_get_subsys);
 
+#if defined(CONFIG_ARCH_CV84X6)
+void aud_clk_enable(void){
+	int i;
+
+	for(i = 0; i < 4; i++){
+		if (!__clk_is_enabled(aud_pwm_ctrl.aud_clk[i]))
+        		clk_prepare_enable(aud_pwm_ctrl.aud_clk[i]);
+	}
+
+	if (!__clk_is_enabled(aud_pwm_ctrl.aud_dw))
+        		clk_prepare_enable(aud_pwm_ctrl.aud_dw);
+}
+
+void aud_clk_disable(void){
+	int i;
+
+	for(i = 0; i < 4; i++){
+		if (__clk_is_enabled(aud_pwm_ctrl.aud_clk[i]))
+        		clk_disable_unprepare(aud_pwm_ctrl.aud_clk[i]);
+	}
+
+	if (__clk_is_enabled(aud_pwm_ctrl.aud_dw))
+        		clk_disable_unprepare(aud_pwm_ctrl.aud_dw);
+}
+#else
 void aud_clk_enable(void){
 	int i;
 
@@ -276,6 +418,7 @@ void aud_clk_disable(void){
 	if (__clk_is_enabled(aud_pwm_ctrl.aud_dw))
         		clk_disable_unprepare(aud_pwm_ctrl.aud_dw);
 }
+#endif
 
 static int i2s_subsys_probe(struct platform_device *pdev)
 {
@@ -297,6 +440,17 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 
 #if defined(CONFIG_SND_SOC_CV1835_CONCURRENT_I2S)
 	device_property_read_u32(&pdev->dev, "master_base", &dev->master_base);
+	device_property_read_u32(&pdev->dev, "audio_phy0_base", &audio_phy0_base);
+	device_property_read_u32(&pdev->dev, "audio_phy1_base", &audio_phy1_base);
+	dev_dbg(dev->dev, "audio_phy0_base=0x%x, audio_phy1_base=0x%x\n", audio_phy0_base, audio_phy1_base);
+	if(audio_phy0_base && audio_phy1_base){
+		audio_phy0_base_reg = ioremap(audio_phy0_base, SZ_4K);
+		audio_phy1_base_reg = ioremap(audio_phy1_base, SZ_4K);
+		if(!audio_phy0_base_reg || !audio_phy1_base_reg){
+			dev_err(dev->dev, "audio_phy_base ioremap failed\n");
+			return -ENOMEM;
+		}
+	}
 	dev_dbg(dev->dev, "master base is 0x%x\n", dev->master_base);
 
 	switch (dev->master_base) {
@@ -306,8 +460,13 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 	case 0x29130000:
 		dev->master_id = 2;
 		break;
+#if defined(CONFIG_ARCH_CV84X6)
+	case 0x29110000:
+		dev->master_id = 1;
+		break;
+#endif
 	default:
-		dev_err(dev->dev, "master base is not correct!! plz set I2S1 or I2S2\n");
+		dev_err(dev->dev, "[X2_DBG] master base is not correct!! plz set I2S1 or I2S2, got 0x%x\n", dev->master_base);
 	}
 #endif
 
@@ -387,6 +546,17 @@ static int i2s_subsys_probe(struct platform_device *pdev)
 	writel(0x0000, dev->subsys_base + BCLK_OEN_SEL);
 #endif//CONFIG_SND_SOC_CV1835_CONCURRENT_I2S
 #endif//CONFIG_ARCH_CV186X
+#if defined(CONFIG_ARCH_CV84X6)
+	writel(0x0, dev->subsys_base + SCLK_IN_SEL);
+	writel(0x0, dev->subsys_base + FS_IN_SEL);
+	writel(0x0, dev->subsys_base + SDI_IN_SEL);
+	writel(0x0, dev->subsys_base + SDO_OUT_SEL);
+	writel(0x0, dev->subsys_base + MULTI_SYNC);
+	writel(0x0, dev->subsys_base + BCLK_OEN_SEL);
+	writel(DWI2S_MODE_REG_VAL_X2, dev->subsys_base + DW_I2S_MODE_REG);
+	writel(DWI2S_CLK_CTRL0_VAL_X2, dev->subsys_base + DW_I2S_CLK_CTRL0);
+#endif
+	printk("i2s subsys probe successfully!!\n");
 
 	return 0;
 }

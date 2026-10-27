@@ -1,0 +1,271 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef _SENSOR_REG_H_
+#define _SENSOR_REG_H_
+
+struct imx334_reg {
+	u16 address;
+	u8 val;
+};
+
+#define MAX_SENSOR_DEVICE   6
+#define MAX_I2C_BUS_NUM     7
+
+/* Menu items for LINK_FREQ V4L2 control */
+/* See V4L2_SNS_CFG_TYPE*/
+static s64 imx334_link_cif_menu[MAX_SENSOR_DEVICE][SNS_CFG_TYPE_MAX] = {
+	{// s0 linear mode config
+		SNS_CFG_TYPE_MAX,
+		CAMPLL_FREQ_37P125M,    //1:mclk freq
+		0,                      //2:mclk num
+		RX_MAC_CLK_900M,        //3:mac clk
+		INPUT_MODE_MIPI,        //4:input mode
+		MIPI_WDR_MODE_NONE,     //5:wdr mode
+		RAW_DATA_12BIT,         //6:data type
+		0,                      //7:mipi_dev
+		1,                      //8:dphy.enable
+		14,                     //9:dphy.hs_settle
+		0,                      //10:cif phy mode
+		1,                      //LANE_0
+		2,                      //LANE_1
+		4,                      //LANE_2
+		0,                      //LANE_3
+		3,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
+		1,                      //SWAP_0
+		1,                      //SWAP_1
+		1,                      //SWAP_2
+		1,                      //SWAP_3
+		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
+	},
+	{// s1 vc wdr mode config
+		SNS_CFG_TYPE_MAX,
+		CAMPLL_FREQ_37P125M,    //1:mclk freq
+		0,                      //2:mclk num
+		RX_MAC_CLK_900M,        //3:mac clk
+		INPUT_MODE_MIPI,        //4:input mode
+		MIPI_WDR_MODE_VC,       //5:wdr mode
+		RAW_DATA_12BIT,         //6:data type
+		0,                      //7:mipi_dev
+		1,                      //8:dphy.enable
+		14,                     //9:dphy.hs_settle
+		0,                      //10:cif phy mode
+		1,                      //LANE_0
+		2,                      //LANE_1
+		4,                      //LANE_2
+		0,                      //LANE_3
+		3,                      //LANE_4
+		-1,                     //LANE_5
+		-1,                     //LANE_6
+		-1,                     //LANE_7
+		-1,                     //LANE_8
+		1,                      //SWAP_0
+		1,                      //SWAP_1
+		1,                      //SWAP_2
+		1,                      //SWAP_3
+		1,                      //SWAP_4
+		0,                      //SWAP_5
+		0,                      //SWAP_6
+		0,                      //SWAP_7
+		0,                      //SWAP_8
+	},
+};
+
+static const struct imx334_reg mode_linear_3840x2160_30fps_12bit_regs[] = {
+	// delay_ms(4);
+	{0xFFFF, 0x04},
+	{0x3000, 0x01}, // STANDBY
+	{0x3002, 0x01}, // XTMSTA
+
+	{0x300C, 0x5B},// BCWAIT_TIME[7:0]
+	{0x300D, 0x40},// CPWAIT_TIME[7:0]
+	{0x3034, 0x4C},// HMAX[15:0]
+	{0x3035, 0x04},//
+	{0x314C, 0x80},// INCKSEL 1[8:0]
+	{0x315A, 0x02},// INCKSEL2[1:0]
+	{0x316A, 0x7E},// INCKSEL4[1:0]
+	{0x319E, 0x01},// SYS_MODE
+	{0x31A1, 0x00},// XVS_DRV[1:0]
+	{0x3288, 0x21},// -
+	{0x328A, 0x02},// -
+	{0x3414, 0x05},// -
+	{0x3416, 0x18},// -
+	{0x35AC, 0x0E},// -
+	{0x3648, 0x01},// -
+	{0x364A, 0x04},// -
+	{0x364C, 0x04},// -
+	{0x3678, 0x01},// -
+	{0x367C, 0x31},// -
+	{0x367E, 0x31},// -
+	{0x3708, 0x02},// -
+	{0x3714, 0x01},// -
+	{0x3715, 0x02},// -
+	{0x3716, 0x02},// -
+	{0x3717, 0x02},// -
+	{0x371C, 0x3D},// -
+	{0x371D, 0x3F},// -
+	{0x372C, 0x00},// -
+	{0x372D, 0x00},// -
+	{0x372E, 0x46},// -
+	{0x372F, 0x00},// -
+	{0x3730, 0x89},// -
+	{0x3731, 0x00},// -
+	{0x3732, 0x08},// -
+	{0x3733, 0x01},// -
+	{0x3734, 0xFE},// -
+	{0x3735, 0x05},// -
+	{0x375D, 0x00},// -
+	{0x375E, 0x00},// -
+	{0x375F, 0x61},// -
+	{0x3760, 0x06},// -
+	{0x3768, 0x1B},// -
+	{0x3769, 0x1B},// -
+	{0x376A, 0x1A},// -
+	{0x376B, 0x19},// -
+	{0x376C, 0x18},// -
+	{0x376D, 0x14},// -
+	{0x376E, 0x0F},// -
+	{0x3776, 0x00},// -
+	{0x3777, 0x00},// -
+	{0x3778, 0x46},// -
+	{0x3779, 0x00},// -
+	{0x377A, 0x08},// -
+	{0x377B, 0x01},// -
+	{0x377C, 0x45},// -
+	{0x377D, 0x01},// -
+	{0x377E, 0x23},// -
+	{0x377F, 0x02},// -
+	{0x3780, 0xD9},// -
+	{0x3781, 0x03},// -
+	{0x3782, 0xF5},// -
+	{0x3783, 0x06},// -
+	{0x3784, 0xA5},// -
+	{0x3788, 0x0F},// -
+	{0x378A, 0xD9},// -
+	{0x378B, 0x03},// -
+	{0x378C, 0xEB},// -
+	{0x378D, 0x05},// -
+	{0x378E, 0x87},// -
+	{0x378F, 0x06},// -
+	{0x3790, 0xF5},// -
+	{0x3792, 0x43},// -
+	{0x3794, 0x7A},// -
+	{0x3796, 0xA1},// -
+	{0x3A18, 0x8F},// TCLKPOST[15:0]
+	{0x3A1A, 0x4F},// TCLKPREPARE[15:0]
+	{0x3A1C, 0x47},// TCLKTRAIL[15:0]
+	{0x3A1E, 0x37},// TCLKZERO[15:0]
+	{0x3A20, 0x4F},// THSPREPARE[15:0]
+	{0x3A22, 0x87},// THSZERO[15:0]
+	{0x3A24, 0x4F},// THSTRAIL[15:0]
+	{0x3A26, 0x7F},// THSEXIT[15:0]
+	{0x3A28, 0x3F},// TLPX[15:0]
+	{0x3E04, 0x0E},// -
+
+
+	{0x3000, 0x00}, /* standby */
+	// delay_ms(20);
+	{0xFFFF, 0x14},
+	{0x3002, 0x00}, /* master mode start */
+};
+
+static const struct imx334_reg mode_wdr_3840x2160_30fps_12bit_regs[] = {
+	// delay_ms(4);
+	{0xFFFF, 0x04},
+	{0x3000, 0x01}, /* STANDBY */
+	{0x3002, 0x01}, /* XTMSTA */
+
+	{0x300C, 0x5B},// BCWAIT_TIME[7:0]
+	{0x300D, 0x40},// CPWAIT_TIME[7:0]
+	{0x3048, 0x01},// WDMODE[0]
+	{0x3049, 0x01},// WDSEL[1:0]
+	{0x304A, 0x01},// WD_SET1[2:0]
+	{0x304B, 0x02},// WD_SET2[3:0]
+	{0x304C, 0x13},// OPB_SIZE_V[5:0]
+	{0x3058, 0xB4},// SHR0[19:0]
+	{0x3068, 0x25},// RHS1[19:0]
+	{0x315A, 0x02},// INCKSEL2[1:0]
+	{0x316A, 0x7E},// INCKSEL4[1:0]
+	{0x31A1, 0x00},// XVS_DRV[1:0]
+	{0x31D7, 0x01},// XVSMSKCNT_INT[1:0]
+	{0x3200, 0x11},// FGAINEN[0] each frame gain adjustment disable
+	{0x3288, 0x21},// -
+	{0x328A, 0x02},// -
+	{0x3414, 0x05},// -
+	{0x3416, 0x18},// -
+	{0x35AC, 0x0E},// -
+	{0x3648, 0x01},// -
+	{0x364A, 0x04},// -
+	{0x364C, 0x04},// -
+	{0x3678, 0x01},// -
+	{0x367C, 0x31},// -
+	{0x367E, 0x31},// -
+	{0x3708, 0x02},// -
+	{0x3714, 0x01},// -
+	{0x3715, 0x02},// -
+	{0x3716, 0x02},// -
+	{0x3717, 0x02},// -
+	{0x371C, 0x3D},// -
+	{0x371D, 0x3F},// -
+	{0x372C, 0x00},// -
+	{0x372D, 0x00},// -
+	{0x372E, 0x46},// -
+	{0x372F, 0x00},// -
+	{0x3730, 0x89},// -
+	{0x3731, 0x00},// -
+	{0x3732, 0x08},// -
+	{0x3733, 0x01},// -
+	{0x3734, 0xFE},// -
+	{0x3735, 0x05},// -
+	{0x375D, 0x00},// -
+	{0x375E, 0x00},// -
+	{0x375F, 0x61},// -
+	{0x3760, 0x06},// -
+	{0x3768, 0x1B},// -
+	{0x3769, 0x1B},// -
+	{0x376A, 0x1A},// -
+	{0x376B, 0x19},// -
+	{0x376C, 0x18},// -
+	{0x376D, 0x14},// -
+	{0x376E, 0x0F},// -
+	{0x3776, 0x00},// -
+	{0x3777, 0x00},// -
+	{0x3778, 0x46},// -
+	{0x3779, 0x00},// -
+	{0x377A, 0x08},// -
+	{0x377B, 0x01},// -
+	{0x377C, 0x45},// -
+	{0x377D, 0x01},// -
+	{0x377E, 0x23},// -
+	{0x377F, 0x02},// -
+	{0x3780, 0xD9},// -
+	{0x3781, 0x03},// -
+	{0x3782, 0xF5},// -
+	{0x3783, 0x06},// -
+	{0x3784, 0xA5},// -
+	{0x3788, 0x0F},// -
+	{0x378A, 0xD9},// -
+	{0x378B, 0x03},// -
+	{0x378C, 0xEB},// -
+	{0x378D, 0x05},// -
+	{0x378E, 0x87},// -
+	{0x378F, 0x06},// -
+	{0x3790, 0xF5},// -
+	{0x3792, 0x43},// -
+	{0x3794, 0x7A},// -
+	{0x3796, 0xA1},// -
+	{0x3E04, 0x0E},// -
+
+	{0x3000, 0x00}, /* standby */
+	// delay_ms(20);
+	{0xFFFF, 0x14},
+	{0x3002, 0x00}, /* master mode start */
+};
+
+#endif //_SENSOR_REG_H_

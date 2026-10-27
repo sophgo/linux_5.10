@@ -676,8 +676,8 @@ int vi_get_pipe_frame(struct sop_vi_dev *videv, int vi_pipe,
 	raw_num = vi_get_raw_num_by_dev(ctx, vi_pipe);
 	dump[0].raw_dump.raw_num = raw_num;
 
-	dev_frm_w = ctx->isp_pipe_cfg[raw_num].crop.w;
-	dev_frm_h = ctx->isp_pipe_cfg[raw_num].crop.h;
+	dev_frm_w = g_vi_ctx->dev_attr[vi_pipe].size.width;
+	dev_frm_h = g_vi_ctx->dev_attr[vi_pipe].size.height;
 
 	memset(&rawdump_crop, 0, sizeof(rawdump_crop));
 	if ((frame_info[0].video_frame.offset_top != 0) ||
@@ -8898,18 +8898,13 @@ void vi_irq_handler(struct sop_vi_dev *vdev)
 /*************************************************************************
  *	ISP V4L2 definition
  *************************************************************************/
-static int subcall_open(struct sop_vi_dev *vdev, bool on)
+static void subcall_open(struct sop_vi_dev *vdev, bool on)
 {
 	struct sop_isp_device *dev =
 		container_of(vdev, struct sop_isp_device, vi_dev);
 	struct v4l2_subdev *isp_sd = &dev->isp_sdev.sd;
-	int ret;
-	ret = v4l2_subdev_call(isp_sd, core, s_power, on);
-	if(ret < 0){
-		vi_pr(VI_DBG, "subdev_s_power failed, on=%d, ret=%d\n", on, ret);
-		return ret;
-	}
-	return 0;
+
+	v4l2_subdev_call(isp_sd, core, s_power, on);
 }
 
 static void subcall_s_stream(struct sop_vi_dev *vdev, bool on)
@@ -11196,18 +11191,8 @@ static int sop_isp_open(struct file *file)
 	vi_pr(VI_INFO, "open video%d, dev_cnt(%d)\n", chn_id, open_cnt);
 
 	if (open_cnt == 1) {
-		rc = subcall_open(videv, true);
-		if(rc) {
-			vi_pr(VI_DBG, "subcall_open failed, rc=%d\n", rc);
-			atomic_dec(&videv->file_open_cnt[chn_id]);
-			file_open_cnt = atomic_read (&videv->file_open_cnt[chn_id]);
-			atomic_dec(&videv->open_dev_cnt);
-			open_cnt = atomic_read(&videv->open_dev_cnt);
-			vi_pr(VI_DBG, "No /dev/video%d to open, file_open_cnt = %d, open_cnt (%d), please check!\n",
-				chn_id, file_open_cnt, open_cnt);
-			mutex_unlock(&videv->dev_lock);
-			return rc;
-		}
+		subcall_open(videv, true);
+
 		_vi_sw_init(videv);
 
 #ifndef FPGA_PORTING

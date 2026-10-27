@@ -11,7 +11,32 @@ menuconfig CRYPTO_HW
 
 if CRYPTO_HW
 
-source "drivers/crypto/allwinner/Kconfig"
+config CRYPTO_DEV_DWC
+	tristate
+	default n
+	help
+	  Enable support for Synopsys DesignWare Crypto devices.
+	  This provides the common infrastructure for PKA and CLP890 devices.
+	  This option is automatically selected when enabling PKA or CLP890.
+
+config CRYPTO_DEV_DWC_PKA
+	tristate "Synopsys DesignWare PKA"
+	default n
+	select CRYPTO_DEV_DWC
+	help
+	  Synopsys DesignWare PKA -- Public Key Accelerator
+
+	  If unsure say M. The compiled module will be called crypto-dwc.
+
+config HW_RANDOM_DWC_CLP890
+	tristate "Synopsys DesignWare CLP890"
+	default n
+	select CRYPTO_DEV_DWC
+	select HW_RANDOM
+	help
+	  Synopsys DesignWare CLP890 -- True Random Number Generator
+
+	  If unsure say M. The compiled module will be called crypto-dwc.
 
 config CRYPTO_DEV_PADLOCK
 	tristate "Support for VIA PadLock ACE"

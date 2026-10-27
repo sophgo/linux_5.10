@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config PINCTRL_CV186X
+	bool "Cvitek CV186x pinctrl driver"
+	depends on ARCH_CVITEK
+	default y if CHIP_CPU_CV186X
+	help
+	  Pinctrl driver for Cvitek CV186x (88A2) SoC.
+	  Provides MMIO mapping and PM suspend/resume for pinmux registers.
+
+config PINCTRL_CV84X6
+	bool "Cvitek CV84x6 pinctrl driver"
+	depends on ARCH_CVITEK
+	select PINMUX
+	select PINCONF
+	select GENERIC_PINCONF
+	default y if CHIP_CPU_CV84X6
+	help
+	  Full Linux pinctrl subsystem driver for the Cvitek CV84x2/CV84x6 SoC.
+	  Supports pin mux selection, pull-up/down, drive strength,
+	  Schmitt trigger and open-drain configuration via device tree.
+	  139 pins across 6 groups (G1/G2/G3/G4/G7/G8).

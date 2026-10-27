@@ -906,6 +906,34 @@ static int yt8531_config_init(struct phy_device *phydev)
 	return 0;
 }
 
+static int yt8531_suspend(struct phy_device *phydev)
+{
+	int wol_config;
+
+	wol_config = ytphy_read_ext_with_lock(phydev, YTPHY_WOL_CONFIG_REG);
+	if (wol_config < 0)
+		return wol_config;
+
+	if (wol_config & YTPHY_WCR_ENABLE)
+		return 0;
+
+	return genphy_suspend(phydev);
+}
+
+static int yt8531_resume(struct phy_device *phydev)
+{
+	int wol_config;
+
+	wol_config = ytphy_read_ext_with_lock(phydev, YTPHY_WOL_CONFIG_REG);
+	if (wol_config < 0)
+		return wol_config;
+
+	if (wol_config & YTPHY_WCR_ENABLE)
+		return 0;
+
+	return genphy_resume(phydev);
+}
+
 /**
  * yt8531_link_change_notify() - Adjust the tx clock direction according to
  * the current speed and dts config.
@@ -979,8 +1007,8 @@ static struct phy_driver motorcomm_phy_drvs[] = {
 		.name = "YT8531 Gigabit Ethernet",
 		.probe = yt8531_probe,
 		.config_init = yt8531_config_init,
-		.suspend = genphy_suspend,
-		.resume = genphy_resume,
+		.suspend = yt8531_suspend,
+		.resume = yt8531_resume,
 		.get_wol = ytphy_get_wol,
 		.set_wol = yt8531_set_wol,
 		.link_change_notify = yt8531_link_change_notify,

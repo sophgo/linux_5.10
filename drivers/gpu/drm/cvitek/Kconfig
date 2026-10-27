@@ -14,7 +14,8 @@ config DRM_CVITEK
 config CVITEK_DW_HDMI
 	bool "Cvitek specific extensions for DW_HDMI"
 	select DRM_DW_HDMI
-	select DRM_DW_HDMI_AHB_AUDIO
+	select DRM_DW_HDMI_I2S_AUDIO if ARCH_CV84X6
+	select DRM_DW_HDMI_AHB_AUDIO if !ARCH_CV84X6
 	help
 	If you want to enable HDMI on Cvitek SoC, you should
 	  select this option.

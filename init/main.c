@@ -1394,7 +1394,17 @@ static void mark_readonly(void)
 		 * flushed so that we don't hit false positives looking for
 		 * insecure pages which are W+X.
 		 */
-		rcu_barrier();
+		/*
+		 * On UP systems or in early boot, use synchronize_rcu() instead
+		 * of rcu_barrier() to avoid potential deadlocks. synchronize_rcu()
+		 * waits for the current RCU grace period to complete, which should
+		 * be sufficient for flushing call_rcu() callbacks in early boot.
+		 */
+		if (num_online_cpus() == 1)
+			synchronize_rcu();
+		else
+			rcu_barrier();
+
 		mark_rodata_ro();
 		rodata_test();
 	} else

@@ -1189,6 +1189,4 @@ enum {
 #define LT_3_40GBPS LT_3_40GBPS_TXTERM, LT_3_40GBPS_VLEVCTRL, LT_3_40GBPS_CKSYMTXCTRL
 #define GT_3_40GBPS GT_3_40GBPS_TXTERM, GT_3_40GBPS_VLEVCTRL, GT_3_40GBPS_CKSYMTXCTRL
 
-void _reg_write_mask(void __iomem *addr, u32 mask, u32 data);
-
 #endif /* __DW_HDMI_H__ */

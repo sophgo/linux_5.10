@@ -232,15 +232,17 @@ static int cvitek_lvds_init(struct cvitek_lvds *lvds)
 {
 	int ret;
 
-	lvds_dphy_power_on(lvds->info->lvds_id);
-	lvds_dphy_config(lvds);
+	dphy_lvds_set_pll(lvds->info->lvds_id, lvds->desc->mode->clock, 1);
+	udelay(200);
 	ret = lvds_dphy_lane_init(lvds);
 	if (ret) {
 		drm_err(lvds->drm, "mipi_dphy_lane_init fail.\n");
 		return ret;
 	}
 
-	dphy_lvds_set_pll(lvds->info->lvds_id, lvds->desc->mode->clock, 1);
+	lvds_dphy_power_on(lvds->info->lvds_id);
+	lvds_dphy_config(lvds);
+
 	return ret;
 }
 

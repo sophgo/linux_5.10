@@ -48,7 +48,7 @@
 Module.symvers
 modules.builtin
 modules.order
-
+/build/
 #
 # Top-level generic files
 #

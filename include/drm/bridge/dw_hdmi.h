@@ -184,6 +184,9 @@ struct dw_hdmi_property_ops {
 
 struct dw_hdmi_plat_data {
 	struct regmap *regm;
+#ifdef CONFIG_ARCH_CV84X6
+	void __iomem *regs;
+#endif
 
 	unsigned long input_bus_format;
 	unsigned long input_bus_encoding;
@@ -258,6 +261,10 @@ void dw_hdmi_audio_disable(struct dw_hdmi *hdmi);
 void dw_hdmi_set_high_tmds_clock_ratio(struct dw_hdmi *hdmi,
 				       const struct drm_display_info *display);
 
+#ifdef CONFIG_ARCH_CV84X6
+int dw_hdmi_phy_wait_pll_lock(struct dw_hdmi *hdmi, unsigned int timeout_ms);
+#endif
+
 /* PHY configuration */
 void dw_hdmi_phy_i2c_set_addr(struct dw_hdmi *hdmi, u8 address);
 void dw_hdmi_phy_i2c_write(struct dw_hdmi *hdmi, unsigned short data,
@@ -272,8 +279,14 @@ enum drm_connector_status dw_hdmi_phy_read_hpd(struct dw_hdmi *hdmi,
 void dw_hdmi_phy_update_hpd(struct dw_hdmi *hdmi, void *data,
 			    bool force, bool disabled, bool rxsense);
 void dw_hdmi_phy_setup_hpd(struct dw_hdmi *hdmi, void *data);
+#ifdef CONFIG_ARCH_CV84X6
+int dw_hdmi_phy_wait_pll_lock(struct dw_hdmi *hdmi, unsigned int timeout_ms);
+#endif
 void dw_hdmi_set_quant_range(struct dw_hdmi *hdmi);
 void dw_hdmi_set_output_type(struct dw_hdmi *hdmi, u64 val);
+#ifdef CONFIG_ARCH_CV84X6
+void dw_hdmi_disable_tmds_clk(struct dw_hdmi *hdmi, bool disable);
+#endif
 bool dw_hdmi_get_output_whether_hdmi(struct dw_hdmi *hdmi);
 int dw_hdmi_get_output_type_cap(struct dw_hdmi *hdmi);
 

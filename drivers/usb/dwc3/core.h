@@ -1090,6 +1090,7 @@ struct dwc3 {
 	struct usb_gadget_driver *gadget_driver;
 
 	struct clk_bulk_data	*clks;
+	struct clk		*susp_clk;
 	int			num_clks;
 
 	struct reset_control	*reset;
@@ -1167,6 +1168,8 @@ struct dwc3 {
 #define DWC31_REVISION_170A	0x3137302a
 #define DWC31_REVISION_180A	0x3138302a
 #define DWC31_REVISION_190A	0x3139302a
+#define DWC31_REVISION_200A	0x3230302a
+#define DWC31_REVISION_210A	0x3231302a
 
 #define DWC32_REVISION_ANY	0x0
 #define DWC32_REVISION_100A	0x3130302a
@@ -1180,6 +1183,7 @@ struct dwc3 {
 #define DWC31_VERSIONTYPE_EA04		0x65613034
 #define DWC31_VERSIONTYPE_EA05		0x65613035
 #define DWC31_VERSIONTYPE_EA06		0x65613036
+#define DWC31_VERSIONTYPE_EA07		0x67612a2a
 
 	enum dwc3_ep0_next	ep0_next_event;
 	enum dwc3_ep0_state	ep0state;

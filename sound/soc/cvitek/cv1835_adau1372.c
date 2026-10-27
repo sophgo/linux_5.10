@@ -78,6 +78,7 @@ static struct snd_soc_dai_link_component cv1835_adc_cpus[] = {
 	{
 		.name = "29120000.i2s",
 		.dai_name = "29120000.i2s",
+
 	},
 };
 
@@ -100,6 +101,7 @@ static struct snd_soc_dai_link_component cv1835_adc_platform[] = {
 	{
 		.name = "29120000.i2s",
 		.dai_name = "29120000.i2s",
+
 	},
 };
 
@@ -177,8 +179,8 @@ static int cv1835_adau1372_probe(struct platform_device *pdev)
 			// of_property_read_string(dai, "cvi,cpu_dai_name", &card->dai_link[idx].cpus->dai_name);
 			// of_property_read_string(dai, "cvi,cpu_dai_name", &card->dai_link[idx].cpus->name);
 
-			// of_property_read_string(dai, "cvi,codec_name", &card->dai_link[idx].codecs->name);
-			// of_property_read_string(dai, "cvi,codec_dai_name", &card->dai_link[idx].codecs->dai_name);
+			of_property_read_string(dai, "cvi,codec_name", &card->dai_link[idx].codecs->name);
+			of_property_read_string(dai, "cvi,codec_dai_name", &card->dai_link[idx].codecs->dai_name);
 
 			// of_property_read_string(dai, "cvi,platform_name", &card->dai_link[idx].platforms->dai_name);
 			// of_property_read_string(dai, "cvi,platform_name", &card->dai_link[idx].platforms->name);

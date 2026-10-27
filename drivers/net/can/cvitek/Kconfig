@@ -1,18 +1,11 @@
 # SDVT-License-Identifier: GPL-2.0-only
 
-config CAN_SDVT_CAN
-	tristate "Generic Platform Bus based SDVT_CAN driver"
+config CAN_CVITEK
+	tristate "Cvitek CAN support"
 	help
-	  This driver adds SDVT IP SDVT_CAN
+	  This driver adds CVITEK support
 
-
-config CAN_SDVT_PLATFORM
-	tristate "Generic Platform Bus based SDVT_CAN driver"
-	help
-	  This driver adds SDVT IP SDVT_CAN
-
-
-config CAN_SDVT_BASIC
-	tristate "Generic Platform Bus based SDVT_CAN driver"
-	help
-	  This driver adds SDVT IP SDVT_CAN
+if CAN_CVITEK
+source "drivers/net/can/cvitek/88a2/Kconfig"
+source "drivers/net/can/cvitek/84X6/Kconfig"
+endif

@@ -4,13 +4,272 @@
 #include <linux/delay.h>
 #include <linux/spinlock.h>
 
-/*
- * VO SYS Registers
- */
-
-extern void __iomem  *vo_sys_f_base;
+extern void __iomem  *vo_sys_f_base;    // 0x67000000
+#ifdef CONFIG_ARCH_CV84X6
+extern void __iomem  *vo_sys_div_base;  // 0x28102000
+extern void __iomem  *vpss0_base;       // 0x67110000 (VOSYS_VPSS0_CFG)
+extern void __iomem  *sys_ctrl_base;    // 0x28100000 (SYS_CTRL, MPLL4 for disp_set_clk)
+#else
 extern void __iomem  *vo_sys_b_base;
 extern void __iomem  *top_pll_base;
+#endif
+
+#ifdef CONFIG_ARCH_CV84X6
+// TOP_MISC / SYS_CTRL (0x28100000): MPLL4 SSC fractional synthesizer for DISP clk
+#define TOP_MISC_PLL_STATUS         (sys_ctrl_base + 0x01C)
+#define TOP_MISC_MPLL4_CTRL         (sys_ctrl_base + 0x230)
+#define TOP_MISC_MPLL4_SSC_0        (sys_ctrl_base + 0x290)
+#define TOP_MISC_MPLL4_SSC_1        (sys_ctrl_base + 0x294)
+#define MPLL4_LOCK_BIT              BIT(14)  /* pll_status[14] = MPLL4 lock */
+
+#define REG_DISP_BASE(x)            (vo_sys_f_base + 0x3000 + 0x1000*(x))
+#define REG_DISP_GOP_BASE(x)        (REG_DISP_BASE(x))
+#define REG_GOP_OFFSET(x)           (0x800 + 0x200*(x))
+#define REG_VO_SYS_OENC_BASE(x)     (vo_sys_f_base + 0x6000 + 0x1000*(x))
+
+// TOP CLKGEN
+#define VO_SYS_CLK_ENABLE           (vo_sys_div_base + 0x4)
+#define AUDIO_HDMI_CLK_ENABLE       (vo_sys_div_base + 0xC)
+#define VO_SYS_CLK_DIV_DISP0        (vo_sys_div_base + 0xf4)
+#define DIV_HSP_CLK_HDMI_AUD_REG    (vo_sys_div_base + 0x25c)
+
+// ============== VO SYS ============== //
+#define DISP_RESET_MASK 0x80   /* disp0 IP/APB soft-reset bit in REG_VO_SYS_*_RESET */
+#define HDMI_RESET_MASK 0x100  /* hdmi IP/APB soft-reset bit in REG_VO_SYS_*_RESET */
+#define REG_VO_SYS_IP_RESET (vo_sys_f_base + 0x00)
+#define REG_VO_SYS_APB_RESET (vo_sys_f_base + 0x04)
+#define REG_VO_SYS_INTERRUPT (vo_sys_f_base + 0x08)
+#define REG_VO_SYS_AXI_SW (vo_sys_f_base + 0x0C)
+#define REG_VO_SYS_CLK_LP (vo_sys_f_base + 0x10)
+#define REG_VO_SYS_DISP0_CLK_SEL (vo_sys_f_base + 0x14)
+/*
+ * disp0 pixel-clock mux select (REG_VO_SYS_DISP0_CLK_SEL bit0, reset = 1):
+ *   DISP0_CLK_SEL_TOP_PLL  (bit0 = 1) : chip_top pll  (default / safe fallback)
+ *   DISP0_CLK_SEL_HDMI_PLL (whole reg = 0) : hdmi phy pll (only when PHY PLL locked)
+ * The HDMI-PLL case clears the whole register (not just bit0) to match the
+ * bare-metal reference and avoid stale bits altering the mux behaviour.
+ */
+#define DISP0_CLK_SEL_TOP_PLL_BIT  BIT(0)
+#define DISP0_CLK_SEL_HDMI_PLL_VAL 0x0
+#define REG_VO_SYS_CLK_RATIO0 (vo_sys_f_base + 0x28)
+#define REG_VO_SYS_CLK_RATIO1 (vo_sys_f_base + 0x2C)
+#define REG_VO_SYS_FAB_REG (vo_sys_f_base + 0x30)
+#define REG_VO_SYS_QOS_URGENT_HI_TH0 (vo_sys_f_base + 0x58)
+#define REG_VO_SYS_VO_AXI_ADDR_EXT0 (vo_sys_f_base + 0x5C)
+#define REG_VO_SYS_VO_AXI_ADDR_EXT1 (vo_sys_f_base + 0x60)
+#define REG_VO_SYS_VO_AXI_ADDR_EXT2 (vo_sys_f_base + 0x64)
+#define REG_VO_SYS_VO_AXI_ADDR_EXT3 (vo_sys_f_base + 0x68)
+#define REG_VO_SYS_VO_AXI_ADDR_EXT4 (vo_sys_f_base + 0x6C)
+#define REG_VO_SYS_V2DE0_RD_BW_LIMIT (vo_sys_f_base + 0x70)
+#define REG_VO_SYS_V2DE0_WR_BW_LIMIT (vo_sys_f_base + 0x74)
+#define REG_VO_SYS_IP_CACHE (vo_sys_f_base + 0x80)
+#define REG_VO_SYS_V2DE0_CACHE (vo_sys_f_base + 0x84)
+#define REG_VO_STS_AXI_ADDR_EXT5 (vo_sys_f_base + 0x88)
+#define REG_VO_STS_AXI_ADDR_EXT6 (vo_sys_f_base + 0x8c)
+#define REG_VO_SYS_VO_DBG0 (vo_sys_f_base + 0x100)
+#define REG_VO_SYS_VO_DBG1 (vo_sys_f_base + 0x104)
+#define REG_VO_SYS_VO_DBG2 (vo_sys_f_base + 0x108)
+#define REG_VO_SYS_VO_DBG3 (vo_sys_f_base + 0x10C)
+#define REG_VO_SYS_VO_DUMMY0 (vo_sys_f_base + 0x110)
+#define REG_VO_SYS_VO_DUMMY1 (vo_sys_f_base + 0x114)
+#define REG_VO_SYS_VO_DUMMY2 (vo_sys_f_base + 0x118)
+#define REG_VO_SYS_VO_DUMMY3 (vo_sys_f_base + 0x11C)
+
+// ============== DISP ============== //
+#define REG_DISP_CFG(x) (REG_DISP_BASE(x) + 0x00)
+#define REG_DISP_TOTAL(x) (REG_DISP_BASE(x) + 0x04)
+#define REG_DISP_VSYNC(x) (REG_DISP_BASE(x) + 0x08)
+#define REG_DISP_VFDE(x) (REG_DISP_BASE(x) + 0x0C)
+#define REG_DISP_VMDE(x) (REG_DISP_BASE(x) + 0x10)
+#define REG_DISP_HSYNC(x) (REG_DISP_BASE(x) + 0x14)
+#define REG_DISP_HFDE(x) (REG_DISP_BASE(x) + 0x18)
+#define REG_DISP_HMDE(x) (REG_DISP_BASE(x) + 0x1C)
+#define REG_TRIG_LINE_NUM(x) (REG_DISP_BASE(x) + 0x20)
+
+#define REG_DISP_RD_TH(x) (REG_DISP_BASE(x) + 0x2C)
+#define REG_DISP_FIFO(x) (REG_DISP_BASE(x) + 0x30)
+#define REG_DISP_FIFO_C(x) (REG_DISP_BASE(x) + 0x34)
+
+#define REG_DISP_ADDR0_L(x) (REG_DISP_BASE(x) + 0x38)
+#define REG_DISP_ADDR0_H(x) (REG_DISP_BASE(x) + 0x3C)
+#define REG_DISP_ADDR1_L(x) (REG_DISP_BASE(x) + 0x40)
+#define REG_DISP_ADDR1_H(x) (REG_DISP_BASE(x) + 0x44)
+#define REG_DISP_ADDR2_L(x) (REG_DISP_BASE(x) + 0x48)
+#define REG_DISP_ADDR2_H(x) (REG_DISP_BASE(x) + 0x4C)
+#define REG_DISP_PITCH_Y(x) (REG_DISP_BASE(x) + 0x50)
+#define REG_DISP_PITCH_C(x) (REG_DISP_BASE(x) + 0x54)
+#define REG_DISP_AXI_CFG(x) (REG_DISP_BASE(x) + 0x58)
+
+#define REG_DISP_OFFSET(x) (REG_DISP_BASE(x) + 0x5C)
+#define REG_DISP_SIZE(x) (REG_DISP_BASE(x) + 0x60)
+#define REG_DISP_RDMA_TRIG(x) (REG_DISP_BASE(x) + 0x64)
+
+#define REG_DISP_OUT_CSC0(x) (REG_DISP_BASE(x) + 0x70)
+#define REG_DISP_OUT_CSC1(x) (REG_DISP_BASE(x) + 0x74)
+#define REG_DISP_OUT_CSC2(x) (REG_DISP_BASE(x) + 0x78)
+#define REG_DISP_OUT_CSC3(x) (REG_DISP_BASE(x) + 0x7C)
+#define REG_DISP_OUT_CSC4(x) (REG_DISP_BASE(x) + 0x80)
+#define REG_DISP_OUT_CSC5(x) (REG_DISP_BASE(x) + 0x84)
+#define REG_DISP_OUT_CSC6(x) (REG_DISP_BASE(x) + 0x88)
+
+#define REG_DISP_IN_CSC0(x) (REG_DISP_BASE(x) + 0x90)
+#define REG_DISP_IN_CSC1(x) (REG_DISP_BASE(x) + 0x94)
+#define REG_DISP_IN_CSC2(x) (REG_DISP_BASE(x) + 0x98)
+#define REG_DISP_IN_CSC3(x) (REG_DISP_BASE(x) + 0x9C)
+#define REG_DISP_IN_CSC4(x) (REG_DISP_BASE(x) + 0xA0)
+#define REG_DISP_IN_CSC5(x) (REG_DISP_BASE(x) + 0xA4)
+#define REG_DISP_IN_CSC6(x) (REG_DISP_BASE(x) + 0xA8)
+
+#define REG_CHANNEL_SWAP(x) (REG_DISP_BASE(x) + 0xB0)
+#define REG_8B10B_MAP(x) (REG_DISP_BASE(x) + 0xB4)
+
+#define REG_DISP_PAT_CFG(x) (REG_DISP_BASE(x) + 0xC0)
+#define REG_DISP_PAT_COLOR0(x) (REG_DISP_BASE(x) + 0xC4)
+#define REG_DISP_PAT_COLOR1(x) (REG_DISP_BASE(x) + 0xC8)
+#define REG_DISP_PAT_COLOR2(x) (REG_DISP_BASE(x) + 0xCC)
+#define REG_DISP_PAT_COLOR3(x) (REG_DISP_BASE(x) + 0xD0)
+#define REG_DISP_PAT_COLOR4(x) (REG_DISP_BASE(x) + 0xD4)
+
+#define REG_DISP_IMG_BWL(x) (REG_DISP_BASE(x) + 0x110)
+// GAMMA
+#define REG_DISP_GAMMA_CTRL(x) (REG_DISP_BASE(x) + 0x130)
+#define REG_DISP_GAMMA_WR_LUT(x) (REG_DISP_BASE(x) + 0x134)
+#define REG_DISP_GAMMA_WR_LUT_1(x) (REG_DISP_BASE(x) + 0x138)
+#define REG_DISP_GAMMA_RD_LUT(x) (REG_DISP_BASE(x) + 0x13C)
+
+// COVER
+#define REG_DISP_COVER_CFG(x, y) (REG_DISP_GOP_BASE(x) + 0x0C*y + 0x140)
+#define REG_DISP_COVER_SIZE(x, y) (REG_DISP_GOP_BASE(x) + 0x0C*y + 0x144)
+#define REG_DISP_COVER_COLOR(x, y) (REG_DISP_GOP_BASE(x) + 0x0C*y + 0x148)
+
+// NOT USED
+#define REG_DISP_DBG(x) (REG_DISP_BASE(x) + 0xAC)
+#define REG_DISP_AXI_ST(x) (REG_DISP_BASE(x) + 0xB0)
+#define REG_DISP_CHECKSUM0(x) (REG_DISP_BASE(x) + 0xC4)
+#define REG_DISP_CHECKSUM1(x) (REG_DISP_BASE(x) + 0xC8)
+#define REG_DISP_CHECKSUM2(x) (REG_DISP_BASE(x) + 0xCC)
+#define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
+#define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
+#define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
+
+// ODMA
+#define REG_DISP_ODMA_CFG(x) (REG_DISP_BASE(x) + 0x170)
+#define REG_DISP_ODMA_Y_L(x) (REG_DISP_BASE(x) + 0x174)
+#define REG_DISP_ODMA_Y_H(x) (REG_DISP_BASE(x) + 0x178)
+#define REG_DISP_ODMA_U_L(x) (REG_DISP_BASE(x) + 0x17C)
+#define REG_DISP_ODMA_U_H(x) (REG_DISP_BASE(x) + 0x180)
+#define REG_DISP_ODMA_V_L(x) (REG_DISP_BASE(x) + 0x184)
+#define REG_DISP_ODMA_V_H(x) (REG_DISP_BASE(x) + 0x188)
+#define REG_DISP_ODMA_PITCH_Y(x) (REG_DISP_BASE(x) + 0x18C)
+#define REG_DISP_ODMA_PITCH_C(x) (REG_DISP_BASE(x) + 0x190)
+
+#define REG_DISP_ODMA_X_STR(x) (REG_DISP_BASE(x) + 0x194)
+#define REG_DISP_ODMA_Y_STR(x) (REG_DISP_BASE(x) + 0x198)
+#define REG_DISP_ODMA_WIDETH(x) (REG_DISP_BASE(x) + 0x19C)
+#define REG_DISP_ODMA_HEIGHT(x) (REG_DISP_BASE(x) + 0x1A0)
+
+#define REG_DISP_ODMA_DEBUG(x) (REG_DISP_BASE(x) + 0x1A4)
+#define REG_DISP_ODMA_LINE_TARGET(x) (REG_DISP_BASE(x) + 0x1A8)
+#define REG_DISP_ODMA_CYCLE_LINE(x) (REG_DISP_BASE(x) + 0x1AC)
+#define REG_DISP_ODMA_REG_16(x) (REG_DISP_BASE(x) + 0x1B0)
+#define REG_DISP_ODMA_REG_17(x) (REG_DISP_BASE(x) + 0x1B4)
+#define REG_DISP_ODMA_REG_18(x) (REG_DISP_BASE(x) + 0x1B8)
+#define REG_DISP_ODMA_REG_19(x) (REG_DISP_BASE(x) + 0x1BC)
+
+// ODMA CSC
+#define REG_CSC_ODMA_1(x) (REG_DISP_BASE(x) + 0x1C0)
+#define REG_CSC_ODMA_2(x) (REG_DISP_BASE(x) + 0x1C4)
+#define REG_CSC_ODMA_3(x) (REG_DISP_BASE(x) + 0x1C8)
+#define REG_CSC_ODMA_4(x) (REG_DISP_BASE(x) + 0x1CC)
+#define REG_CSC_ODMA_5(x) (REG_DISP_BASE(x) + 0x1D0)
+#define REG_CSC_ODMA_6(x) (REG_DISP_BASE(x) + 0x1D4)
+#define REG_CSC_ODMA_7(x) (REG_DISP_BASE(x) + 0x1D8)
+#define REG_CSC_ODMA_8(x) (REG_DISP_BASE(x) + 0x1DC)
+
+// INTR registers (per reg_disp_BM1684x2 Reg_Table):
+//   0x200 REG_DISP_INT_STATUS : rwc(W1C), reset 0x0   -- interrupt status, write 1 to clear the corresponding bit
+//   0x204 REG_DISP_INT_ENABLE : rw,       reset 0x3ff -- whether the interrupt is delivered to the CPU
+//   0x208 REG_DISP_INT_MASK   : rw,       reset 0x3ff -- must set 1 for the bit to be visible in status
+//   0x20C REG_DISP_RECOVER    : ro                    -- whether bw fail is allowed to recover
+//   bit0 tgen frame start, bit1 tgen frame done, bit2 odma frame done,
+//   bit3 rdma frame done,  bit4 disp bw fail,    bit5 odma fifo full,
+//   bit6 tgen wrap fifo full
+#define REG_DISP_INT_STATUS(x) (REG_DISP_BASE(x) + 0x200) /* rwc / W1C */
+#define REG_DISP_INT_ENABLE(x) (REG_DISP_BASE(x) + 0x204) /* rw, reset 0x3ff */
+#define REG_DISP_INT_MASK(x)   (REG_DISP_BASE(x) + 0x208) /* rw, reset 0x3ff */
+#define REG_DISP_INTER_RECOVER_EN(x) (REG_DISP_BASE(x) + 0x20C)
+
+// Aliases kept for legacy code (names are misleading; kept only for compatibility, do not use in new code)
+#define REG_DISP_DEBUG_STATUS(x) REG_DISP_INT_STATUS(x)
+#define REG_DISP_INTER_SEL(x)    REG_DISP_INT_ENABLE(x)
+#define REG_DISP_INTER_CLR(x)    REG_DISP_INT_MASK(x)
+
+// IN 10BIT CSC
+#define REG_DISP_IN_10BIT_CSC0(x) (REG_DISP_BASE(x) + 0x210)
+#define REG_DISP_IN_10BIT_CSC1(x) (REG_DISP_BASE(x) + 0x214)
+#define REG_DISP_IN_10BIT_CSC2(x) (REG_DISP_BASE(x) + 0x218)
+#define REG_DISP_IN_10BIT_CSC3(x) (REG_DISP_BASE(x) + 0x21C)
+#define REG_DISP_IN_10BIT_CSC4(x) (REG_DISP_BASE(x) + 0x220)
+#define REG_DISP_IN_10BIT_CSC5(x) (REG_DISP_BASE(x) + 0x224)
+#define REG_DISP_IN_10BIT_CSC6(x) (REG_DISP_BASE(x) + 0x228)
+
+#define REG_DISP_DP1T4P(x) (REG_DISP_BASE(x) + 0x230)
+#define REG_DISP_QOS_GEN_0(x) (REG_DISP_BASE(x) + 0x250)
+#define REG_DISP_QOS_GEN_1(x) (REG_DISP_BASE(x) + 0x254)
+
+#define REG_FRAME_RDMA_CNT(x) (REG_DISP_BASE(x) + 0x260)
+#define REG_FRAME_TGEN_CNT(x) (REG_DISP_BASE(x) + 0x264)
+#define REG_FRAME_CNT_CLR(x) (REG_DISP_BASE(x) + 0x268)
+
+#define REG_FRAME_HVCNT(x) (REG_DISP_BASE(x) + 0x26C)
+#define REG_RDMA_ST(x) (REG_DISP_BASE(x) + 0x270)
+
+// OSD encoder
+#define REG_VO_SYS_OENC_RST(x) (REG_VO_SYS_OENC_BASE(x) + 0x00)
+#define REG_VO_SYS_OENC_INT_GO(x) (REG_VO_SYS_OENC_BASE(x) + 0x04)
+#define REG_VO_SYS_OENC_HEADER_CFG(x) (REG_VO_SYS_OENC_BASE(x) + 0x08)
+#define REG_VO_SYS_OENC_CFG(x) (REG_VO_SYS_OENC_BASE(x) + 0x10)
+#define REG_VO_SYS_OENC_RANGE(x) (REG_VO_SYS_OENC_BASE(x) + 0x14)
+#define REG_VO_SYS_OENC_PITCH(x) (REG_VO_SYS_OENC_BASE(x) + 0x18)
+#define REG_VO_SYS_OENC_SRC_ADDR(x) (REG_VO_SYS_OENC_BASE(x) + 0x20)
+#define REG_VO_SYS_OENC_WPROT_LADDR(x) (REG_VO_SYS_OENC_BASE(x) + 0x30)
+#define REG_VO_SYS_OENC_WPROT_UADDR(x) (REG_VO_SYS_OENC_BASE(x) + 0x38)
+#define REG_VO_SYS_OENC_BSO_ADDR(x) (REG_VO_SYS_OENC_BASE(x) + 0x40)
+#define REG_VO_SYS_OENC_LIMIT_BSZ(x) (REG_VO_SYS_OENC_BASE(x) + 0x48)
+#define REG_VO_SYS_OENC_BSO_SZ(x) (REG_VO_SYS_OENC_BASE(x) + 0x4C)
+#define REG_VO_SYS_OENC_WPROT_DEBUG(x) (REG_VO_SYS_OENC_BASE(x) + 0x50)
+
+// DISP GOP
+//The z below represents different ow
+#define REG_DISP_GOP_FMT(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x00)
+#define REG_DISP_GOP_H_RANGE(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x04)
+#define REG_DISP_GOP_V_RANGE(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x08)
+#define REG_DISP_GOP_ADDR_L(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x0c)
+#define REG_DISP_GOP_ADDR_H(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x10)
+#define REG_DISP_GOP_CROP_PITCH(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x14)
+#define REG_DISP_GOP_SIZE(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x20*z + 0x18)
+#define REG_DISP_GOP_CFG(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x100)
+#define REG_DISP_GOP_256LUT0(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x104)
+#define REG_DISP_GOP_256LUT1(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x108)
+#define REG_DISP_GOP_COLORKEY(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x10c)
+#define REG_DISP_GOP_FONTCOLOR(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x110)
+#define REG_DISP_GOP_FONTBOX_CTRL(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x120)
+//The z below represents different fontbox instance
+#define REG_DISP_GOP_FONTBOX_CFG(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x10*z + 0x124)
+#define REG_DISP_GOP_FONTBOX_INIT(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x10*z + 0x128)
+#define REG_DISP_GOP_FONTBOX_REC(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x10*z + 0x12c)
+#define REG_DISP_GOP_BW_LIMIT(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x140)
+#define REG_DISP_GOP_DEC_CTRL(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x150)
+#define REG_DISP_GOP_DEC_DEBUG(x, y) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x154)
+//The z below represents length
+#define REG_DISP_GOP_16LUT(x, y, z) (REG_DISP_GOP_BASE(x) + REG_GOP_OFFSET(y) + 0x4*z + 0x160)
+
+enum drm_intf {
+    DRM_INTF_DISP0,
+    DRM_INTF_HDMI,
+    DRM_INTF_BUTT,
+};
+#else /* !CONFIG_ARCH_CV84X6 : A2 */
 
 #define REG_VO_MAC_BASE(x) (vo_sys_f_base + 0x1000 + 0x2000*(x))
 #define REG_DISP_DSI_BASE(x) (((x == 0) ? vo_sys_f_base : vo_sys_b_base) + 0x2000)
@@ -27,6 +286,7 @@ extern void __iomem  *top_pll_base;
 #define REG_FPLL_CTRL5(x) (top_pll_base + 0x94 + 0x100 * (x))
 #define REG_MPLL_CTRL1(x) (top_pll_base + 0xc4 + 0x100 * (x))
 // ============== VO SYS ============== //
+#define DISP_RESET_MASK 0xC0
 #define REG_VO_SYS_IP_RESET (vo_sys_f_base + 0x00)
 #define REG_VO_SYS_APB_RESET (vo_sys_f_base + 0x04)
 #define REG_VO_SYS_INTERRUPT (vo_sys_f_base + 0x08)
@@ -215,8 +475,6 @@ extern void __iomem  *top_pll_base;
 #define REG_DISP_CHECKSUM1(x) (REG_DISP_BASE(x) + 0xC8)
 #define REG_DISP_CHECKSUM2(x) (REG_DISP_BASE(x) + 0xCC)
 #define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
-#define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
-#define REG_DISP_DUMMY(x) (REG_DISP_BASE(x) + 0xF8)
 
 // GAMMA
 #define REG_DISP_GAMMA_CTRL(x) (REG_DISP_BASE(x) + 0x180)
@@ -352,7 +610,6 @@ extern void __iomem  *top_pll_base;
 #define REG_DSI_PHY_EN_MIPI_DRV(x)       (REG_DSI_WRAP_BASE(x) + 0x164)
 #define REG_DSI_PHY_EN_TX_RTERM(x)       (REG_DSI_WRAP_BASE(x) + 0x168)
 
-
 // OSD encoder
 #define REG_VO_SYS_OENC_RST(x) (REG_VO_SYS_OENC_BASE(x) + 0x00)
 #define REG_VO_SYS_OENC_INT_GO(x) (REG_VO_SYS_OENC_BASE(x) + 0x04)
@@ -399,11 +656,16 @@ enum drm_intf {
     DRM_INTF_HDMI,
     DRM_INTF_BUTT,
 };
+#endif /* CONFIG_ARCH_CV84X6 */
 
 u32 _reg_read(void __iomem *addr);
 void _reg_write(void __iomem *addr, u32 value);
 void _reg_write_mask(void __iomem *addr, u32 mask, u32 data);
 void extend_axi_to_36bit(u32 high_bit, enum drm_intf intf);
 void reset_disp(void);
-
+#ifdef CONFIG_ARCH_CV84X6
+void cvitek_hdmi_reset(void);
+void disp0_clk_sel_use_hdmi_pll(void);
+void disp0_clk_sel_use_top_pll(void);
+#endif
 #endif
