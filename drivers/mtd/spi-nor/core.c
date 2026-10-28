@@ -361,6 +361,28 @@ static int spi_nor_read_cr(struct spi_nor *nor, u8 *cr)
 	return ret;
 }
 
+static int spi_nor_read_cr_for_mx(struct spi_nor *nor, u8 *cr)
+{
+	int ret;
+
+	if (nor->spimem) {
+		struct spi_mem_op op =
+			SPI_MEM_OP(SPI_MEM_OP_CMD(0x15, 1),
+				   SPI_MEM_OP_NO_ADDR,
+				   SPI_MEM_OP_NO_DUMMY,
+				   SPI_MEM_OP_DATA_IN(1, cr, 1));
+
+		ret = spi_mem_exec_op(nor->spimem, &op);
+	} else {
+		ret = nor->controller_ops->read_reg(nor, 0x15, cr, 1);
+	}
+
+	if (ret)
+		dev_dbg(nor->dev, "error %d reading CR\n", ret);
+
+	return ret;
+}
+
 /**
  * spi_nor_set_4byte_addr_mode() - Enter/Exit 4-byte address mode.
  * @nor:	pointer to 'struct spi_nor'.
@@ -2018,6 +2040,38 @@ int spi_nor_sr1_bit6_quad_enable(struct spi_nor *nor)
 	nor->bouncebuf[0] |= SR1_QUAD_EN_BIT6;
 
 	return spi_nor_write_sr1_and_check(nor, nor->bouncebuf[0]);
+}
+
+int spi_nor_sr1_bit6_quad_enable_w2b(struct spi_nor *nor)
+{
+	int ret;
+
+	ret = spi_nor_read_sr(nor, nor->bouncebuf);
+	if (ret)
+		return ret;
+
+	if (nor->bouncebuf[0] & SR1_QUAD_EN_BIT6)
+		return 0;
+
+	ret = spi_nor_read_cr_for_mx(nor, &nor->bouncebuf[1]);
+	if (ret)
+		return ret;
+
+	nor->bouncebuf[0] |=  SR1_QUAD_EN_BIT6;
+	ret = spi_nor_write_sr(nor, nor->bouncebuf, 2);
+	if (ret)
+		return ret;
+
+	nor->bouncebuf[0] = 0;
+	ret = spi_nor_read_sr(nor, nor->bouncebuf);
+	if (ret)
+		return ret;
+
+	if (nor->bouncebuf[0] & SR1_QUAD_EN_BIT6)
+		return 0;
+
+	pr_info("quad enable failed, sr val is 0x%x\n", nor->bouncebuf[0]);
+	return -1;
 }
 
 /**

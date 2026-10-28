@@ -28,6 +28,16 @@ static struct spi_nor_fixups sr1_bit6_qe_fixups = {
 	.default_init = sr1_bit6_qe_default_init,
 };
 
+static void sr1_bit6_w2b_qe_default_init(struct spi_nor *nor)
+{
+	nor->params->quad_enable = spi_nor_sr1_bit6_quad_enable_w2b;
+	nor->flags &= ~SNOR_F_HAS_16BIT_SR;
+}
+
+static struct spi_nor_fixups sr1_bit6_w2b_qe_fixups = {
+	.default_init = sr1_bit6_w2b_qe_default_init,
+};
+
 static void sr2_bit1_qe_default_init(struct spi_nor *nor)
 {
 	nor->params->quad_enable = spi_nor_sr2_bit1_quad_enable;
@@ -114,6 +124,10 @@ static const struct flash_info cvitek_parts[] = {
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
 			SPI_NOR_4B_OPCODES | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr1_bit6_qe_fixups },
+	{ "MX25U25645G", CVI_INFO(0xc22539, 0x0, 64 * 1024, 512, 0, 0,
+			SECT_4K | SPI_NOR_SKIP_SFDP | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
+			SPI_NOR_4B_OPCODES)
+		.fixups = &sr1_bit6_w2b_qe_fixups },
 	{ "MX25L12835F", CVI_INFO(0xc22018, 0, 64 * 1024, 256, 0, 0,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP)
 		.fixups = &sr1_bit6_qe_fixups },
@@ -196,6 +210,10 @@ static const struct flash_info cvitek_parts[] = {
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
 			SPI_NOR_4B_OPCODES)
 		.fixups = &sr_bit1_qe_fixups },
+	{ "BY25FQ256ES", CVI_INFO(0x684019, 0x0, 64 * 1024, 512, 0, 0,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP |
+			SPI_NOR_4B_OPCODES)
+		.fixups = &sr_bit1_qe_fixups },
 	{ "PY25Q128HA", CVI_INFO(0x852018, 0x0, 64 * 1024, 256, 0, 0,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP)
 		.fixups = &sr_bit1_qe_fixups },
@@ -217,6 +235,23 @@ static const struct flash_info cvitek_parts[] = {
 	{ "XTD25W64A", CVI_INFO(0x0B7517, 0x0, 64 * 1024, 128, 3, 1024,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
 		.fixups = &sr2_bit1_qe_fixups },
+	{ "FM25W128", CVI_INFO(0xa12818, 0x0, 64 * 1024, 256, 0, 0,
+			SECT_4K | SPI_NOR_QUAD_READ)
+		.fixups = &sr_bit1_qe_fixups
+	},
+	{ "GD25LQ256D", CVI_INFO(0xc86019, 0x0, 64 * 1024, 512, 0, 0,
+			SECT_4K | SPI_NOR_QUAD_READ) },
+	{ "GD25Q128E", CVI_INFO(0xc84018, 0, 64 * 1024, 256, 3, 1024,
+			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_OP | SPI_NOR_SUPPORT_OTP)
+		.fixups = &sr_bit1_qe_fixups },
+	{ "N25Q256", CVI_INFO(0x20ba19, 0x0, 64 * 1024, 512, 0, 0,
+			SECT_4K | SPI_NOR_QUAD_READ)
+		.fixups = &no_qe_fixups
+	},
+	{ "P25D32SH", CVI_INFO(0x856016, 0x0, 64 * 1024, 64, 0, 0,
+			SECT_4K | SPI_NOR_DUAL_READ) },
+	{ "ZB25VQ32D", CVI_INFO(0x5e4016, 0x0, 64 * 1024, 128, 0, 0,
+			SECT_4K | SPI_NOR_QUAD_READ) },
 	{}
 
 
