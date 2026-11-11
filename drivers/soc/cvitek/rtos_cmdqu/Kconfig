@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Generic thermal drivers configuration
+#
+# When adding new entries keep the list in alphabetical order
+config CVI_RTOS_CMDQU
+	tristate "rtos_cmdqu dirver"
+	default n
+	depends on ARCH_CVITEK
+	help
+		"cvitek rtos_cmdqu"

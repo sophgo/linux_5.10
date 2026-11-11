@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Generic thermal drivers configuration
+#
+# When adding new entries keep the list in alphabetical order
+
+config CVI_WIEGAND
+	tristate "wiegand dirver"
+	default m
+	help
+		"cvitek wiegand"

@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0
+
+config CVI_TPU
+	tristate "cvitek tpu dirver"
+	default m
+	depends on ION_CVITEK
+	help
+		"cvitek tpu"

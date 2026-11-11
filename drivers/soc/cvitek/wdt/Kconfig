@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Unisys visorhba configuration
+#
+
+config CVI_WDT
+	tristate "cvitek wdt dirver"
+	default m
+	help
+		"cvitek wdt"
