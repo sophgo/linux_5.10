@@ -17,11 +17,19 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/preempt.h>
+#include <linux/percpu.h>
+#include <linux/smp.h>
+#include <linux/spinlock.h>
 
 #define SYSTEM_OTP2_BS          (0x0)
 
 #define OPTEE_SMC_CALL_CV_OTP3_READ		0x03000006
 #define OPTEE_SMC_CALL_CV_OTP3_WRITE	0x03000007
+#define OPTEE_SMC_CALL_CV_OTP3_ABORT	0x03000015
+#define OPTEE_SMC_CALL_CV_OTP3_RESUME	0x03000016
+
+#define OTP_RETRY_TIMES 10
 
 #define DEVICE_NAME  "otp"
 
@@ -39,6 +47,7 @@ static const char * const sophon_otp_clocks[] = {
 static void __iomem *otp_base;
 static int otp_major;
 static struct class *otp_class;
+static DEFINE_PER_CPU(spinlock_t, otp3_smc_lock);
 
 static inline uint32_t otp2_segment_read(uint32_t segment, uint32_t line)
 {
@@ -58,8 +67,11 @@ static int otp3_read(uint32_t segment, uint32_t line, uint32_t size, uint32_t *b
 {
 	void *value = NULL;
 	struct arm_smccc_res res = {0};
+	struct arm_smccc_res abort_res;
 	phys_addr_t value_phys;
 	uint32_t addr = ((segment << 5) + line) << 2;
+	int cpu;
+	int retry;
 
 	pr_debug("segment[%d] line[%d] size[%d]\n", segment, line, size);
 
@@ -70,11 +82,43 @@ static int otp3_read(uint32_t segment, uint32_t line, uint32_t size, uint32_t *b
 
 	value_phys = virt_to_phys(value);
 
-	arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_READ, 0, addr, size, (unsigned long)value_phys, 0, 0, 0, &res);
-	if (res.a0 < 0) {
-		pr_err("smc OPTEE_SMC_CALL_CV_OTP3_READ failed\n");
+	/*
+	 * The secure payload may be preempted by a non-secure interrupt in
+	 * the middle of the call.  In that case the dispatcher returns
+	 * SMC_PREEMPTED (-2) after saving the interrupted secure context;
+	 * an explicit RESUME call resumes it.  Retry a bounded number of
+	 * times until the call completes normally.
+	 */
+	preempt_disable();
+	migrate_disable();
+	cpu = smp_processor_id();
+	spin_lock(&per_cpu(otp3_smc_lock, cpu));
+
+	arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_READ, 0, addr, size,
+		      (unsigned long)value_phys, 0, 0, 0, &res);
+	if ((long)res.a0 == -2) {
+		for (retry = 0; retry < OTP_RETRY_TIMES; retry++) {
+			arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_RESUME, 0, 0, 0,
+				      0, 0, 0, 0, &res);
+			if ((long)res.a0 != -2)
+				break;
+		}
+		if ((long)res.a0 == -2) {
+			arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_ABORT, 0, 0, 0,
+				      0, 0, 0, 0, &abort_res);
+			pr_err("smc OTP3 abort: a0=0x%lx\n", abort_res.a0);
+		}
+	}
+
+	spin_unlock(&per_cpu(otp3_smc_lock, cpu));
+	migrate_enable();
+	preempt_enable();
+
+	if (res.a0 != size) {
+		pr_err("smc OTP3_READ failed: a0=0x%lx a1=0x%lx a2=0x%lx a3=0x%lx (expected size=%u)\n",
+			res.a0, res.a1, res.a2, res.a3, size);
 		kfree(value);
-		return -1;
+		return -EIO;
 	}
 
 	arch_sync_dma_for_cpu(value_phys, (size << 2), DMA_FROM_DEVICE);
@@ -87,9 +131,12 @@ static int otp3_read(uint32_t segment, uint32_t line, uint32_t size, uint32_t *b
 static int otp3_write(uint32_t segment, uint32_t line, uint32_t size, uint32_t *buffer)
 {
 	struct arm_smccc_res res = {0};
+	struct arm_smccc_res abort_res;
 	phys_addr_t value_phys;
 	void *value = NULL;
 	uint32_t addr = ((segment << 5) + line) << 2;
+	int cpu;
+	int retry;
 
 	value = kzalloc((size << 2), GFP_KERNEL);
 	if (!value) {
@@ -100,11 +147,43 @@ static int otp3_write(uint32_t segment, uint32_t line, uint32_t size, uint32_t *
 	__flush_dcache_area(value, (size << 2));
 	value_phys = virt_to_phys(value);
 
-	arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_WRITE, 0, addr, size, (unsigned long)value_phys, 0, 0, 0, &res);
-	if (res.a0 < 0) {
-		pr_err("smc OPTEE_SMC_CALL_CV_OTP3_WRITE failed\n");
+	/*
+	 * The secure payload may be preempted by a non-secure interrupt in
+	 * the middle of the call.  In that case the dispatcher returns
+	 * SMC_PREEMPTED (-2) after saving the interrupted secure context;
+	 * an explicit RESUME call resumes it.  Retry a bounded number of
+	 * times until the call completes normally.
+	 */
+	preempt_disable();
+	migrate_disable();
+	cpu = smp_processor_id();
+	spin_lock(&per_cpu(otp3_smc_lock, cpu));
+
+	arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_WRITE, 0, addr, size,
+		      (unsigned long)value_phys, 0, 0, 0, &res);
+	if ((long)res.a0 == -2) {
+		for (retry = 0; retry < OTP_RETRY_TIMES; retry++) {
+			arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_RESUME, 0, 0, 0,
+				      0, 0, 0, 0, &res);
+			if ((long)res.a0 != -2)
+				break;
+		}
+		if ((long)res.a0 == -2) {
+			arm_smccc_smc(OPTEE_SMC_CALL_CV_OTP3_ABORT, 0, 0, 0,
+				      0, 0, 0, 0, &abort_res);
+			pr_err("smc OTP3 abort: a0=0x%lx\n", abort_res.a0);
+		}
+	}
+
+	spin_unlock(&per_cpu(otp3_smc_lock, cpu));
+	migrate_enable();
+	preempt_enable();
+
+	if (res.a0 != size) {
+		pr_err("smc OTP3_WRITE failed: a0=0x%lx a1=0x%lx a2=0x%lx a3=0x%lx (expected size=%u)\n",
+			res.a0, res.a1, res.a2, res.a3, size);
 		kfree(value);
-		return -1;
+		return -EIO;
 	}
 
 	kfree(value);
@@ -131,7 +210,11 @@ static inline int otp3_segment_read(uint32_t segment, uint32_t *buffer)
 static ssize_t otp3_reserve_segment2_show(struct class *class,
 					  struct class_attribute *attr, char *buf)
 {
-	otp3_segment_read(2, (uint32_t *)buf);
+	int ret;
+
+	ret = otp3_segment_read(2, (uint32_t *)buf);
+	if (ret)
+		return ret;
 
 	return 128;
 }
@@ -141,6 +224,7 @@ static ssize_t otp3_reserve_segment2_store(struct class *class,
 					   const char *buf, size_t count)
 {
 	uint32_t addr = 0, value = 0;
+	int ret;
 
 	if (sscanf(buf, "0x%x=0x%x", &addr, &value) != 2)
 		return -ENOMEM;
@@ -149,7 +233,9 @@ static ssize_t otp3_reserve_segment2_store(struct class *class,
 	if (addr > 31)
 		return -1;
 
-	otp3_write(2, addr, 1, &value);
+	ret = otp3_write(2, addr, 1, &value);
+	if (ret)
+		return ret;
 
 	return count;
 }
@@ -157,7 +243,11 @@ static ssize_t otp3_reserve_segment2_store(struct class *class,
 static ssize_t otp3_reserve_segment3_show(struct class *class,
 					  struct class_attribute *attr, char *buf)
 {
-	otp3_segment_read(3, (uint32_t *)buf);
+	int ret;
+
+	ret = otp3_segment_read(3, (uint32_t *)buf);
+	if (ret)
+		return ret;
 
 	return 128;
 }
@@ -167,6 +257,7 @@ static ssize_t otp3_reserve_segment3_store(struct class *class,
 					   const char *buf, size_t count)
 {
 	uint32_t addr = 0, value = 0;
+	int ret;
 
 	if (sscanf(buf, "0x%x=0x%x", &addr, &value) != 2)
 		return -ENOMEM;
@@ -175,7 +266,9 @@ static ssize_t otp3_reserve_segment3_store(struct class *class,
 	if (addr > 31)
 		return -1;
 
-	otp3_write(3, addr, 1, &value);
+	ret = otp3_write(3, addr, 1, &value);
+	if (ret)
+		return ret;
 
 	return count;
 }
@@ -353,7 +446,11 @@ static int sophon_otp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct sophon_otp *otp;
+	int cpu;
 	int ret;
+
+	for_each_possible_cpu(cpu)
+		spin_lock_init(&per_cpu(otp3_smc_lock, cpu));
 
 	otp = devm_kzalloc(dev, sizeof(*otp), GFP_KERNEL);
 	if (!otp)

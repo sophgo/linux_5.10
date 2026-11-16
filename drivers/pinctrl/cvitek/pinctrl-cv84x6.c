@@ -294,6 +294,15 @@ static const unsigned int pwm7_pin[] = { G2_PIN_BASE + 5 };
 static const unsigned int pwm20_pin[] = { G3_PIN_BASE + 0 };
 static const unsigned int pwm21_pin[] = { G3_PIN_BASE + 1 };
 
+/* SE13 LED pins: SYS red/green, alarm, SSD red/green — all GPIO (mux=3) */
+static const unsigned int led_pins[] = {
+	G3_PIN_BASE + 30,  /* PWM1 / GPIO84   SYS red  */
+	G3_PIN_BASE + 34,  /* FANTACH1 / GPIO103  SYS green */
+	G4_PIN_BASE + 32,  /* I2S0_SDI1 / GPIO88  alarm */
+	G3_PIN_BASE + 2,   /* USB3_VBUS_EN0 / GPIO69  SSD red */
+	G3_PIN_BASE + 3,   /* USB3_VBUS_EN1 / GPIO70  SSD green */
+};
+
 /* PCIE groups */
 static const unsigned int pcie_pins[] = { G1_PIN_BASE + 0, G1_PIN_BASE + 1,
 					  G1_PIN_BASE + 2, G1_PIN_BASE + 3,
@@ -424,6 +433,7 @@ static const u8 dbg_iic_grp_mux[] = { 1, 1 };
 static const u8 a55_jtag_grp_mux[] = { 0, 0, 0, 0, 0, 0 };
 static const u8 c906b0_jtag_grp_mux[] = { 1, 1, 1, 1, 1, 1 };
 static const u8 c906b1_jtag_grp_mux[] = { 1, 1, 1, 1, 1, 1 };
+static const u8 led_grp_mux[] = { 3, 3, 3, 3, 3 };
 
 #define GRP(_name, _pins, _mux) \
 	{ .name = #_name, .pins = (_pins), .pin_mux = (_mux), .npins = ARRAY_SIZE(_pins) }
@@ -501,6 +511,7 @@ static const struct cv84x6_pin_group cv84x6_groups[] = {
 	GRP(a55_jtag_grp, a55_jtag_pins, a55_jtag_grp_mux),
 	GRP(c906b0_jtag_grp, c906b0_jtag_pins, c906b0_jtag_grp_mux),
 	GRP(c906b1_jtag_grp, c906b1_jtag_pins, c906b1_jtag_grp_mux),
+	GRP(led_grp, led_pins, led_grp_mux),
 };
 
 /* ======================================================================
@@ -572,6 +583,7 @@ FUNC_GROUPS(dbg_iic, "dbg_iic_grp");
 FUNC_GROUPS(a55_jtag, "a55_jtag_grp");
 FUNC_GROUPS(c906b0_jtag, "c906b0_jtag_grp");
 FUNC_GROUPS(c906b1_jtag, "c906b1_jtag_grp");
+FUNC_GROUPS(led_gpio, "led_grp");
 
 struct cv84x6_pmx_func {
 	const char *name;
@@ -646,6 +658,7 @@ static const struct cv84x6_pmx_func cv84x6_functions[] = {
 	PMX_FUNC(a55_jtag),
 	PMX_FUNC(c906b0_jtag),
 	PMX_FUNC(c906b1_jtag),
+	PMX_FUNC(led_gpio),
 };
 
 /* ======================================================================

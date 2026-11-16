@@ -114,7 +114,14 @@ static int dummy_codec_probe(struct platform_device *pdev)
 {
 	int id = pdev->id;
 
-	if (id < 0 || id >= DUMMY_CODEC_MAX_INSTANCES)
+	/* of_match (DTS "cvitek,dummy-codec" node): pdev->id == -1, use instance 0.
+	 * simple-audio-card's codec=<&dummy_codec> phandle resolves via this
+	 * component's of_node so the card can bind. Static platform_device
+	 * (name="dummy_codec", id=0/1) still works for cv1835-dummy-card machine
+	 * driver via codec_name name matching. */
+	if (id < 0)
+		id = 0;
+	if (id >= DUMMY_CODEC_MAX_INSTANCES)
 		return -ENODEV;
 
 	return devm_snd_soc_register_component(&pdev->dev, &dummy_component_driver,
@@ -133,9 +140,16 @@ static void dummy_codec_release(struct device *dev)
 
 
 
+static const struct of_device_id dummy_codec_of_match[] = {
+	{ .compatible = "cvitek,dummy-codec", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, dummy_codec_of_match);
+
 static struct platform_driver cvitek_dummy_codec_driver = {
 	.driver = {
 		.name = "dummy_codec",
+		.of_match_table = dummy_codec_of_match,
 	},
 	.probe = dummy_codec_probe,
 	.remove = dummy_codec_remove,

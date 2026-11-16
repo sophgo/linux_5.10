@@ -28,7 +28,7 @@
 #include <linux/version.h>
 #include "local.h"
 #include "cvitek_dw_i2s.h"
-#include "cv84x6_i2s_subsys.h"
+#include "cv1835_i2s_subsys.h"
 
 
 struct proc_dir_entry *proc_dwi2s_dir;
@@ -567,11 +567,7 @@ clk_ctrl1 |= BCLK_DIV(bclk_div);
     dev_info(dev->dev, "Set clock ctrl1=0x%08x, mclk_div:%d bclk_div:%d\n", clk_ctrl1, mclk_div, bclk_div);
 
 /* master mode*/
-#if defined(CONFIG_ARCH_CV84X6)
-    dwi2s_set_mclk(DWI2S_MODE_REG_VAL_X2, DWI2S_SLAVEMODE_SOURCE_X2, DWI2S_CLK_CTRL0_VAL_X2, clk_ctrl1);
-#else
     dwi2s_set_mclk(DWI2S_MODE_REG_VAL, DWI2S_SLAVEMODE_SOURCE, DWI2S_CLK_CTRL0_VAL, clk_ctrl1);
-#endif
 
     dwi2s_get_subsys();
 

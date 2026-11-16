@@ -3,8 +3,11 @@ obj-$(CONFIG_ARCH_CV84X6) += cv84x6_i2s.o
 obj-$(CONFIG_ARCH_CV186X) += cv1835_i2s.o
 
 # Cvitek Machine Support
+ifeq ($(CONFIG_ARCH_CV84X6),y)
+snd-soc-cv1835-adau1372-objs := cv84x6_adau1372.o
+else
 snd-soc-cv1835-adau1372-objs := cv1835_adau1372.o
-
+endif
 obj-$(CONFIG_SND_SOC_CV1835_ADAU1372) += snd-soc-cv1835-adau1372.o
 
 obj-$(CONFIG_SND_SOC_CV1835_CV1835PDM) += cv1835_cv1835pdm.o
@@ -40,7 +43,12 @@ obj-$(CONFIG_SND_SOC_CV186XDAC) += cvitek_dac.o
 obj-$(CONFIG_SND_SOC_CV186X_CV186XDAC) += cv186x_cv186xdac.o
 
 #cv186x -dwi2s
-obj-$(CONFIG_SND_SOC_CV186X_DWI2S) += cvitek_dw_i2s.o
+ifeq ($(CONFIG_ARCH_CV84X6),y)
+snd-soc-cvitek-dw-i2s-objs := cv84x6_dw_i2s.o
+else
+snd-soc-cvitek-dw-i2s-objs := cvitek_dw_i2s.o
+endif
+obj-$(CONFIG_SND_SOC_CV186X_DWI2S) += snd-soc-cvitek-dw-i2s.o
 obj-$(CONFIG_SND_SOC_CV186X_DWU2S_ADAU1372) += cv186x_adau1372.o
 
 #other

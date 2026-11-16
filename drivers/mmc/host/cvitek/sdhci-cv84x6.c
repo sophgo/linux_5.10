@@ -116,6 +116,7 @@
 #define DWC_AT_CTRL_R (0x40)
 #define DWC_AT_STAT_R (0x44)
 #define AT_SW_TUNE_EN BIT(4)
+#define AT_TUNE_CLK_STOP_EN BIT(16)
 #define AT_CENTER_PH_CODE_MASK 0xFF
 
 #define MAX_TUNING_CMD_RETRY_COUNT 50
@@ -1099,24 +1100,28 @@ static int sdhci_cv84x6_tuning_try_phase(struct sdhci_host *host, u32 opcode)
 static void sdhci_cv84x6_set_tap(struct sdhci_host *host, u32 vendor_base,
 				 unsigned int phase)
 {
-	u16 clk;
 	u32 at_stat;
+	int retry;
 
-	/* Step 9: Turn off clock, set phase, turn on clock */
-	clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
-	clk &= ~BIT(2); /* SD_CLK_EN = 0 */
-	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
-
-	/* Set CENTER_PH_CODE */
+	/*
+	 * Databook Fig 8-14 step 9: with AT_TUNE_CLK_STOP_EN set the controller
+	 * auto-stops the card clock while CENTER_PH_CODE is updated, so no manual
+	 * SD_CLK_EN toggle is needed (match U-Boot). Read back to confirm the
+	 * phase code took effect (databook: 180 hclk).
+	 */
 	at_stat = sdhci_readl(host, vendor_base + DWC_AT_STAT_R);
 	at_stat &= ~AT_CENTER_PH_CODE_MASK;
 	at_stat |= (phase & AT_CENTER_PH_CODE_MASK);
 	sdhci_writel(host, at_stat, vendor_base + DWC_AT_STAT_R);
 
-	udelay(1);
-
-	clk |= BIT(2); /* SD_CLK_EN = 1 */
-	sdhci_writew(host, clk, SDHCI_CLOCK_CONTROL);
+	retry = 100;
+	do {
+		at_stat = sdhci_readl(host, vendor_base + DWC_AT_STAT_R);
+		if ((at_stat & AT_CENTER_PH_CODE_MASK) ==
+		    (phase & AT_CENTER_PH_CODE_MASK))
+			break;
+		udelay(1);
+	} while (--retry > 0);
 }
 
 static int sdhci_cv84x6_execute_tuning(struct sdhci_host *host, u32 opcode)
@@ -1145,9 +1150,10 @@ static int sdhci_cv84x6_execute_tuning(struct sdhci_host *host, u32 opcode)
 	/* Step 2: Setup registers for tuning transfer */
 	sdhci_cv84x6_tuning_setup_transfer(host);
 
-	/* Step 3: Enable software tuning */
+	/* Step 3: Enable software tuning; TUNE_CLK_STOP_EN lets the controller
+	 * auto-stop the card clock while CENTER_PH_CODE changes (match U-Boot). */
 	at_ctrl = sdhci_readl(host, vendor_base + DWC_AT_CTRL_R);
-	at_ctrl |= AT_SW_TUNE_EN;
+	at_ctrl |= AT_SW_TUNE_EN | AT_TUNE_CLK_STOP_EN;
 	sdhci_writel(host, at_ctrl, vendor_base + DWC_AT_CTRL_R);
 
 	/* Step 4: Set CENTER_PH_CODE=0 */
@@ -1160,6 +1166,24 @@ static int sdhci_cv84x6_execute_tuning(struct sdhci_host *host, u32 opcode)
 		ret = sdhci_cv84x6_tuning_try_phase(host, opcode);
 		if (!ret)
 			pass_map[phase / 8] |= (1 << (phase % 8));
+	}
+
+	/* Dump raw pass/fail map so the window can be observed across temperature */
+	{
+		char graph[TUNE_MAX_PHCODE + 1];
+		int p, cnt = 0;
+
+		for (p = 0; p < TUNE_MAX_PHCODE; p++) {
+			if (pass_map[p / 8] & (1 << (p % 8))) {
+				graph[p] = '-';
+				cnt++;
+			} else {
+				graph[p] = 'x';
+			}
+		}
+		graph[TUNE_MAX_PHCODE] = '\0';
+		pr_info("%s: tuning map (%d/%d pass): %s\n",
+			mmc_hostname(host->mmc), cnt, TUNE_MAX_PHCODE, graph);
 	}
 
 	/* Step 11: Find center of widest passing window */
@@ -1185,8 +1209,14 @@ static int sdhci_cv84x6_execute_tuning(struct sdhci_host *host, u32 opcode)
 		best_start = cur_start;
 	}
 
-	if (best_len == 0)
+	if (best_len == 0) {
+		/* Disable SW tuning mode before returning, otherwise it stays
+		 * latched and poisons the next retry (match U-Boot cleanup). */
+		at_ctrl &= ~(AT_SW_TUNE_EN | AT_TUNE_CLK_STOP_EN);
+		sdhci_writel(host, at_ctrl, vendor_base + DWC_AT_CTRL_R);
+		sdhci_cv84x6_tuning_phase_recovery(host);
 		return -EIO;
+	}
 
 	phase = best_start + best_len / 2;
 
@@ -1205,7 +1235,7 @@ static int sdhci_cv84x6_execute_tuning(struct sdhci_host *host, u32 opcode)
 	sdhci_cv84x6_set_tap(host, vendor_base, phase);
 
 	/* Step 12: Disable software tuning, set SAMPLE_CLK_SEL=1 */
-	at_ctrl &= ~AT_SW_TUNE_EN;
+	at_ctrl &= ~(AT_SW_TUNE_EN | AT_TUNE_CLK_STOP_EN);
 	sdhci_writel(host, at_ctrl, vendor_base + DWC_AT_CTRL_R);
 
 	ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);

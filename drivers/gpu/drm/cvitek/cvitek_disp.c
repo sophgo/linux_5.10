@@ -832,6 +832,174 @@ static void disp_set_framedone_interrupt(u8 disp_id, bool enable)
 
 #ifdef CONFIG_ARCH_CV84X6
 /*
+ * DDR retrain handshake with the RTC firmware over gp_reg46 (wiki 228911019).
+ *
+ * GP46_SET 0x281000D8: write-1-set (readback = current GP46 value);
+ * GP46_CLR 0x281000F8: write-1-clear (verified on 141 board, bit0/bit1).
+ *   bit30: "VO online", maintained by this driver across crtc enable/disable.
+ *   bit31: retrain ack, asserted then deasserted as a pulse -> SOC->RTC soft
+ *          irq 57; the RTC checks bit30 and retrain DDR on receipt.
+ * RTC_INFO3 0x05026028 bit30: the RTC's 6s retrain request (RTC -> VO);
+ *   cleared by the RTC itself after serving irq 57.
+ *
+ * 0xDEADBEEF is the RTC firmware "not deployed" placeholder and its bit30
+ * reads as 1; never answer a placeholder with a real irq 57.
+ */
+#define GP46_SET_ADDR		0x281000D8
+#define GP46_CLR_ADDR		0x281000F8
+#define RTC_INFO3_ADDR		0x05026028
+#define RTC_INFO0_ADDR		0x05026000
+#define GP46_VO_ONLINE_BIT	BIT(30)
+#define GP46_RETRAIN_ACK_BIT	BIT(31)
+#define RTC_INFO_FW_ABSENT	0xDEADBEEFu
+#define RTC_RETRAIN_START_BIT	BIT(28)
+#define RTC_RETRAIN_DONE_BIT	BIT(29)
+
+static void __iomem *x2_gp46_set;
+static void __iomem *x2_gp46_clr;
+static void __iomem *x2_rtc_info3;
+static void __iomem *x2_rtc_info0;
+
+/*
+ * Retrain timing measurement. The 1102 FW sets INFO3(0x05026028) bit28 at
+ * retrain start and bit29 at completion (INFO0 stays untouched). After each
+ * ACK we poll with an hrtimer: 2us period for the first 3ms (precise start
+ * edge), then 10us. We timestamp both edges AND both clearing edges - the
+ * done flag was measured ~15.7ms after start while the FW itself reports a
+ * 357us retrain, so the flag lifecycle tells us where that delay lives.
+ */
+static struct {
+	struct hrtimer timer;
+	ktime_t t_ack;		/* when bit31 was pulsed (frame_done) */
+	ktime_t t_start;	/* bit28 first seen high */
+	ktime_t t_start_clr;	/* bit28 first seen low again (0 = never) */
+	ktime_t t_done;		/* bit29 first seen high */
+	ktime_t t_done_clr;	/* bit29 first seen low again (0 = never) */
+	bool saw_start, saw_done;
+	bool start_clr_seen, done_clr_seen;
+	u32 info3_before, info0_before, info3_end, info0_end;
+	int polls;
+} x2_rt_meas;
+
+static enum hrtimer_restart x2_rt_meas_tick(struct hrtimer *h)
+{
+	u32 v3 = x2_rtc_info3 ? ioread32(x2_rtc_info3) : 0;
+	u32 v0 = x2_rtc_info0 ? ioread32(x2_rtc_info0) : 0;
+	ktime_t now = ktime_get();
+	s64 since_ack_us;
+
+	x2_rt_meas.polls++;
+	x2_rt_meas.info3_end = v3;
+	x2_rt_meas.info0_end = v0;
+
+	if (!x2_rt_meas.saw_start && (v3 & RTC_RETRAIN_START_BIT)) {
+		x2_rt_meas.t_start = now;
+		x2_rt_meas.saw_start = true;
+	}
+	if (!x2_rt_meas.saw_done && (v3 & RTC_RETRAIN_DONE_BIT)) {
+		x2_rt_meas.t_done = now;
+		x2_rt_meas.saw_done = true;
+	}
+	if (x2_rt_meas.saw_start && !x2_rt_meas.start_clr_seen &&
+	    !(v3 & RTC_RETRAIN_START_BIT)) {
+		x2_rt_meas.t_start_clr = now;
+		x2_rt_meas.start_clr_seen = true;
+	}
+	if (x2_rt_meas.saw_done && !x2_rt_meas.done_clr_seen &&
+	    !(v3 & RTC_RETRAIN_DONE_BIT)) {
+		x2_rt_meas.t_done_clr = now;
+		x2_rt_meas.done_clr_seen = true;
+	}
+
+	/*
+	 * Stop when the done edge is seen and either it got cleared or 4ms
+	 * have passed with it still high (then it is a sticky-until-next-round
+	 * flag). Hard cap 40ms so a missing edge cannot spin forever.
+	 */
+	since_ack_us = ktime_to_us(ktime_sub(now, x2_rt_meas.t_ack));
+	if ((x2_rt_meas.saw_done &&
+	     (x2_rt_meas.done_clr_seen || since_ack_us > 16000)) ||
+	    since_ack_us > 40000)
+		return HRTIMER_NORESTART;
+
+	/* 2us grid for the first 3ms (start edge), then 10us */
+	hrtimer_forward_now(h, ns_to_ktime(since_ack_us < 3000 ? 2000 : 10000));
+	return HRTIMER_RESTART;
+}
+
+static void x2_rt_meas_begin(void)
+{
+	if (!x2_rtc_info3)
+		return;
+
+	if (x2_rt_meas.timer.function)
+		hrtimer_cancel(&x2_rt_meas.timer);
+	memset(&x2_rt_meas, 0, sizeof(x2_rt_meas));
+	x2_rt_meas.info3_before = ioread32(x2_rtc_info3);
+	x2_rt_meas.info0_before = x2_rtc_info0 ? ioread32(x2_rtc_info0) : 0;
+	x2_rt_meas.t_ack = ktime_get();
+	hrtimer_init(&x2_rt_meas.timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	x2_rt_meas.timer.function = x2_rt_meas_tick;
+	hrtimer_start(&x2_rt_meas.timer, ns_to_ktime(2000), HRTIMER_MODE_ABS);
+}
+
+static void x2_vo_online(void)
+{
+	if (x2_gp46_set)
+		iowrite32(GP46_VO_ONLINE_BIT, x2_gp46_set);
+}
+
+static void x2_vo_offline(void)
+{
+	if (x2_gp46_clr)
+		iowrite32(GP46_VO_ONLINE_BIT, x2_gp46_clr);
+}
+
+static bool x2_vo_retrain_pending(void)
+{
+	u32 v;
+
+	if (!x2_rtc_info3)
+		return false;
+
+	v = ioread32(x2_rtc_info3);
+	if (v == RTC_INFO_FW_ABSENT)
+		return false;
+
+	return !!(v & BIT(30));
+}
+
+static void x2_vo_retrain_ack(void)
+{
+	static bool ack_asserted;
+
+	if (!x2_gp46_set || !x2_gp46_clr)
+		return;
+
+	/*
+	 * Pulse bit31 with a full-frame width: keep SET asserted until the next
+	 * frame_done, then CLR and immediately re-SET. A back-to-back
+	 * SET+CLR (a few hundred ns) was never seen by the RTC FW - it sampled
+	 * ~1 Hz and always hit the low phase, so every one of 720 acks per
+	 * window was lost and the FW always ended in "blanking timeout".
+	 */
+	if (ack_asserted)
+		iowrite32(GP46_RETRAIN_ACK_BIT, x2_gp46_clr);
+	iowrite32(GP46_RETRAIN_ACK_BIT, x2_gp46_set);
+	ack_asserted = true;
+
+	x2_rt_meas_begin();
+}
+
+/* request gone: release a still-asserted bit31 so the line can idle low */
+static void x2_vo_retrain_ack_release(void)
+{
+	iowrite32(GP46_RETRAIN_ACK_BIT, x2_gp46_clr);
+}
+#endif /* CONFIG_ARCH_CV84X6 */
+
+#ifdef CONFIG_ARCH_CV84X6
+/*
  * disp_calc_reg_set - compute the MPLL4 SSC reg_set from the target pixel
  * clock (kHz) and the CLKGEN div_n.
  *   reg_set = round( F_REF * FBDIV * 2^26 / (pixel_khz * div_n) )
@@ -1081,6 +1249,9 @@ static int disp_refill_fn(void *data)
 				ctx->refill_last_done = ts_seen;
 				ctx->refill_anchor_valid = true;
 
+				if (x2_vo_retrain_pending())
+					x2_vo_retrain_ack();
+
 				/* done->TRIG latency stats (min/avg/max) */
 				d_us = ktime_to_us(ktime_sub(ktime_get(), ts_seen));
 				if (!ctx->refill_trig_cnt || d_us < ctx->refill_trig_min_us)
@@ -1216,6 +1387,12 @@ static irqreturn_t disp_irq_handler(int irq, void *data)
 			_reg_write(REG_DISP_RDMA_TRIG(ctx->disp_id), 0x1);
 			_reg_write_mask(REG_DISP_INT_MASK(ctx->disp_id), BIT(4), BIT(4));
 		}
+
+		/* frame_done = blanking start: check request, then ack regardless */
+		if (x2_vo_retrain_pending())
+			x2_vo_retrain_ack();
+		else
+			x2_vo_retrain_ack_release();
 
 		if (ctx->vblank_enabled) {
 			drm_crtc_handle_vblank(&cvitek_disp->ccrtc.base);
@@ -1499,6 +1676,7 @@ static void disp_crtc_atomic_enable(struct drm_crtc *crtc,
 #ifdef CONFIG_ARCH_CV84X6
 	// set intr
 	disp_set_framedone_interrupt(ctx->disp_id, true);
+	x2_vo_online();
 #else
 	is_enable = disp_tgen_enable(ctx, true);
 	while (is_enable != true)
@@ -1559,6 +1737,8 @@ static void disp_crtc_atomic_disable(struct drm_crtc *crtc,
 	if (is_enable)
 		DRM_ERROR("disp%d tgen disable failed after %d retries\n",
 			  ctx->disp_id, retry);
+
+	x2_vo_offline();
 #else
 	is_enable = disp_tgen_enable(ctx, false);
 	while (is_enable != false)
@@ -3074,6 +3254,16 @@ static int cvitek_drm_crtc_init(struct platform_device *pdev, struct drm_device 
 		gp_reg = ioremap(GP_REG, 4);
 	if (!retrain_reg)
 		retrain_reg = ioremap(RETRAIN_REG, 4);
+#ifdef CONFIG_ARCH_CV84X6
+	if (!x2_gp46_set)
+		x2_gp46_set = ioremap(GP46_SET_ADDR, 4);
+	if (!x2_gp46_clr)
+		x2_gp46_clr = ioremap(GP46_CLR_ADDR, 4);
+	if (!x2_rtc_info3)
+		x2_rtc_info3 = ioremap(RTC_INFO3_ADDR, 4);
+	if (!x2_rtc_info0)
+		x2_rtc_info0 = ioremap(RTC_INFO0_ADDR, 4);
+#endif
 
 	return 0;
 }

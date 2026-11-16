@@ -19,7 +19,7 @@
  *   - cv84x6_dummy_codec.c : X2 (CV84X6), 4 codec instances (.0/.1/.2/.3)
  *   - dummy_codec.c         : A2 (CV186X), 1 codec instance (no suffix)
  *
- * CV1835_DUMMY_MAX_LINKS is a compile-time upper bound only; the link
+ * CVI_DUMMY_MAX_LINKS is a compile-time upper bound only; the link
  * arrays are allocated by the actual num_links from DTS, so a single
  * shared value of 3 is harmless on A2 (which uses <=2 links).
  */
@@ -36,7 +36,7 @@
 
 u16 tdm_slot_no2 = 2;
 
-#define CV1835_DUMMY_MAX_LINKS 3
+#define CVI_DUMMY_MAX_LINKS 3
 
 /*
  * Configure audio_sys mux registers for IIS loopback routing.
@@ -45,7 +45,7 @@ u16 tdm_slot_no2 = 2;
  * Each triple does read-modify-write: new = (cur & ~mask) | (val & mask).
  * No property => skip (compatible with A2 / non-loopback boards).
  */
-static int cv1835_dummy_config_loopback_mux(struct platform_device *pdev,
+static int cvi_dummy_config_loopback_mux(struct platform_device *pdev,
 					    struct device_node *np)
 {
 	struct device_node *sys_np;
@@ -87,7 +87,7 @@ static int cv1835_dummy_config_loopback_mux(struct platform_device *pdev,
 		return -ENOMEM;
 	}
 
-	dev_info(&pdev->dev, "%s: audio_sys @%pa, %d (addr,mask,val) triples\n",
+	dev_dbg(&pdev->dev, "%s: audio_sys @%pa, %d (addr,mask,val) triples\n",
 		 __func__, &res.start, (n - 1) / 3);
 
 	for (i = 1; i + 2 < n; i += 3) {
@@ -97,21 +97,21 @@ static int cv1835_dummy_config_loopback_mux(struct platform_device *pdev,
 		u32 new_val = (cur & ~mask) | (val & mask);
 
 		writel(new_val, base + args[i]);
-		dev_info(&pdev->dev, "  audio_sys+0x%02x: (0x%08x & ~0x%08x) | (0x%08x & 0x%08x) = 0x%08x\n",
+		dev_dbg(&pdev->dev, "  audio_sys+0x%02x: (0x%08x & ~0x%08x) | (0x%08x & 0x%08x) = 0x%08x\n",
 			 args[i], cur, mask, val, mask, new_val);
 	}
 
 	return 0;
 }
 
-static int cv1835_dummy_hw_params(struct snd_pcm_substream *substream,
+static int cvi_dummy_hw_params(struct snd_pcm_substream *substream,
 				  struct snd_pcm_hw_params *params)
 {
 	return 0;
 }
 
-static struct snd_soc_ops cv1835_dummy_ops = {
-	.hw_params = cv1835_dummy_hw_params,
+static struct snd_soc_ops cvi_dummy_ops = {
+	.hw_params = cvi_dummy_hw_params,
 };
 
 static const struct of_device_id cvi_dummy_match_ids[] = {
@@ -123,7 +123,7 @@ MODULE_DEVICE_TABLE(of, cvi_dummy_match_ids);
 
 
 
-static int cv1835_dummy_probe(struct platform_device *pdev)
+static int cvi_dummy_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node, *dai_np;
 	struct snd_soc_card *card;
@@ -141,9 +141,9 @@ static int cv1835_dummy_probe(struct platform_device *pdev)
 		return 0;
 
 	num_links = of_get_child_count(np);
-	if (num_links == 0 || num_links > CV1835_DUMMY_MAX_LINKS) {
+	if (num_links == 0 || num_links > CVI_DUMMY_MAX_LINKS) {
 		dev_err(&pdev->dev, "%s: invalid dai link count %d (1..%d)\n",
-			 __func__, num_links, CV1835_DUMMY_MAX_LINKS);
+			 __func__, num_links, CVI_DUMMY_MAX_LINKS);
 		return -EINVAL;
 	}
 
@@ -161,7 +161,7 @@ static int cv1835_dummy_probe(struct platform_device *pdev)
 	card->num_links = num_links;
 
 	/* Configure audio_sys loopback mux (no-op if property absent) */
-	cv1835_dummy_config_loopback_mux(pdev, np);
+	cvi_dummy_config_loopback_mux(pdev, np);
 
 	of_property_read_string(np, "cvi,card_name", &card->name);
 	of_property_read_u32(np, "cvi,slot_no", &slot_no);
@@ -177,7 +177,7 @@ static int cv1835_dummy_probe(struct platform_device *pdev)
 		link->num_codecs = 1;
 		link->platforms = &platforms[idx];
 		link->num_platforms = 1;
-		link->ops = &cv1835_dummy_ops;
+		link->ops = &cvi_dummy_ops;
 
 		of_property_read_string(dai_np, "cvi,dai_name", &link->name);
 		of_property_read_string(dai_np, "cvi,stream_name", &link->stream_name);
@@ -256,19 +256,19 @@ static int cv1835_dummy_probe(struct platform_device *pdev)
 	return devm_snd_soc_register_card(&pdev->dev, card);
 }
 
-static struct platform_driver cv1835_dummy_driver = {
+static struct platform_driver cvi_dummy_driver = {
 	.driver = {
-		.name = "cv1835-dummy",
+		.name = "cvi-dummy",
 		.pm = &snd_soc_pm_ops,
 		.of_match_table = cvi_dummy_match_ids,
 	},
-	.probe = cv1835_dummy_probe,
+	.probe = cvi_dummy_probe,
 };
 
-module_platform_driver(cv1835_dummy_driver);
+module_platform_driver(cvi_dummy_driver);
 
 MODULE_AUTHOR("RuiLong.Chen <ruilong.chen@cvitek.com>");
 MODULE_DESCRIPTION("ALSA SoC cv1835 dummy driver");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:cv1835-dummy");
+MODULE_ALIAS("platform:cvi-dummy");
 
